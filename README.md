@@ -117,10 +117,10 @@ Três agentes têm integração de verdade: o Open Island instala um hook na con
 
 | Agente | Integração | Onde o hook é escrito | Sessão | Ferramenta | Permissão | Pergunta |
 |---|---|---|:-:|:-:|:-:|:-:|
-| **Claude Code** | hook bloqueante | `~/.claude/settings.json` | ✅ | ✅ | ✅ | ✅ |
-| **Codex CLI** | hook bloqueante | `~/.codex/hooks.json` | ✅ | ✅ | ✅ | ✅ |
-| **OpenCode** | plugin v1 | `~/.config/opencode/plugins/open-island.ts` | ✅ | ✅ | ✅ | ✅ |
-| Cursor, Gemini, Kimi, Qwen, Pi, Amp, Droid, Trae, DeepSeek | nome do processo | — | ✅ | — | — | — |
+| **Claude Code** | hook bloqueante | `~/.claude/settings.json` | ✓ | ✓ | ✓ | ✓ |
+| **Codex CLI** | hook bloqueante | `~/.codex/hooks.json` | ✓ | ✓ | ✓ | ✓ |
+| **OpenCode** | plugin v1 | `~/.config/opencode/plugins/open-island.ts` | ✓ | ✓ | ✓ | ✓ |
+| Cursor, Gemini, Kimi, Qwen, Pi, Amp, Droid, Trae, DeepSeek | nome do processo | — | ✓ | — | — | — |
 
 Os nove da última linha são só reconhecidos pelo nome do processo. A ilha mostra que eles estão rodando, com o projeto e o terminal, e nada além disso: sem ferramenta em uso, sem aprovação, sem pergunta.
 
@@ -193,10 +193,10 @@ A ilha é a única superfície. Não existe notificação de desktop: ela existi
 
 | Compositor | Status | Motivo |
 |---|:-:|---|
-| **Hyprland** (Wayland) | ✅ | Único compositor suportado. |
-| sway, river, Wayfire, KDE | ⚠️ | Nenhum foi testado. Mesmo onde a janela aparecesse, o hover, o pulo e a altura colada na barra continuariam falando com o socket do Hyprland. |
-| GNOME | ❌ | O Mutter não implementa `zwlr_layer_shell_v1`. A janela é recusada na inicialização com `wlr-layer-shell is not available on this compositor`. |
-| X11 | ❌ | O protocolo de layer shell não existe no X11. |
+| **Hyprland** (Wayland) | suportado | Layer shell na camada de overlay, socket de eventos e `hyprctl`. |
+| sway, river, Wayfire, KDE | não testado | Nenhum foi testado. Mesmo onde a janela aparecesse, o hover, o pulo e a altura colada na barra continuariam falando com o socket do Hyprland. |
+| GNOME | não roda | O Mutter não implementa `zwlr_layer_shell_v1`. A janela é recusada na inicialização com `wlr-layer-shell is not available on this compositor`. |
+| X11 | não roda | O protocolo de layer shell não existe no X11. |
 
 <details>
 <summary><b>Por que só Hyprland</b></summary>
