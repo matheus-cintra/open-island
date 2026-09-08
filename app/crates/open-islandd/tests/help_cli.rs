@@ -9,7 +9,7 @@ use std::{
 
 mod support;
 
-use support::isolated_home;
+use support::{config_without_release_check, isolated_home};
 
 const EXIT_DEADLINE: Duration = Duration::from_secs(10);
 
@@ -42,6 +42,7 @@ fn spawn_cli(args: &[&str], socket: &PathBuf) -> Child {
         .env("HOME", isolated_home())
         .env("XDG_CONFIG_HOME", isolated_home())
         .env("XDG_STATE_HOME", isolated_home())
+        .env("OPEN_ISLAND_CONFIG", config_without_release_check())
         .env("XDG_RUNTIME_DIR", env::temp_dir())
         .env("OPEN_ISLAND_SOCKET", socket)
         .env("OPEN_ISLAND_POLL_MS", "1000")

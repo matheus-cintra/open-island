@@ -11,7 +11,7 @@ use std::{
 
 mod support;
 
-use support::isolated_home;
+use support::{config_without_release_check, isolated_home};
 
 fn socket(label: &str) -> PathBuf {
     env::temp_dir().join(format!(
@@ -43,6 +43,7 @@ fn spawn_daemon(path: &Path) -> Daemon {
         .env("HOME", isolated_home())
         .env("XDG_CONFIG_HOME", isolated_home())
         .env("XDG_STATE_HOME", isolated_home())
+        .env("OPEN_ISLAND_CONFIG", config_without_release_check())
         .env("OPEN_ISLAND_POLL_MS", "1000")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
