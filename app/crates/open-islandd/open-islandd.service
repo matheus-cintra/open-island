@@ -1,0 +1,10 @@
+[Unit]
+Description=Open Island session daemon
+
+[Service]
+# Install the binary to this path, or override ExecStart in a drop-in.
+ExecStart=%h/.local/bin/open-islandd
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

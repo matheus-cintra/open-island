@@ -1,0 +1,5 @@
+# open-island-managed
+bind = __OPEN_ISLAND_MODIFIERS__, __OPEN_ISLAND_KEY__, exec, __OPEN_ISLAND_COMMAND__
+
+windowrule = match:title ^Open Island Settings$, float true, pin false, border_size 2, no_shadow false, no_blur false
+# end-open-island-managed

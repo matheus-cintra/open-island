@@ -1,0 +1,12 @@
+[package]
+name = "open-islandd"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+open-island-core = { path = "../open-island-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+signal-hook = "0.4"
+ureq = { version = "3.4.1", default-features = false, features = ["rustls"] }
+zbus = "5"

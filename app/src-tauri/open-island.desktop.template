@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Open Island
+Comment=Abre o painel de configurações do Open Island
+Exec=open-islandd settings
+Icon=open-island
+Terminal=false
+Categories=Utility;

@@ -1,0 +1,5 @@
+# The freedesktop Notify wire signature is fixed at eight fields (ssusssa{sv}i);
+# zbus's generated proxy/interface methods add `self`, and the interface's
+# method-time `SignalEmitter` adds a borrowed tenth argument, so ten arguments are
+# unavoidable at this wire boundary. Raise only this threshold; keep all other lints.
+too-many-arguments-threshold = 10

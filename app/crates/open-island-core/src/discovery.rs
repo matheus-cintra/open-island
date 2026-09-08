@@ -1,0 +1,304 @@
+use crate::{
+    session::Session,
+    terminal::{classify, ProcessSnapshot},
+};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AgentSpec {
+    pub id: &'static str,
+    pub display: &'static str,
+    pub proc_names: &'static [&'static str],
+}
+
+pub const AGENTS: &[AgentSpec] = &[
+    AgentSpec {
+        id: "claude",
+        display: "Claude",
+        proc_names: &["claude"],
+    },
+    AgentSpec {
+        id: "codex",
+        display: "Codex",
+        proc_names: &["codex"],
+    },
+    AgentSpec {
+        id: "opencode",
+        display: "OpenCode",
+        proc_names: &["opencode"],
+    },
+    AgentSpec {
+        id: "cursor",
+        display: "Cursor",
+        proc_names: &["cursor"],
+    },
+    AgentSpec {
+        id: "gemini",
+        display: "Gemini",
+        proc_names: &["gemini"],
+    },
+    AgentSpec {
+        id: "kimi",
+        display: "Kimi",
+        proc_names: &["kimi", "kimicode"],
+    },
+    AgentSpec {
+        id: "qwen",
+        display: "Qwen",
+        proc_names: &["qwen", "qwen-code", "qwenwork"],
+    },
+    AgentSpec {
+        id: "pi",
+        display: "Pi",
+        proc_names: &["pi", "ohmypi"],
+    },
+    AgentSpec {
+        id: "amp",
+        display: "Amp",
+        proc_names: &["amp"],
+    },
+    AgentSpec {
+        id: "droid",
+        display: "Droid",
+        proc_names: &["droid"],
+    },
+    AgentSpec {
+        id: "trae",
+        display: "Trae",
+        proc_names: &["trae"],
+    },
+    AgentSpec {
+        id: "deepseek",
+        display: "DeepSeek",
+        proc_names: &["deepseek"],
+    },
+];
+
+pub fn agent_for_argv0(argv0: &str) -> Option<&'static AgentSpec> {
+    let basename = Path::new(argv0).file_name()?.to_str()?;
+    AGENTS.iter().find(|agent| {
+        agent
+            .proc_names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(basename))
+    })
+}
+
+pub fn scan() -> Vec<Session> {
+    let self_pid = std::process::id();
+    let ancestors = ancestor_pids(self_pid);
+    let snapshots = read_snapshots();
+    classify_processes(&snapshots, self_pid, &ancestors)
+}
+
+pub fn terminal_for_session(session: &Session) -> Option<crate::terminal::TerminalInfo> {
+    read_snapshots()
+        .into_iter()
+        .find(|snapshot| snapshot.pid == session.pid)
+        .map(|snapshot| {
+            let snapshots = read_snapshots();
+            classify(&snapshot, &snapshots)
+        })
+}
+
+pub fn classify_processes(
+    snapshots: &[ProcessSnapshot],
+    self_pid: u32,
+    ancestors: &HashSet<u32>,
+) -> Vec<Session> {
+    snapshots
+        .iter()
+        .filter_map(|snapshot| {
+            let agent = snapshot.agent.as_deref()?;
+            if snapshot.pid == self_pid || ancestors.contains(&snapshot.pid) {
+                return None;
+            }
+            let terminal = classify(snapshot, snapshots);
+            let mut session = Session::new(agent, &snapshot.cwd, snapshot.pid, &terminal.kind);
+            session.raise_pid = Some(terminal.raise_pid);
+            session.launcher = crate::terminal::launcher_of(snapshot, snapshots);
+            Some(session)
+        })
+        .collect()
+}
+
+fn read_snapshots() -> Vec<ProcessSnapshot> {
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let pid = entry.file_name().to_str()?.parse::<u32>().ok()?;
+            let dir = entry.path();
+            let (ppid, comm) = read_stat(&dir.join("stat"))?;
+            let command = fs::read(dir.join("cmdline")).ok()?;
+            let agent = command
+                .split(|byte| *byte == 0)
+                .next()
+                .filter(|arg| !arg.is_empty())
+                .and_then(|argv0| std::str::from_utf8(argv0).ok())
+                .and_then(|argv0| Path::new(argv0).file_name())
+                .and_then(|name| name.to_str())
+                .and_then(|argv0| agent_for_argv0(argv0).map(|agent| agent.id.to_owned()));
+            let (cwd, env) = match agent {
+                Some(_) => (
+                    fs::read_link(dir.join("cwd"))
+                        .ok()?
+                        .to_string_lossy()
+                        .into_owned(),
+                    parse_environment(&fs::read(dir.join("environ")).unwrap_or_default()),
+                ),
+                None => (String::new(), HashMap::new()),
+            };
+            Some(ProcessSnapshot {
+                pid,
+                ppid,
+                comm,
+                agent,
+                cwd,
+                env,
+            })
+        })
+        .collect()
+}
+
+fn read_stat(path: &Path) -> Option<(u32, String)> {
+    let text = fs::read_to_string(path).ok()?;
+    let close = text.rfind(')')?;
+    let comm = text.get(text.find('(')? + 1..close)?.to_owned();
+    let fields: Vec<&str> = text.get(close + 2..)?.split_whitespace().collect();
+    Some((fields.get(1)?.parse().ok()?, comm))
+}
+
+pub(crate) fn parse_environment(bytes: &[u8]) -> HashMap<String, String> {
+    bytes
+        .split(|byte| *byte == 0)
+        .filter_map(|item| {
+            let separator = item.iter().position(|byte| *byte == b'=')?;
+            let (key, value) = item.split_at(separator);
+            let value = value.get(1..)?;
+            let key = std::str::from_utf8(key).ok()?;
+            let value = std::str::from_utf8(value).ok()?;
+            if key == "TERM_PROGRAM"
+                || key == "KITTY_WINDOW_ID"
+                || key == "KITTY_LISTEN_ON"
+                || key == "TMUX"
+                || key == "TMUX_PANE"
+                || key == "ZELLIJ"
+                || key == "ZELLIJ_SESSION_NAME"
+                || key == "ZELLIJ_PANE_ID"
+                || key == "ALACRITTY_WINDOW_ID"
+                || key == "GHOSTTY_RESOURCES_DIR"
+                || key == "ZED_TERM"
+                || key == "VSCODE_PID"
+                || key == "VSCODE_INJECTION"
+                || key == "TERM_PROGRAM_VERSION"
+                || key.starts_with("WEZTERM_")
+            {
+                Some((key.to_owned(), value.to_owned()))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn ancestor_pids(mut pid: u32) -> HashSet<u32> {
+    let mut result = HashSet::new();
+    for _ in 0..32 {
+        let Some((ppid, _)) = read_stat(Path::new(&format!("/proc/{pid}/stat"))) else {
+            break;
+        };
+        if ppid == 0 || !result.insert(ppid) {
+            break;
+        }
+        pid = ppid;
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot(pid: u32, ppid: u32, comm: &str, agent: Option<&str>) -> ProcessSnapshot {
+        ProcessSnapshot {
+            pid,
+            ppid,
+            comm: comm.to_owned(),
+            agent: agent.map(str::to_owned),
+            cwd: "/home/user/project".to_owned(),
+            env: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn synthetic_processes_detect_agents_and_terminals() {
+        let claude = snapshot(30, 20, "claude", Some("claude"));
+        let shell = snapshot(20, 10, "zsh", None);
+        let kitty = snapshot(10, 1, "kitty", None);
+        let codex = snapshot(40, 41, "codex", Some("codex"));
+        let alacritty = snapshot(41, 1, "alacritty", None);
+        let sessions = classify_processes(
+            &[claude, shell, kitty, codex, alacritty],
+            999,
+            &HashSet::new(),
+        );
+        assert_eq!(
+            sessions
+                .iter()
+                .map(|session| session.agent.as_str())
+                .collect::<Vec<_>>(),
+            vec!["claude", "codex"]
+        );
+        assert_eq!(sessions[0].terminal, "kitty");
+        assert_eq!(sessions[1].terminal, "alacritty");
+    }
+
+    #[test]
+    fn parse_environment_keeps_host_keys_but_drops_unrelated_keys() {
+        let bytes = b"ZELLIJ=0\0ZELLIJ_SESSION_NAME=main\0ZELLIJ_PANE_ID=4\0ALACRITTY_WINDOW_ID=5\0GHOSTTY_RESOURCES_DIR=/tmp/ghostty\0ZED_TERM=1\0VSCODE_PID=555\0VSCODE_INJECTION=1\0TERM_PROGRAM_VERSION=1.2\0SECRET_TOKEN=hidden\0";
+        let env = parse_environment(bytes);
+        for key in [
+            "ZELLIJ",
+            "ZELLIJ_SESSION_NAME",
+            "ZELLIJ_PANE_ID",
+            "ALACRITTY_WINDOW_ID",
+            "GHOSTTY_RESOURCES_DIR",
+            "ZED_TERM",
+            "VSCODE_PID",
+            "VSCODE_INJECTION",
+            "TERM_PROGRAM_VERSION",
+        ] {
+            assert!(env.contains_key(key), "missing whitelisted key {key}");
+        }
+        assert!(!env.contains_key("SECRET_TOKEN"));
+    }
+
+    #[test]
+    fn synthetic_snapshots_detect_all_requested_agents() {
+        let processes = [
+            snapshot(1, 0, "cursor", Some("cursor")),
+            snapshot(2, 0, "gemini", Some("gemini")),
+            snapshot(3, 0, "kimi", Some("kimi")),
+            snapshot(4, 0, "qwen-code", Some("qwen")),
+        ];
+        let sessions = classify_processes(&processes, 999, &HashSet::new());
+        assert_eq!(
+            sessions
+                .iter()
+                .map(|session| session.agent.as_str())
+                .collect::<Vec<_>>(),
+            vec!["cursor", "gemini", "kimi", "qwen"]
+        );
+        assert_eq!(
+            agent_for_argv0("/usr/bin/KIMICODE").map(|agent| agent.id),
+            Some("kimi")
+        );
+    }
+}

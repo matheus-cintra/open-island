@@ -1,0 +1,13 @@
+-- open-island-managed
+hl.bind(__OPEN_ISLAND_COMBO__, hl.dsp.exec_cmd(__OPEN_ISLAND_COMMAND__))
+
+hl.window_rule({
+    name  = "open-island-settings",
+    match = { title = "^Open Island Settings$" },
+    float = true,
+    pin = false,
+    border_size = 2,
+    no_shadow = false,
+    no_blur = false,
+})
+-- end-open-island-managed

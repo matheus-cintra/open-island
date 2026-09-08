@@ -1,0 +1,1 @@
+{"type":"permission.asked","properties":{"sessionID":"abc123","id":"permission-1","permission":"bash","metadata":{"command":"pwd"}},"cwd":"/tmp/project"}

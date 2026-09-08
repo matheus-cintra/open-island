@@ -1,0 +1,126 @@
+// open-island-managed
+import type { Plugin } from "@opencode-ai/plugin";
+
+const DAEMON = __OPEN_ISLANDD_PATH__;
+const EVENTS = new Set([
+  "session.created",
+  "session.deleted",
+  "session.status",
+  "session.idle",
+  "session.updated",
+  "tool.execute.before",
+  "tool.execute.after",
+  "permission.asked",
+  "question.asked",
+  "question.replied",
+]);
+
+const PROMPT_EVENT = "open-island.prompt";
+const TRACKED_MESSAGES = 64;
+const userMessages = new Set<string>();
+const promptedMessages = new Set<string>();
+
+function record(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function remember(seen: Set<string>, id: string): void {
+  seen.add(id);
+  if (seen.size > TRACKED_MESSAGES) seen.delete(seen.values().next().value as string);
+}
+
+function userPrompt(type: string, properties: Record<string, unknown>): unknown {
+  if (type === "message.updated") {
+    const info = record(properties.info);
+    if (info.role === "user" && typeof info.id === "string") remember(userMessages, info.id);
+    return null;
+  }
+  if (type !== "message.part.updated") return null;
+  const part = record(properties.part);
+  const messageID = typeof part.messageID === "string" ? part.messageID : "";
+  const text = typeof part.text === "string" ? part.text : "";
+  if (part.type !== "text" || text === "" || !userMessages.has(messageID)) return null;
+  if (promptedMessages.has(messageID)) return null;
+  remember(promptedMessages, messageID);
+  return {
+    type: PROMPT_EVENT,
+    properties: { sessionID: properties.sessionID ?? part.sessionID, text },
+  };
+}
+
+type PermissionReply = "once" | "always" | "reject";
+
+function permissionReply(output: string, exitCode: number): PermissionReply | null {
+  if (exitCode !== 0 || output.trim() === "") return null;
+  try {
+    const value = record(JSON.parse(output));
+    if (value.reply === "once" || value.reply === "always" || value.reply === "reject") {
+      return value.reply;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function questionAnswers(output: string, exitCode: number): string[][] | null {
+  if (exitCode !== 0 || output.trim() === "") return null;
+  try {
+    const answers = record(JSON.parse(output)).answers;
+    if (!Array.isArray(answers) || answers.length === 0) return null;
+    return answers.map((row) =>
+      Array.isArray(row) ? row.filter((label) => typeof label === "string") : [],
+    );
+  } catch {
+    return null;
+  }
+}
+
+function requestID(properties: Record<string, unknown>): string {
+  if (typeof properties.id === "string") return properties.id;
+  if (typeof properties.requestID === "string") return properties.requestID;
+  return "";
+}
+
+export const OpenIslandPlugin: Plugin = async ({ client, serverUrl, directory }) => ({
+  async event({ event }) {
+    const prompt = userPrompt(event.type, record(event.properties));
+    if (prompt === null && !EVENTS.has(event.type)) return;
+    const child = Bun.spawn(
+      [DAEMON, "hook", "--agent", "opencode", "--managed-by", "open-island"],
+      { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+    );
+    child.stdin.write(
+      JSON.stringify({ ...(prompt ?? event), cwd: directory, pid: process.pid }),
+    );
+    child.stdin.end();
+    const output = await new Response(child.stdout).text();
+    const exitCode = await child.exited;
+    const properties = record(event.properties);
+    const sessionID = typeof properties.sessionID === "string" ? properties.sessionID : "";
+
+    if (event.type === "question.asked") {
+      const answers = questionAnswers(output, exitCode);
+      const id = requestID(properties);
+      if (answers === null || id === "") return;
+      await fetch(new URL(`/question/${encodeURIComponent(id)}/reply`, serverUrl), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ answers }),
+      });
+      return;
+    }
+
+    if (event.type !== "permission.asked") return;
+    const id = requestID(properties);
+    if (sessionID === "" || id === "") return;
+    const reply = permissionReply(output, exitCode);
+    if (reply === null) return;
+    await client.permission.reply({ sessionID, requestID: id, reply });
+  },
+});
+
+export default OpenIslandPlugin;
+// end-open-island-managed

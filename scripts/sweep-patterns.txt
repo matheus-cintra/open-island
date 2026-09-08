@@ -1,0 +1,20 @@
+vibe
+vibeisland
+cintra\.(app|dev|macos)
+CintraBuild
+PeonPing
+lemonsqueezy
+posthog
+day\.app
+the reference
+aplicativo original
+port EXACTLY
+port faithfully
+\.qml
+qs-ref
+Dynamic Island
+Contents/Contents
+__MACOSX
+extracted/
+agent-icon
+/home/matheus
