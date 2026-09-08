@@ -119,6 +119,10 @@ export const strings = {
     settings: "Abrir ajustes",
     mute: "Silenciar os sons",
     unmute: "Voltar a tocar os sons",
+    update: (version: string): string => `${version} disponível. Clique para atualizar.`,
+    updatePrompt: "Pressione Enter para fechar.",
+    updateFailed: (reason: string): string =>
+      `Não deu para abrir um terminal (${reason}). Rode você mesmo: curl -fsSL https://raw.githubusercontent.com/matheus-cintra/open-island/master/install.sh | sh`,
   },
   settings: {
     title: "Ajustes",

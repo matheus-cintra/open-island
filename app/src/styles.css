@@ -331,6 +331,21 @@ body {
   height: 15px;
 }
 
+.header-update {
+  color: var(--accent);
+  animation: update-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes update-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .header-label {
   font-size: 11px;
   font-weight: 500;
