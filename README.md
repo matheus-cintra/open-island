@@ -105,7 +105,8 @@ O `--uninstall` desfaz o que a instalação fez. Para tirar os hooks dos agentes
 Precisa de Bun, da toolchain do Rust e das dependências de build do Tauri v2 (`webkit2gtk-4.1`, `gtk3`) mais o `gtk-layer-shell`.
 
 ```sh
-cd app
+git clone https://github.com/matheus-cintra/open-island.git
+cd open-island/app
 bun install
 bun run prebundle
 bun run tauri build

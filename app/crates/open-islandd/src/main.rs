@@ -33,6 +33,26 @@ use std::{
 };
 
 const VERSION: &str = "0.1.0";
+
+const HELP: &str = "\
+Uso: open-islandd [--socket <caminho>]
+     open-islandd <comando> [opções]
+
+Sem comando, sobe o daemon e fica escutando no socket.
+
+Comandos:
+  hook --agent claude|codex|opencode   trata um evento do agente lido da entrada padrão
+  hooks install|uninstall|status       gerencia os hooks dos agentes [--agent <nome>] [--dry-run]
+  hotkey install|uninstall|status      gerencia o atalho global [--combo <combinação>] [--dry-run]
+  toggle                               abre ou fecha a ilha
+  settings                             abre os ajustes da ilha
+  autostart install|uninstall|status   gerencia o início automático do daemon [--dry-run]
+  help, --help, -h                     mostra esta ajuda
+
+Opções:
+  --socket <caminho>   socket usado para falar com o daemon.
+                       Padrão: $OPEN_ISLAND_SOCKET ou $XDG_RUNTIME_DIR/open-island.sock";
+
 const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(90);
 const STOP_DEADLINE: Duration = Duration::from_millis(500);
 
@@ -1311,6 +1331,9 @@ fn main() {
             if code != 0 {
                 std::process::exit(code);
             }
+        }
+        Some("help") | Some("--help") | Some("-h") => {
+            println!("{HELP}");
         }
         _ => {
             if let Err(error) = run() {

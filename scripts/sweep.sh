@@ -219,6 +219,8 @@ report() {
 		return 0
 	fi
 	say "$PROGRAM_NAME: PASS, 0 hits on all $SURFACE_TOTAL surfaces in $REPOSITORY_ROOT."
+	say "$PROGRAM_NAME: the four surfaces read bytes and text only. Text drawn into an image, a video or"
+	say "$PROGRAM_NAME: a PDF is compressed pixel data and no surface can see it. Review those by eye."
 }
 
 main() {

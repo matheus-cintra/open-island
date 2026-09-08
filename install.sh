@@ -2,7 +2,7 @@
 set -eu
 
 PROGRAM_NAME=open-island
-UNSUPPORTED_DOCS_URL=https://github.com/matheus-cintra/open-island#readme
+UNSUPPORTED_DOCS_URL=https://github.com/matheus-cintra/open-island#o-que-não-é-suportado-e-por-quê
 RELEASE_REPOSITORY=matheus-cintra/open-island
 RELEASE_API_URL=https://api.github.com/repos/$RELEASE_REPOSITORY/releases
 
