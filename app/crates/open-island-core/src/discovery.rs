@@ -88,6 +88,23 @@ pub fn agent_for_argv0(argv0: &str) -> Option<&'static AgentSpec> {
     })
 }
 
+const HELPER_FLAGS: &[&[u8]] = &[b"--chrome-native-host"];
+
+pub(crate) fn agent_for_cmdline(command: &[u8]) -> Option<String> {
+    let mut args = command.split(|byte| *byte == 0);
+    let agent = args
+        .next()
+        .filter(|arg| !arg.is_empty())
+        .and_then(|argv0| std::str::from_utf8(argv0).ok())
+        .and_then(|argv0| Path::new(argv0).file_name())
+        .and_then(|name| name.to_str())
+        .and_then(agent_for_argv0)?;
+    if args.any(|arg| HELPER_FLAGS.contains(&arg)) {
+        return None;
+    }
+    Some(agent.id.to_owned())
+}
+
 pub fn scan() -> Vec<Session> {
     let self_pid = std::process::id();
     let ancestors = ancestor_pids(self_pid);
@@ -137,14 +154,7 @@ fn read_snapshots() -> Vec<ProcessSnapshot> {
             let dir = entry.path();
             let (ppid, comm) = read_stat(&dir.join("stat"))?;
             let command = fs::read(dir.join("cmdline")).ok()?;
-            let agent = command
-                .split(|byte| *byte == 0)
-                .next()
-                .filter(|arg| !arg.is_empty())
-                .and_then(|argv0| std::str::from_utf8(argv0).ok())
-                .and_then(|argv0| Path::new(argv0).file_name())
-                .and_then(|name| name.to_str())
-                .and_then(|argv0| agent_for_argv0(argv0).map(|agent| agent.id.to_owned()));
+            let agent = agent_for_cmdline(&command);
             let (cwd, env) = match agent {
                 Some(_) => (
                     fs::read_link(dir.join("cwd"))
@@ -258,6 +268,22 @@ mod tests {
         );
         assert_eq!(sessions[0].terminal, "kitty");
         assert_eq!(sessions[1].terminal, "alacritty");
+    }
+
+    #[test]
+    fn chrome_native_host_is_not_a_session() {
+        assert_eq!(
+            agent_for_cmdline(b"/home/user/.local/bin/claude\0--chrome-native-host\0"),
+            None
+        );
+        assert_eq!(
+            agent_for_cmdline(b"/home/user/.local/bin/claude\0"),
+            Some("claude".to_owned())
+        );
+        assert_eq!(
+            agent_for_cmdline(b"claude\0--agent\0atlas\0"),
+            Some("claude".to_owned())
+        );
     }
 
     #[test]
