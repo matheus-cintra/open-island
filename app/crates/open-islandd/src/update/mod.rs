@@ -1,3 +1,5 @@
+pub mod release;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Version {
     major: u64,
