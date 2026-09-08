@@ -329,6 +329,14 @@ fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> String {
                 serde_json::to_value(&state.usage)
                     .map_err(|error| format!("usage is not serialisable: {error}"))
             }),
+        "get_update" => ctx
+            .state
+            .lock()
+            .map_err(|_| "daemon state unavailable".to_owned())
+            .and_then(|state| {
+                serde_json::to_value(&state.update)
+                    .map_err(|error| format!("update is not serialisable: {error}"))
+            }),
         "play_sound" => request
             .params
             .ok_or_else(|| "missing play_sound params".to_owned())
@@ -745,6 +753,7 @@ fn run() -> io::Result<()> {
         usage: usage::load_cached(),
         usage_watch: open_island_core::usage::ThresholdWatch::new(),
         scenes: QuietScenes::default(),
+        update: None,
     }));
     let config = ConfigHandle::new(loaded);
     let (sound, mut sound_thread) = SoundPlayer::start(config.clone());

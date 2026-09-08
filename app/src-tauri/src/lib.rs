@@ -183,6 +183,11 @@ fn get_usage(client: State<'_, DaemonClient>) -> Result<Value, String> {
 }
 
 #[tauri::command]
+fn get_update(client: State<'_, DaemonClient>) -> Result<Value, String> {
+    client.get_update()
+}
+
+#[tauri::command]
 fn save_config(config: Value) -> Result<(), String> {
     settings::save(config)
 }
@@ -407,6 +412,7 @@ pub fn run() {
             set_island_size,
             get_config,
             get_usage,
+            get_update,
             save_config,
             sound_theme_files,
             play_sound,
