@@ -32,7 +32,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const VERSION: &str = "0.1.0";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const HELP: &str = "\
 Uso: open-islandd [--socket <caminho>]

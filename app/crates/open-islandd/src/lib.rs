@@ -6,4 +6,5 @@ pub mod notifications;
 pub mod opencode_hook;
 pub mod scenes;
 pub mod sound;
+pub mod update;
 pub mod usage;
