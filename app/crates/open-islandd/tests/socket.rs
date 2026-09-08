@@ -1,12 +1,12 @@
 use serde_json::{json, Value};
 use std::{
     env,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, ErrorKind, Write},
     os::unix::net::UnixStream,
     path::PathBuf,
     process::{Child, Command, Stdio},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 mod support;
@@ -87,11 +87,25 @@ fn send_request(stream: &mut UnixStream, id: i64, method: &str, params: Value) {
     stream.flush().expect("flush request");
 }
 
-fn read_until_id(reader: &mut BufReader<UnixStream>, id: i64) -> Value {
+fn read_message(reader: &mut BufReader<UnixStream>, deadline: Instant, what: &str) -> Value {
+    let mut line = String::new();
     loop {
-        let mut line = String::new();
-        reader.read_line(&mut line).expect("read message");
-        let value: Value = serde_json::from_str(line.trim()).expect("message JSON");
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        match reader.read_line(&mut line) {
+            Ok(0) => thread::sleep(Duration::from_millis(10)),
+            Ok(_) => return serde_json::from_str(line.trim()).expect("message JSON"),
+            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                thread::sleep(Duration::from_millis(10))
+            }
+            Err(error) => panic!("{what}: {error}"),
+        }
+    }
+}
+
+fn read_until_id(reader: &mut BufReader<UnixStream>, id: i64) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let value = read_message(reader, deadline, "read message");
         if value.get("id").and_then(Value::as_i64) == Some(id) && value.get("ok").is_some() {
             return value;
         }
@@ -103,12 +117,11 @@ fn read_response_and_event(
     response_id: i64,
     event: &str,
 ) -> (Value, Value) {
+    let deadline = Instant::now() + Duration::from_secs(10);
     let mut response = None;
     let mut event_message = None;
     while response.is_none() || event_message.is_none() {
-        let mut line = String::new();
-        reader.read_line(&mut line).expect("read message");
-        let value: Value = serde_json::from_str(line.trim()).expect("message JSON");
+        let value = read_message(reader, deadline, "read message");
         if value.get("id").and_then(Value::as_i64) == Some(response_id) {
             response = Some(value.clone());
         }
@@ -123,10 +136,9 @@ fn read_response_and_event(
 }
 
 fn read_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let mut line = String::new();
-        reader.read_line(&mut line).expect("read event");
-        let value: Value = serde_json::from_str(line.trim()).expect("event JSON");
+        let value = read_message(reader, deadline, "read event");
         if value["event"] == event {
             return value;
         }

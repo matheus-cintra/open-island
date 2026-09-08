@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use std::{
     env, fs,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, ErrorKind, Write},
     os::unix::{net::UnixStream, process::CommandExt},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -107,9 +107,9 @@ fn request(
     .expect("write request");
     stream.flush().expect("flush request");
     let deadline = Instant::now() + Duration::from_secs(10);
+    let mut line = String::new();
     loop {
         assert!(Instant::now() < deadline, "timed out waiting for {method}");
-        let mut line = String::new();
         match reader.read_line(&mut line) {
             Ok(0) => thread::sleep(Duration::from_millis(10)),
             Ok(_) => {
@@ -118,6 +118,10 @@ fn request(
                     assert_eq!(value["ok"], json!(true), "{method} failed: {value}");
                     return value["data"].clone();
                 }
+                line.clear();
+            }
+            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                thread::sleep(Duration::from_millis(10))
             }
             Err(error) => panic!("read response: {error}"),
         }

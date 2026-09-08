@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 mod support;
@@ -55,9 +55,32 @@ fn connect(path: &Path) -> (UnixStream, BufReader<UnixStream>) {
     panic!("daemon did not bind");
 }
 
-fn read_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
+fn read_event_or_response(reader: &mut BufReader<UnixStream>, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut line = String::new();
     loop {
-        let mut line = String::new();
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        match reader.read_line(&mut line) {
+            Ok(0) => thread::sleep(Duration::from_millis(10)),
+            Ok(_) => return,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("{what}: {error}"),
+        }
+    }
+}
+
+fn read_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut line = String::new();
+    loop {
+        assert!(Instant::now() < deadline, "timed out waiting for {event}");
         match reader.read_line(&mut line) {
             Ok(0) => thread::sleep(Duration::from_millis(10)),
             Ok(_) => {
@@ -65,8 +88,14 @@ fn read_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
                 if value["event"] == event {
                     return value;
                 }
+                line.clear();
             }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
                 thread::sleep(Duration::from_millis(10));
             }
             Err(error) => panic!("read event: {error}"),
@@ -204,8 +233,7 @@ fn cli_denies_when_an_island_watches_and_never_answers() {
         .set_read_timeout(Some(Duration::from_secs(5)))
         .expect("island timeout");
     send_request(&mut island, 99, "ping", json!(null));
-    let mut line = String::new();
-    island_reader.read_line(&mut line).expect("ping reply");
+    read_event_or_response(&mut island_reader, "ping reply");
 
     let (stdout, stderr, status) = run_hook(
         &["--agent", "claude", "--socket", path.to_str().unwrap()],

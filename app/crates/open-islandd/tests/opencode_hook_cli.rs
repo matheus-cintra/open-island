@@ -1,12 +1,12 @@
 use serde_json::{json, Value};
 use std::{
     env, fs,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, ErrorKind, Write},
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 mod support;
@@ -54,12 +54,23 @@ fn connect(path: &Path) -> (UnixStream, BufReader<UnixStream>) {
 }
 
 fn read_event(reader: &mut BufReader<UnixStream>, name: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut line = String::new();
     loop {
-        let mut line = String::new();
-        reader.read_line(&mut line).expect("read event");
-        let value: Value = serde_json::from_str(line.trim()).expect("event JSON");
-        if value["event"] == name {
-            return value;
+        assert!(Instant::now() < deadline, "timed out waiting for {name}");
+        match reader.read_line(&mut line) {
+            Ok(0) => thread::sleep(Duration::from_millis(10)),
+            Ok(_) => {
+                let value: Value = serde_json::from_str(line.trim()).expect("event JSON");
+                if value["event"] == name {
+                    return value;
+                }
+                line.clear();
+            }
+            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                thread::sleep(Duration::from_millis(10))
+            }
+            Err(error) => panic!("read event: {error}"),
         }
     }
 }

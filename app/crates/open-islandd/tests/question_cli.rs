@@ -81,9 +81,9 @@ fn connect(path: &Path) -> (UnixStream, BufReader<UnixStream>) {
 
 fn read_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
     let deadline = Instant::now() + Duration::from_secs(10);
+    let mut line = String::new();
     loop {
         assert!(Instant::now() < deadline, "timed out waiting for {event}");
-        let mut line = String::new();
         match reader.read_line(&mut line) {
             Ok(0) => thread::sleep(Duration::from_millis(10)),
             Ok(_) => {
@@ -91,6 +91,7 @@ fn read_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
                 if value["event"] == event {
                     return value;
                 }
+                line.clear();
             }
             Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
                 thread::sleep(Duration::from_millis(10))
