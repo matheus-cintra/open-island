@@ -194,6 +194,24 @@ fn run_update(prompt: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn send_message(
+    id: String,
+    text: String,
+    client: State<'_, DaemonClient>,
+) -> Result<Value, String> {
+    client.send_message(&id, &text)
+}
+
+#[tauri::command]
+fn cancel_message(
+    id: String,
+    message_id: u64,
+    client: State<'_, DaemonClient>,
+) -> Result<(), String> {
+    client.cancel_message(&id, message_id)
+}
+
+#[tauri::command]
 fn save_config(config: Value) -> Result<(), String> {
     settings::save(config)
 }
@@ -420,6 +438,8 @@ pub fn run() {
             get_usage,
             get_update,
             run_update,
+            send_message,
+            cancel_message,
             save_config,
             sound_theme_files,
             play_sound,

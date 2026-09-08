@@ -138,6 +138,10 @@ pub fn classify_processes(
             let mut session = Session::new(agent, &snapshot.cwd, snapshot.pid, &terminal.kind);
             session.raise_pid = Some(terminal.raise_pid);
             session.launcher = crate::terminal::launcher_of(snapshot, snapshots);
+            match crate::send::capability(&terminal) {
+                Ok(channel) => session.send_channel = Some(channel.to_owned()),
+                Err(blocked) => session.send_blocked = Some(blocked.code().to_owned()),
+            }
             Some(session)
         })
         .collect()

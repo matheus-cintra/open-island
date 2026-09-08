@@ -152,6 +152,19 @@ pub struct Session {
     pub raise_pid: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launcher: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_messages: Option<Vec<QueuedMessage>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_blocked: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct QueuedMessage {
+    pub id: u64,
+    pub text: String,
+    pub queued_at_ms: u64,
 }
 
 impl Session {
@@ -187,6 +200,9 @@ impl Session {
             since_ms: None,
             raise_pid: None,
             launcher: None,
+            queued_messages: None,
+            send_channel: None,
+            send_blocked: None,
         }
     }
 
@@ -206,6 +222,33 @@ impl Session {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_session_without_the_message_fields_still_deserialises_and_a_queue_round_trips() {
+        let legacy: Session = serde_json::from_value(json!({
+            "id": "claude:42", "agent": "claude", "cwd": "/tmp/project",
+            "title": "project", "pid": 42, "terminal": "kitty"
+        }))
+        .expect("legacy session deserialises");
+        assert_eq!(legacy.queued_messages, None);
+        assert_eq!(legacy.send_channel, None);
+        assert_eq!(legacy.send_blocked, None);
+        let wire = serde_json::to_value(&legacy).expect("serialises");
+        assert!(wire.get("queued_messages").is_none());
+
+        let mut session = Session::new("claude", "/tmp/project", 42, "kitty");
+        session.send_channel = Some("tmux".to_owned());
+        session.queued_messages = Some(vec![QueuedMessage {
+            id: 7,
+            text: "oi\ntudo".to_owned(),
+            queued_at_ms: 1,
+        }]);
+        let wire = serde_json::to_value(&session).expect("serialises");
+        assert_eq!(wire["send_channel"], json!("tmux"));
+        assert_eq!(wire["queued_messages"][0]["id"], json!(7));
+        let back: Session = serde_json::from_value(wire).expect("round trip");
+        assert_eq!(back, session);
+    }
 
     #[test]
     fn process_sessions_keep_the_legacy_identity_shape() {

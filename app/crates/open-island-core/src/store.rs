@@ -3,7 +3,8 @@ use crate::{
     naming,
     protocol::{ApprovalDecision, HookEvent, HookEventKind, QuestionOutcome},
     session::{
-        Attention, HookId, PermissionState, QuestionState, Session, Subagent, Task, TaskStatus,
+        Attention, HookId, PermissionState, QuestionState, QueuedMessage, Session, Subagent, Task,
+        TaskStatus,
     },
 };
 use serde_json::Value;
@@ -14,6 +15,7 @@ use std::{
 };
 
 pub const IDLE_AFTER: Duration = Duration::from_secs(10 * 60);
+pub const MAX_QUEUED_MESSAGES: usize = 32;
 pub const MAX_PENDING_APPROVALS: usize = 32;
 pub const MAX_SUBAGENTS: usize = 12;
 
@@ -134,6 +136,21 @@ pub struct SessionStore {
     rules: Vec<SilenceRule>,
     launchers: Vec<LauncherRule>,
     prompts: VecDeque<Instant>,
+    queues: HashMap<String, MessageQueue>,
+    next_message_id: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+struct MessageQueue {
+    messages: VecDeque<QueuedMessage>,
+    armed: bool,
+}
+
+fn stopped(attention: Option<Attention>) -> bool {
+    !matches!(
+        attention,
+        Some(Attention::Working) | Some(Attention::NeedsAttention)
+    )
 }
 
 impl Default for SessionStore {
@@ -149,6 +166,8 @@ impl Default for SessionStore {
             rules: Vec::new(),
             launchers: Vec::new(),
             prompts: VecDeque::new(),
+            queues: HashMap::new(),
+            next_message_id: 1,
         }
     }
 }
@@ -160,6 +179,62 @@ impl SessionStore {
 
     pub fn set_idle_after(&mut self, idle_after: Duration) {
         self.idle_after = idle_after;
+    }
+
+    pub fn enqueue_message(
+        &mut self,
+        session_id: &str,
+        text: String,
+        now_ms: u64,
+        attention: Option<Attention>,
+    ) -> QueuedMessage {
+        let message = QueuedMessage {
+            id: self.next_message_id,
+            text,
+            queued_at_ms: now_ms,
+        };
+        self.next_message_id += 1;
+        let queue = self.queues.entry(session_id.to_owned()).or_default();
+        queue.messages.push_back(message.clone());
+        while queue.messages.len() > MAX_QUEUED_MESSAGES {
+            queue.messages.pop_front();
+        }
+        if stopped(attention) {
+            queue.armed = true;
+        }
+        message
+    }
+
+    pub fn cancel_message(&mut self, session_id: &str, message_id: u64) -> bool {
+        let Some(queue) = self.queues.get_mut(session_id) else {
+            return false;
+        };
+        let before = queue.messages.len();
+        queue.messages.retain(|message| message.id != message_id);
+        let removed = queue.messages.len() != before;
+        if queue.messages.is_empty() {
+            self.queues.remove(session_id);
+        }
+        removed
+    }
+
+    pub fn take_due_messages(&mut self, sessions: &[Session]) -> Vec<(Session, QueuedMessage)> {
+        let mut due = Vec::new();
+        self.queues.retain(|session_id, queue| {
+            let Some(session) = sessions.iter().find(|session| session.id == *session_id) else {
+                return false;
+            };
+            if !stopped(session.attention) {
+                queue.armed = true;
+            } else if queue.armed {
+                if let Some(message) = queue.messages.pop_front() {
+                    queue.armed = false;
+                    due.push((session.clone(), message));
+                }
+            }
+            !queue.messages.is_empty()
+        });
+        due
     }
 
     pub fn prior_mode(&self, hook_id: &HookId) -> Option<String> {
@@ -662,6 +737,13 @@ impl SessionStore {
                 })
                 .cloned(),
         );
+        for session in &mut sessions {
+            session.queued_messages = self
+                .queues
+                .get(&session.id)
+                .filter(|queue| !queue.messages.is_empty())
+                .map(|queue| queue.messages.iter().cloned().collect());
+        }
         sessions.sort_by(|left, right| {
             left.attention
                 .unwrap_or(Attention::Working)

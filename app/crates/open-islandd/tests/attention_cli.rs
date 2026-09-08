@@ -303,3 +303,196 @@ fn an_opencode_session_idle_is_the_same_stop() {
     let session = island.attention(pid, "needs_attention");
     assert_eq!(session["name"], json!("Inspect the daemon socket"));
 }
+
+fn request_with(island: &mut Island, method: &str, params: Value) -> Value {
+    island.id += 1;
+    writeln!(
+        island.stream,
+        "{}",
+        json!({"v":1,"id":island.id,"method":method,"params":params})
+    )
+    .expect("write request");
+    island.stream.flush().expect("flush request");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut line = String::new();
+    loop {
+        assert!(Instant::now() < deadline, "timed out waiting for {method}");
+        line.clear();
+        match island.reader.read_line(&mut line) {
+            Ok(0) => thread::sleep(Duration::from_millis(10)),
+            Ok(_) => {
+                let value: Value = serde_json::from_str(line.trim()).expect("response JSON");
+                if value["id"] == json!(island.id) {
+                    return value;
+                }
+            }
+            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                thread::sleep(Duration::from_millis(10))
+            }
+            Err(error) => panic!("{method}: {error}"),
+        }
+    }
+}
+
+struct FakeKitty {
+    child: Killed,
+    directory: PathBuf,
+}
+
+impl Drop for FakeKitty {
+    fn drop(&mut self) {
+        let _ = self.child.0.kill();
+        let _ = self.child.0.wait();
+        let _ = fs::remove_dir_all(&self.directory);
+    }
+}
+
+fn spawn_agent_under_fake_kitty(
+    label: &str,
+    agent: &str,
+    cwd: &Path,
+    listen_on: Option<&str>,
+) -> (FakeKitty, u32) {
+    let directory = env::temp_dir().join(format!(
+        "open-island-fake-kitty-{}-{label}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&directory).expect("fake kitty dir");
+    let kitty = directory.join("kitty");
+    fs::copy("/bin/bash", &kitty).expect("copy bash as kitty");
+    let mut command = Command::new(&kitty);
+    command
+        .arg("-c")
+        .arg(format!("(exec -a {agent} /usr/bin/sleep 120)"))
+        .current_dir(cwd)
+        .env_remove("KITTY_LISTEN_ON")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if let Some(listen_on) = listen_on {
+        command.env("KITTY_LISTEN_ON", listen_on);
+    }
+    let guard = FakeKitty {
+        child: Killed(command.spawn().expect("spawn fake kitty")),
+        directory,
+    };
+    let parent = guard.child.0.id();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let children = fs::read_to_string(format!("/proc/{parent}/task/{parent}/children"))
+            .unwrap_or_default();
+        if let Some(pid) = children.split_whitespace().next() {
+            return (guard, pid.parse().expect("child pid"));
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the fake kitty never spawned the agent"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn a_message_sent_while_the_agent_works_waits_and_leaves_when_it_stops() {
+    let path = socket("message");
+    let cwd = env::temp_dir();
+    let (_kitty, pid) = spawn_agent_under_fake_kitty(
+        "message",
+        "claude",
+        &cwd,
+        Some("unix:/tmp/open-island-no-such-kitty"),
+    );
+    let _daemon = spawn_daemon(&path, 300);
+    let mut island = Island::new(&path);
+
+    hook(
+        "claude",
+        &path,
+        &claude_event("UserPromptSubmit", &cwd, pid, r#","prompt":"trabalhe""#),
+    );
+    let working = island.attention(pid, "working");
+    assert_eq!(working["send_channel"], json!("kitty"));
+    let id = working["id"].as_str().expect("session id").to_owned();
+
+    let first = request_with(
+        &mut island,
+        "send_message",
+        json!({"id": id, "text": "primeira"}),
+    );
+    assert_eq!(first["ok"], json!(true), "{first}");
+    assert_eq!(first["data"]["delivered"], json!(false));
+    let second = request_with(
+        &mut island,
+        "send_message",
+        json!({"id": id, "text": "segunda\n"}),
+    );
+    assert_eq!(second["data"]["delivered"], json!(false));
+    let queued = island.session_where(pid, "two queued messages", |session| {
+        session["queued_messages"].as_array().map(Vec::len) == Some(2)
+    });
+    assert_eq!(queued["queued_messages"][1]["text"], json!("segunda"));
+
+    let cancel = request_with(
+        &mut island,
+        "cancel_message",
+        json!({"id": id, "message_id": second["data"]["message_id"]}),
+    );
+    assert_eq!(cancel["ok"], json!(true), "{cancel}");
+    island.session_where(pid, "one queued message", |session| {
+        session["queued_messages"].as_array().map(Vec::len) == Some(1)
+    });
+    let twice = request_with(
+        &mut island,
+        "cancel_message",
+        json!({"id": id, "message_id": second["data"]["message_id"]}),
+    );
+    assert_eq!(twice["ok"], json!(false));
+
+    hook(
+        "claude",
+        &path,
+        &claude_event("Stop", &cwd, pid, r#","last_assistant_message":"DONE=1""#),
+    );
+    island.attention(pid, "needs_attention");
+    island.session_where(
+        pid,
+        "the queue still held while needs_attention",
+        |session| session["queued_messages"].as_array().map(Vec::len) == Some(1),
+    );
+    let idle = island.attention(pid, "idle");
+    let drained = island.session_where(pid, "the queue drained on idle", |session| {
+        session["queued_messages"].is_null()
+    });
+    assert_eq!(drained["id"], idle["id"]);
+
+    let blank = request_with(
+        &mut island,
+        "send_message",
+        json!({"id": id, "text": "  \n"}),
+    );
+    assert_eq!(blank["ok"], json!(false));
+    assert_eq!(blank["error"], json!("empty message"));
+    let missing = request_with(
+        &mut island,
+        "send_message",
+        json!({"id": "claude:nope", "text": "oi"}),
+    );
+    assert_eq!(missing["error"], json!("session 'claude:nope' not found"));
+}
+
+#[test]
+fn a_kitty_without_remote_control_refuses_the_message_with_its_code() {
+    let path = socket("blocked");
+    let cwd = env::temp_dir();
+    let (_kitty, pid) = spawn_agent_under_fake_kitty("blocked", "claude", &cwd, None);
+    let _daemon = spawn_daemon(&path, 60_000);
+    let mut island = Island::new(&path);
+    let session = island.session_where(pid, "the process session", |_| true);
+    assert_eq!(session["send_blocked"], json!("kitty_remote_control_off"));
+    let refused = request_with(
+        &mut island,
+        "send_message",
+        json!({"id": session["id"], "text": "oi"}),
+    );
+    assert_eq!(refused["ok"], json!(false));
+    assert_eq!(refused["error"], json!("kitty_remote_control_off"));
+}
