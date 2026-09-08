@@ -4,6 +4,7 @@ mod client;
 mod hypr;
 mod layershell;
 mod settings;
+mod update;
 
 use client::DaemonClient;
 use open_island_core::{protocol::ApprovalDecision, session::Session};
@@ -185,6 +186,11 @@ fn get_usage(client: State<'_, DaemonClient>) -> Result<Value, String> {
 #[tauri::command]
 fn get_update(client: State<'_, DaemonClient>) -> Result<Value, String> {
     client.get_update()
+}
+
+#[tauri::command]
+fn run_update(prompt: String) -> Result<(), String> {
+    update::run(&prompt)
 }
 
 #[tauri::command]
@@ -413,6 +419,7 @@ pub fn run() {
             get_config,
             get_usage,
             get_update,
+            run_update,
             save_config,
             sound_theme_files,
             play_sound,
