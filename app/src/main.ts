@@ -7,6 +7,12 @@ import { createSprite, spriteAgent } from "./sprites";
 
 type TerminalKind = "kitty" | "alacritty" | "unknown" | "wezterm" | "ghostty" | "zed" | "code" | "cursor" | "windsurf" | "codium";
 
+interface QueuedMessage {
+  id: number;
+  text: string;
+  queued_at_ms: number;
+}
+
 interface Task {
   content: string;
   status: "pending" | "in_progress" | "completed" | "cancelled";
@@ -31,6 +37,9 @@ interface Session {
   permission_state?: "unknown" | "pending" | "allowed" | "denied";
   question_state?: "pending" | "answered" | "expired";
   attention?: Attention;
+  queued_messages?: QueuedMessage[];
+  send_channel?: string;
+  send_blocked?: string;
   name?: string;
   branch?: string;
   model?: string;
@@ -903,6 +912,8 @@ function strongestAttention(list: Session[]): Attention {
   return order.find((state) => states.includes(state)) ?? "working";
 }
 
+const MESSAGE_GLYPH =
+  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.6 3.4h10.8v7.2H6.2L3.4 13V10.6h-.8Z"/><path d="M5.4 6.2h6M5.4 8.4h4"/></svg>';
 const BRANCH_GLYPH =
   `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" ` +
   `stroke-linecap="round" aria-hidden="true">` +
@@ -1194,7 +1205,7 @@ function fillTranscript(row: HTMLElement, session: Session, wanted: boolean): vo
   if (body.textContent !== bodyText) body.textContent = bodyText;
 }
 
-function fillRow(li: HTMLLIElement, session: Session, transcript: boolean): void {
+export function fillRow(li: HTMLLIElement, session: Session, transcript: boolean): void {
   const attention = session.attention ?? "working";
   const row = li.firstElementChild as HTMLButtonElement;
   setAttention(row, attention);
@@ -1260,6 +1271,115 @@ function fillRow(li: HTMLLIElement, session: Session, transcript: boolean): void
   fillTasks(row, session);
   fillAgents(row, session);
   fillTranscript(row, session, transcript);
+  fillMessageBox(li, session);
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function createMessageBox(sessionId: string): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "row-message";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "message-toggle";
+  toggle.innerHTML = MESSAGE_GLYPH;
+  toggle.setAttribute("aria-label", strings.session.messageOpen);
+  toggle.title = strings.session.messageOpen;
+  const panel = document.createElement("div");
+  panel.className = "message-panel";
+  panel.hidden = true;
+  const input = document.createElement("textarea");
+  input.className = "message-input";
+  input.rows = 2;
+  input.placeholder = strings.session.messagePlaceholder;
+  input.setAttribute("aria-label", strings.session.messageOpen);
+  const hint = document.createElement("span");
+  hint.className = "message-hint";
+  hint.hidden = true;
+  const queue = document.createElement("ul");
+  queue.className = "message-queue";
+  panel.append(input, queue);
+  box.append(toggle, hint, panel);
+  toggle.addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) input.focus();
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      panel.hidden = true;
+      return;
+    }
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    const text = input.value;
+    if (text.trim() === "") return;
+    input.value = "";
+    void invoke<{ delivered: boolean }>("send_message", { id: sessionId, text }).catch(
+      (error: unknown) => {
+        input.value = text;
+        showError(strings.session.messageFailed(strings.session.messageBlocked(reasonOf(error))));
+      },
+    );
+  });
+  return box;
+}
+
+function fillMessageBox(li: HTMLLIElement, session: Session): void {
+  const box = li.querySelector<HTMLElement>(".row-message")!;
+  const toggle = box.querySelector<HTMLButtonElement>(".message-toggle")!;
+  const hint = box.querySelector<HTMLElement>(".message-hint")!;
+  const panel = box.querySelector<HTMLElement>(".message-panel")!;
+  const blocked = session.send_blocked;
+  toggle.disabled = blocked !== undefined;
+  const reason = blocked === undefined ? "" : strings.session.messageBlocked(blocked);
+  hint.textContent = reason;
+  hint.hidden = blocked === undefined;
+  toggle.title = blocked === undefined ? strings.session.messageOpen : reason;
+  if (blocked !== undefined) panel.hidden = true;
+
+  const queued = session.queued_messages ?? [];
+  const badges = li.querySelector<HTMLElement>(".row-badges")!;
+  let badge = badges.querySelector<HTMLElement>(".badge-queue");
+  if (queued.length === 0) {
+    badge?.remove();
+  } else {
+    if (badge === null) {
+      badge = document.createElement("span");
+      badge.className = "row-badge badge-queue";
+      badges.append(badge);
+    }
+    badge.textContent = String(queued.length);
+    badge.title = strings.session.messageQueued(queued.length);
+  }
+
+  const list = box.querySelector<HTMLElement>(".message-queue")!;
+  list.replaceChildren();
+  for (const message of queued) {
+    const item = document.createElement("li");
+    item.className = "message-queued";
+    item.dataset.messageId = String(message.id);
+    const text = document.createElement("span");
+    text.className = "message-queued-text";
+    text.textContent = message.text;
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "message-cancel";
+    cancel.textContent = "✕";
+    cancel.title = strings.session.messageCancel;
+    cancel.setAttribute("aria-label", strings.session.messageCancel);
+    cancel.addEventListener("click", () => {
+      void invoke("cancel_message", { id: session.id, messageId: message.id }).catch(
+        (error: unknown) => {
+          showError(strings.session.messageFailed(reasonOf(error)));
+        },
+      );
+    });
+    item.append(text, cancel);
+    list.append(item);
+  }
+  list.hidden = queued.length === 0;
 }
 
 export function createRow(session: Session, transcript: boolean): HTMLLIElement {
@@ -1337,7 +1457,7 @@ export function createRow(session: Session, transcript: boolean): HTMLLIElement 
   card.append(cardHead, cardBody);
 
   row.append(head, prompt, activity, tasks, agents, card);
-  li.append(row);
+  li.append(row, createMessageBox(session.id));
   fillRow(li, session, transcript);
   row.addEventListener("click", () => {
     const current = sessions.find((entry) => entry.id === session.id);

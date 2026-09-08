@@ -745,7 +745,130 @@ body {
 }
 
 .session-list > li {
+  position: relative;
   transition: height 260ms var(--ease-out);
+}
+
+.row-message {
+  display: flex;
+  flex-direction: column;
+}
+
+.message-toggle {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  transition:
+    background 160ms var(--ease-out),
+    color 160ms var(--ease-out);
+}
+
+.message-toggle:hover:not(:disabled) {
+  background: var(--separator);
+  color: var(--fg);
+}
+
+.message-toggle:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.message-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.row-message:has(.message-panel:not([hidden])) .message-toggle {
+  color: var(--accent);
+}
+
+.message-hint {
+  margin: 4px 14px 0;
+  font-size: var(--content-sm);
+  color: var(--muted);
+}
+
+.message-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--transcript-stroke);
+  border-radius: 6px;
+  background: var(--transcript-head);
+}
+
+.message-input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--row-stroke);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--content-font);
+  resize: vertical;
+}
+
+.message-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.message-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.message-queued {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--content-sm);
+  color: var(--muted);
+}
+
+.message-queued-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.message-cancel {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.message-cancel:hover {
+  color: var(--danger);
+}
+
+.badge-queue {
+  background: var(--accent);
+  color: var(--fg);
 }
 
 .session-list > li.is-entering {
