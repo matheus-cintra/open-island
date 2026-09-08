@@ -191,14 +191,14 @@ release_asset_url() {
 
 resolve_release() {
 	if ! github_download --header 'Accept: application/vnd.github+json' \
-		--output "$DOWNLOAD_DIRECTORY/releases.json" "$RELEASE_API_URL?per_page=1"; then
+		--output "$DOWNLOAD_DIRECTORY/releases.json" "$RELEASE_API_URL/latest"; then
 		refuse "$EXIT_RELEASE_UNAVAILABLE" \
-			"the release list at $RELEASE_API_URL could not be read. GitHub answers 404 to anyone who cannot see the repository, so if $RELEASE_REPOSITORY is still private, export GITHUB_TOKEN with a token that can read it."
+			"the newest release at $RELEASE_API_URL/latest could not be read. GitHub answers 404 both when $RELEASE_REPOSITORY has published no stable release yet and to anyone who cannot see the repository, so if it is still private, export GITHUB_TOKEN with a token that can read it."
 	fi
 	RELEASE_TAG=$(release_tag_name)
 	if [ -z "$RELEASE_TAG" ]; then
 		refuse "$EXIT_RELEASE_UNAVAILABLE" \
-			"$RELEASE_REPOSITORY has published no release yet, so there is nothing to install."
+			"the release document at $RELEASE_API_URL/latest carries no tag_name, so there is nothing to install."
 	fi
 	RELEASE_VERSION=${RELEASE_TAG#v}
 	case "$INSTALL_ROUTE" in
