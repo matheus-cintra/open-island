@@ -58,6 +58,10 @@ interface IslandMetrics {
   compact_height: number | null;
 }
 
+interface UpdateAvailable {
+  version: string;
+}
+
 export type Control =
   | { kind: "switch" }
   | { kind: "duration"; unit: DurationUnit; min: number; max: number; step: number }
@@ -88,6 +92,7 @@ interface Row {
   label: string;
   hint?: string;
   control: Control;
+  visible?: () => boolean;
 }
 
 interface Identity {
@@ -804,6 +809,23 @@ const PANES: Pane[] = [
       {
         rows: [
           {
+            path: "about.update",
+            label: copy.about.updateAvailable,
+            hint: copy.about.updateAvailableHint,
+            control: { kind: "value", text: () => availableUpdate ?? "" },
+            visible: () => availableUpdate !== null,
+          },
+          {
+            path: "updates.check_enabled",
+            label: copy.about.updateCheck,
+            hint: copy.about.updateCheckHint,
+            control: { kind: "switch" },
+          },
+        ],
+      },
+      {
+        rows: [
+          {
             path: "about.acknowledgements",
             label: copy.about.acknowledgements,
             control: { kind: "value", text: () => copy.about.credits },
@@ -864,6 +886,7 @@ let integrations: IntegrationStatus = {
 let themeSounds: string[] = [];
 let autoScale: number | null = null;
 let appVersion = "";
+let availableUpdate: string | null = null;
 let activePane: PaneId = "general";
 let saveTimer = 0;
 let savePending = false;
@@ -1972,7 +1995,10 @@ function renderPane(): void {
     wrapper.className = section.title === undefined ? "section is-bare" : "section";
     const card = document.createElement("div");
     card.className = "card";
-    for (const row of section.rows) card.append(buildRow(row));
+    for (const row of section.rows) {
+      if (row.visible?.() === false) continue;
+      card.append(buildRow(row));
+    }
     for (const note of section.notes ?? [])
       card.append(buildNote(note, section.notesTone ?? "warning"));
     if (section.title !== undefined) {
@@ -2074,16 +2100,18 @@ async function loadConfig(): Promise<boolean> {
 
 async function load(): Promise<void> {
   try {
-    const [, status, sounds, metrics, soundDir, screens, version, sessions] = await Promise.all([
-      loadConfig(),
-      invoke<IntegrationStatus>("integration_status"),
-      invoke<string[]>("sound_theme_files"),
-      invoke<IslandMetrics>("island_metrics"),
-      invoke<string>("user_sound_dir"),
-      invoke<string[]>("list_monitors"),
-      invoke<string>("app_version"),
-      invoke<unknown>("list_sessions").catch(() => []),
-    ]);
+    const [, status, sounds, metrics, soundDir, screens, version, sessions, update] =
+      await Promise.all([
+        loadConfig(),
+        invoke<IntegrationStatus>("integration_status"),
+        invoke<string[]>("sound_theme_files"),
+        invoke<IslandMetrics>("island_metrics"),
+        invoke<string>("user_sound_dir"),
+        invoke<string[]>("list_monitors"),
+        invoke<string>("app_version"),
+        invoke<unknown>("list_sessions").catch(() => []),
+        invoke<UpdateAvailable | null>("get_update").catch(() => null),
+      ]);
     integrations = status;
     observedLaunchers = [
       ...new Set(
@@ -2094,6 +2122,7 @@ async function load(): Promise<void> {
     ].sort();
     themeSounds = sounds;
     appVersion = version;
+    availableUpdate = update?.version ?? null;
     const monitorRow = PANES.find((pane) => pane.id === "display")
       ?.sections.flatMap((section) => section.rows)
       .find((entry) => entry.path === "display.monitor");
@@ -2125,6 +2154,11 @@ void listen("config-changed", () => {
   void loadConfig().then((changed) => {
     if (changed) renderPane();
   });
+});
+
+void listen<UpdateAvailable>("update-available", (event) => {
+  availableUpdate = event.payload.version;
+  if (activePane === "about") renderPane();
 });
 
 void listen("settings-revealed", () => {

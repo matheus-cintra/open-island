@@ -145,6 +145,12 @@ export const strings = {
       quitConfirm: "Tocar de novo para sair",
       acknowledgements: "Agradecimentos",
       credits: "Departure Mono, Tauri, GTK",
+      updateCheck: "Avisar quando sair uma versão nova",
+      updateCheckHint:
+        "Uma vez por dia o daemon pergunta ao GitHub qual é a versão publicada mais recente. Nada seu vai junto. Desligue para que essa consulta não seja feita.",
+      updateAvailable: "Versão nova disponível",
+      updateAvailableHint:
+        "Para atualizar, rode de novo: curl -fsSL https://raw.githubusercontent.com/matheus-cintra/open-island/master/install.sh | sh",
       actionFailed: (reason: string): string => `Não deu para concluir: ${reason}`,
     },
     filters: {
