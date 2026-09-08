@@ -119,6 +119,10 @@ export const strings = {
     settings: "Abrir ajustes",
     mute: "Silenciar os sons",
     unmute: "Voltar a tocar os sons",
+    update: (version: string): string => `${version} disponível. Clique para atualizar.`,
+    updatePrompt: "Pressione Enter para fechar.",
+    updateFailed: (reason: string): string =>
+      `Não deu para abrir um terminal (${reason}). Rode você mesmo: curl -fsSL https://raw.githubusercontent.com/matheus-cintra/open-island/master/install.sh | sh`,
   },
   settings: {
     title: "Ajustes",
@@ -145,6 +149,12 @@ export const strings = {
       quitConfirm: "Tocar de novo para sair",
       acknowledgements: "Agradecimentos",
       credits: "Departure Mono, Tauri, GTK",
+      updateCheck: "Avisar quando sair uma versão nova",
+      updateCheckHint:
+        "Uma vez por dia o daemon pergunta ao GitHub qual é a versão publicada mais recente. Nada seu vai junto. Desligue para que essa consulta não seja feita.",
+      updateAvailable: "Versão nova disponível",
+      updateAvailableHint:
+        "Para atualizar, rode de novo: curl -fsSL https://raw.githubusercontent.com/matheus-cintra/open-island/master/install.sh | sh",
       actionFailed: (reason: string): string => `Não deu para concluir: ${reason}`,
     },
     filters: {

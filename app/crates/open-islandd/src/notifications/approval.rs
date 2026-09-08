@@ -81,6 +81,7 @@ pub struct DaemonState {
     pub usage: open_island_core::usage::UsageReport,
     pub usage_watch: open_island_core::usage::ThresholdWatch,
     pub scenes: open_island_core::protocol::QuietScenes,
+    pub update: Option<open_island_core::protocol::UpdateAvailable>,
 }
 
 pub type SharedState = Arc<Mutex<DaemonState>>;

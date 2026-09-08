@@ -231,6 +231,7 @@ const questionActionsEl = document.getElementById("question-actions")!;
 
 const headerMuteEl = document.getElementById("header-mute") as HTMLButtonElement;
 const headerSettingsEl = document.getElementById("header-settings") as HTMLButtonElement;
+const headerUpdateEl = document.getElementById("header-update") as HTMLButtonElement;
 const muteWavesEl = document.getElementById("header-mute-waves") as unknown as SVGGElement;
 const muteCrossEl = document.getElementById("header-mute-cross") as unknown as SVGGElement;
 
@@ -299,6 +300,7 @@ interface UsageReport {
 
 const USAGE_STALE_AFTER_MS = 900_000;
 let usage: UsageReport = { providers: [] };
+let availableUpdate: string | null = null;
 let usageOptions = {
   showLimits: true,
   remaining: false,
@@ -1987,6 +1989,14 @@ function milliseconds(root: Record<string, unknown>, name: string, fallback: num
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+function paintUpdate(): void {
+  headerUpdateEl.hidden = availableUpdate === null;
+  if (availableUpdate === null) return;
+  const label = strings.header.update(availableUpdate);
+  headerUpdateEl.title = label;
+  headerUpdateEl.setAttribute("aria-label", label);
+}
+
 function paintMute(): void {
   muteWavesEl.toggleAttribute("hidden", quiet);
   muteCrossEl.toggleAttribute("hidden", !quiet);
@@ -2101,6 +2111,12 @@ headerSettingsEl.addEventListener("click", () => {
   void invoke("open_settings").catch(() => {});
 });
 
+headerUpdateEl.addEventListener("click", () => {
+  void invoke("run_update", { prompt: strings.header.updatePrompt }).catch((error: unknown) => {
+    showError(strings.header.updateFailed(String(error)));
+  });
+});
+
 async function saveQuiet(next: boolean): Promise<void> {
   const payload = await invoke<{ config: Record<string, unknown> }>("get_config");
   if (!isRecord(payload.config)) return;
@@ -2127,6 +2143,23 @@ void listen<UsageReport>("usage-updated", (event) => {
   }
 });
 
+void listen<{ version: string }>("update-available", (event) => {
+  if (typeof event.payload?.version === "string") {
+    availableUpdate = event.payload.version;
+    paintUpdate();
+  }
+});
+
+async function loadUpdate(): Promise<void> {
+  try {
+    const update = await invoke<{ version: string } | null>("get_update");
+    availableUpdate = typeof update?.version === "string" ? update.version : null;
+  } catch {
+    availableUpdate = null;
+  }
+  paintUpdate();
+}
+
 async function loadUsage(): Promise<void> {
   try {
     const report = await invoke<UsageReport>("get_usage");
@@ -2145,6 +2178,7 @@ function applyStaticStrings(): void {
   headerSettingsEl.setAttribute("aria-label", strings.header.settings);
   headerSettingsEl.title = strings.header.settings;
   paintMute();
+  paintUpdate();
   approvalCardEl.setAttribute("aria-label", strings.approval.label);
   approvalActionsEl.setAttribute("aria-label", strings.approval.actionsLabel);
   approvalKickerEl.textContent = strings.approval.kicker;
@@ -2160,6 +2194,7 @@ async function boot(): Promise<void> {
   resetIdle();
   void loadConfig();
   void loadUsage();
+  void loadUpdate();
   void refresh();
 }
 

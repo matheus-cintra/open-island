@@ -51,6 +51,7 @@ fn daemon_state(pending: HashMap<String, PendingApproval>) -> DaemonState {
         usage: open_island_core::usage::UsageReport::default(),
         usage_watch: open_island_core::usage::ThresholdWatch::new(),
         scenes: open_island_core::protocol::QuietScenes::default(),
+        update: None,
     }
 }
 

@@ -163,6 +163,10 @@ impl DaemonClient {
         self.request("get_usage", json!({}))
     }
 
+    pub fn get_update(&self) -> Result<Value, String> {
+        self.request("get_update", json!({}))
+    }
+
     pub fn jump(&self, id: &str) -> Result<(), String> {
         let _ = self.request("jump", json!({"id": id}))?;
         Ok(())

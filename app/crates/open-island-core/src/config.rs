@@ -41,6 +41,7 @@ pub struct Config {
     pub integrations: IntegrationsConfig,
     pub usage: UsageConfig,
     pub filters: FiltersConfig,
+    pub updates: UpdatesConfig,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,6 +162,19 @@ impl Default for UsageConfig {
             codex_credit_display: CodexCreditDisplay::Credits,
             warn_threshold: DEFAULT_USAGE_WARN_THRESHOLD,
             refresh_interval: DEFAULT_USAGE_REFRESH,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UpdatesConfig {
+    pub check_enabled: bool,
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            check_enabled: true,
         }
     }
 }
@@ -441,6 +455,7 @@ impl Config {
             integrations: integrations_from(root.get("integrations"), defaults.integrations),
             usage: usage_from(root.get("usage"), defaults.usage),
             filters: filters_from(root.get("filters"), defaults.filters),
+            updates: updates_from(root.get("updates"), defaults.updates),
         }
     }
 
@@ -536,6 +551,9 @@ impl Config {
                     "focus_mode": self.filters.quiet_focus_mode,
                     "screen_off": self.filters.quiet_screen_off,
                 },
+            },
+            "updates": {
+                "check_enabled": self.updates.check_enabled,
             },
         })
     }
@@ -774,6 +792,12 @@ fn integrations_from(value: Option<&Value>, defaults: IntegrationsConfig) -> Int
     IntegrationsConfig {
         auto_configure: boolean(value, "auto_configure", defaults.auto_configure),
         known_agents: known_agents(value, defaults.known_agents),
+    }
+}
+
+fn updates_from(value: Option<&Value>, defaults: UpdatesConfig) -> UpdatesConfig {
+    UpdatesConfig {
+        check_enabled: boolean(value, "check_enabled", defaults.check_enabled),
     }
 }
 

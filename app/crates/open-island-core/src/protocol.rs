@@ -263,6 +263,11 @@ pub struct ConfigChanged {
     pub config: Value,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct UpdateAvailable {
+    pub version: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum EventData {
@@ -276,6 +281,7 @@ pub enum EventData {
     Sessions(Vec<Session>),
     ConfigChanged(ConfigChanged),
     UsageUpdated(crate::usage::UsageReport),
+    UpdateAvailable(UpdateAvailable),
 }
 
 pub type EventPayload = EventData;
@@ -572,6 +578,41 @@ mod tests {
         assert_eq!(
             serde_json::to_value(event).expect("hook event serializes")["event"],
             "session-start"
+        );
+    }
+
+    #[test]
+    fn an_available_update_round_trips_through_the_event_payload_and_captures_nothing_else() {
+        let event: GenericEvent = Event {
+            v: 1,
+            event: "update-available".to_owned(),
+            data: EventData::UpdateAvailable(UpdateAvailable {
+                version: "v0.2.0".to_owned(),
+            }),
+        };
+        let wire = serde_json::to_value(&event).expect("event serializes");
+        assert_eq!(
+            wire,
+            json!({"v": 1, "event": "update-available", "data": {"version": "v0.2.0"}})
+        );
+        let decoded: GenericEvent = serde_json::from_value(wire).expect("event deserializes");
+        assert_eq!(decoded, event);
+        assert!(
+            matches!(&decoded.data, EventData::UpdateAvailable(update) if update.version == "v0.2.0"),
+            "an update payload was captured by an earlier variant: {:?}",
+            decoded.data
+        );
+
+        let decoded: GenericEvent = serde_json::from_value(json!({
+            "v": 1,
+            "event": "config-changed",
+            "data": {"config": {"updates": {"check_enabled": false}}}
+        }))
+        .expect("event deserializes");
+        assert!(
+            matches!(decoded.data, EventData::ConfigChanged(_)),
+            "a config document was captured by the update variant: {:?}",
+            decoded.data
         );
     }
 }

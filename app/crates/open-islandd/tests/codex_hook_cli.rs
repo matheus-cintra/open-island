@@ -11,7 +11,7 @@ use std::{
 
 mod support;
 
-use support::isolated_home;
+use support::{config_without_release_check, isolated_home};
 
 const PERMISSION_FIXTURE: &str = include_str!("../fixtures/codex-permission-request.json");
 const SESSION_START_FIXTURE: &str = include_str!("../fixtures/codex-session-start.json");
@@ -36,6 +36,7 @@ fn spawn_daemon(path: &Path, approval_ms: u64) -> Child {
         .env("HOME", isolated_home())
         .env("XDG_CONFIG_HOME", isolated_home())
         .env("XDG_STATE_HOME", isolated_home())
+        .env("OPEN_ISLAND_CONFIG", config_without_release_check())
         .env("OPEN_ISLAND_POLL_MS", "1000")
         .env("OPEN_ISLAND_APPROVAL_TIMEOUT_MS", approval_ms.to_string())
         .stdout(Stdio::null())

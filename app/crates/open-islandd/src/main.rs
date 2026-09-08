@@ -1,7 +1,9 @@
 use open_island_core::{
     config::{self, Config, SoundEvent},
     discovery, jump,
-    protocol::{ApprovalDecision, Event, EventData, QuietScenes, Request, Response},
+    protocol::{
+        ApprovalDecision, Event, EventData, QuietScenes, Request, Response, UpdateAvailable,
+    },
     store::{ReminderScopes, SessionStore},
 };
 use open_islandd::config_handle::ConfigHandle;
@@ -12,6 +14,7 @@ use open_islandd::notifications::{
 };
 use open_islandd::scenes::{self, SceneSource, SystemScenes};
 use open_islandd::sound::{DndProbe, SoundPlayer};
+use open_islandd::update::{self, cache::CachedCheck};
 use open_islandd::{claude_hook, codex_hook, installer, opencode_hook, usage};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -32,7 +35,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const VERSION: &str = "0.1.0";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const HELP: &str = "\
 Uso: open-islandd [--socket <caminho>]
@@ -328,6 +331,14 @@ fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> String {
             .and_then(|state| {
                 serde_json::to_value(&state.usage)
                     .map_err(|error| format!("usage is not serialisable: {error}"))
+            }),
+        "get_update" => ctx
+            .state
+            .lock()
+            .map_err(|_| "daemon state unavailable".to_owned())
+            .and_then(|state| {
+                serde_json::to_value(&state.update)
+                    .map_err(|error| format!("update is not serialisable: {error}"))
             }),
         "play_sound" => request
             .params
@@ -625,6 +636,53 @@ fn usage_poller(ctx: DaemonContext, flag: ShutdownFlag) {
     }
 }
 
+fn update_poller(ctx: DaemonContext, flag: ShutdownFlag) {
+    let cache_path = update::cache::path();
+    loop {
+        if ctx.config.get().updates.check_enabled {
+            check_for_update(&ctx, cache_path.as_deref());
+        }
+        if !shutdown::wait_for_interval(&flag, update::cache::TTL) {
+            return;
+        }
+    }
+}
+
+fn check_for_update(ctx: &DaemonContext, cache_path: Option<&Path>) {
+    let now_ms = usage::now_ms();
+    let tag = match cache_path.and_then(|path| update::cache::load(path, now_ms)) {
+        Some(cached) => cached.tag,
+        None => {
+            let Ok(tag) = update::release::fetch().and_then(|body| update::release::parse(&body))
+            else {
+                return;
+            };
+            if let Some(path) = cache_path {
+                let check = CachedCheck {
+                    tag: tag.clone(),
+                    checked_at_ms: now_ms,
+                };
+                update::cache::save(path, &check);
+            }
+            tag
+        }
+    };
+    if !update::is_newer(&tag, VERSION) {
+        return;
+    }
+    let notice = UpdateAvailable { version: tag };
+    if let Ok(mut state) = ctx.state.lock() {
+        if state.update.as_ref() == Some(&notice) {
+            return;
+        }
+        state.update = Some(notice.clone());
+    }
+    broadcast(
+        &ctx.state,
+        event_message("update-available", EventData::UpdateAvailable(notice)),
+    );
+}
+
 fn reload_config(ctx: &DaemonContext, broadcast: impl Fn(String) -> bool) {
     let config = load_config();
     if *ctx.config.get() == config {
@@ -745,6 +803,7 @@ fn run() -> io::Result<()> {
         usage: usage::load_cached(),
         usage_watch: open_island_core::usage::ThresholdWatch::new(),
         scenes: QuietScenes::default(),
+        update: None,
     }));
     let config = ConfigHandle::new(loaded);
     let (sound, mut sound_thread) = SoundPlayer::start(config.clone());
@@ -765,11 +824,17 @@ fn run() -> io::Result<()> {
     let mut usage_thread = BoundedThread::spawn("open-island-usage", move || {
         usage_poller(usage_ctx, usage_flag);
     })?;
+    let update_ctx = ctx.clone();
+    let update_flag = shutdown_flag.clone();
+    let mut update_thread = BoundedThread::spawn("open-island-update", move || {
+        update_poller(update_ctx, update_flag);
+    })?;
     let next_connection = AtomicU64::new(1);
     let sound_at_shutdown = ctx.sound.clone();
     accept_loop(&listener, ctx, &shutdown_flag, &next_connection);
     let _ = poller_thread.join_with_deadline(STOP_DEADLINE);
     let _ = usage_thread.join_with_deadline(STOP_DEADLINE);
+    let _ = update_thread.join_with_deadline(STOP_DEADLINE);
     sound_at_shutdown.shutdown();
     if let Some(thread) = sound_thread.as_mut() {
         let _ = thread.join_with_deadline(STOP_DEADLINE);

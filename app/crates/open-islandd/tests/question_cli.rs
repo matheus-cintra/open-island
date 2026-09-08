@@ -11,7 +11,7 @@ use std::{
 
 mod support;
 
-use support::isolated_home;
+use support::{config_without_release_check, isolated_home};
 
 const CLAUDE_QUESTION: &str = r#"{"session_id":"abc123","cwd":"/tmp/project","prompt_id":"prompt-9","permission_mode":"bypassPermissions","hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Qual cor?","header":"Cor","options":[{"label":"Vermelho","description":"A cor vermelha"},{"label":"Azul","description":"A cor azul"}],"multiSelect":false}]}}"#;
 const CLAUDE_MULTI_QUESTION: &str = r#"{"session_id":"abc123","cwd":"/tmp/project","prompt_id":"prompt-9","permission_mode":"bypassPermissions","hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Quais cores?","header":"Cor","options":[{"label":"Vermelho"},{"label":"Azul"}],"multiSelect":true}]}}"#;
@@ -53,6 +53,7 @@ fn spawn_daemon(path: &Path, question_ms: u64) -> Daemon {
         .env("HOME", isolated_home())
         .env("XDG_CONFIG_HOME", isolated_home())
         .env("XDG_STATE_HOME", isolated_home())
+        .env("OPEN_ISLAND_CONFIG", config_without_release_check())
         .env("OPEN_ISLAND_POLL_MS", "25")
         .env("OPEN_ISLAND_QUESTION_TIMEOUT_MS", question_ms.to_string())
         .stdout(Stdio::null())
