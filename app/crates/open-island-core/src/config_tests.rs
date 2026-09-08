@@ -377,6 +377,9 @@ fn a_config_with_every_field_moved_off_its_default() -> Config {
             quiet_focus_mode: true,
             quiet_screen_off: true,
         },
+        updates: UpdatesConfig {
+            check_enabled: false,
+        },
     }
 }
 
@@ -630,4 +633,19 @@ fn the_values_this_machine_already_has_survive_the_narrower_ranges() {
             .warn_threshold,
         90.0
     );
+}
+
+#[test]
+fn the_update_check_ships_on() {
+    assert!(UpdatesConfig::default().check_enabled);
+    assert!(Config::from_json_str("{}").updates.check_enabled);
+}
+
+#[test]
+fn turning_the_update_check_off_survives_a_save_fired_by_another_control() {
+    let mut config = Config::default();
+    config.updates.check_enabled = false;
+    let written = config.to_json_value().to_string();
+    let read_back = Config::from_json_str(&written);
+    assert!(!read_back.updates.check_enabled);
 }
