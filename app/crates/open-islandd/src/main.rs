@@ -2,9 +2,7 @@ use open_island_core::{
     config::{self, Config, SoundEvent},
     discovery,
     jump::{self, JumpPlanner},
-    protocol::{
-        ApprovalDecision, Event, EventData, QuietScenes, Request, Response, UpdateAvailable,
-    },
+    protocol::{EventData, QuietScenes, Request, UpdateAvailable},
     runner::SystemRunner,
     send,
     session::{QueuedMessage, Session},
@@ -17,10 +15,13 @@ use open_islandd::notifications::{
     shutdown::{self, BoundedThread, ShutdownFlag, SignalRegistrations},
 };
 use open_islandd::scenes::{self, SceneSource, SystemScenes};
+use open_islandd::server::wire::{
+    event_message, response, AnswerParams, CancelParams, JumpParams, PlayParams, ResolveParams,
+    SendParams,
+};
 use open_islandd::sound::{DndProbe, SoundPlayer};
 use open_islandd::update::{self, cache::CachedCheck};
 use open_islandd::{claude_hook, codex_hook, installer, opencode_hook, usage};
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -111,62 +112,6 @@ fn bind_socket(path: &Path) -> io::Result<UnixListener> {
             }
         },
     }
-}
-
-fn response(id: Value, data: Result<Value, String>) -> String {
-    let message = match data {
-        Ok(data) => Response {
-            v: 1,
-            id,
-            ok: true,
-            data: Some(data),
-            error: None,
-        },
-        Err(error) => Response {
-            v: 1,
-            id,
-            ok: false,
-            data: None,
-            error: Some(error),
-        },
-    };
-    serde_json::to_string(&message).unwrap_or_else(|_| {
-        "{\"v\":1,\"id\":null,\"ok\":false,\"error\":\"serialization failed\"}".to_owned()
-    })
-}
-
-#[derive(Deserialize)]
-struct JumpParams {
-    id: String,
-}
-
-#[derive(Deserialize)]
-struct SendParams {
-    id: String,
-    text: String,
-}
-
-#[derive(Deserialize)]
-struct CancelParams {
-    id: String,
-    message_id: u64,
-}
-
-#[derive(Deserialize)]
-struct ResolveParams {
-    approval_id: String,
-    decision: ApprovalDecision,
-}
-
-#[derive(Deserialize)]
-struct PlayParams {
-    path: String,
-}
-
-#[derive(Deserialize)]
-struct AnswerParams {
-    question_id: String,
-    answers: Vec<Vec<String>>,
 }
 
 fn approval_timeout() -> Duration {
@@ -263,15 +208,6 @@ fn hook_timeout() -> Duration {
             DEFAULT_APPROVAL_TIMEOUT + Duration::from_secs(30),
             Duration::from_millis,
         )
-}
-
-fn event_message(event: &str, data: EventData) -> String {
-    serde_json::to_string(&Event {
-        v: 1,
-        event: event.to_owned(),
-        data,
-    })
-    .unwrap_or_else(|_| "{\"v\":1,\"event\":\"sessions-updated\",\"data\":[]}".to_owned())
 }
 
 /// Delivers `message` to every subscriber, dropping failed subscribers, and
