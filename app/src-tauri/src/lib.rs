@@ -9,6 +9,7 @@ mod terminal;
 mod update;
 
 use client::DaemonClient;
+use compositor::Compositor;
 use gtk::prelude::{FileChooserExt, NativeDialogExt};
 use open_island_core::{protocol::ApprovalDecision, session::Session};
 use serde_json::{json, Value};
@@ -94,16 +95,16 @@ fn pointer_is_inside(rect: IslandRect, x: i32, y: i32) -> bool {
     x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
 }
 
-fn watch_pointer(window: tauri::WebviewWindow) {
-    let Some(socket) = compositor::hyprland::socket_path() else {
+fn watch_pointer(window: tauri::WebviewWindow, compositor: impl Compositor) {
+    if !compositor.available() {
         return;
-    };
+    }
     let mut last: Option<bool> = None;
     let mut last_fullscreen: Option<bool> = None;
     let mut last_focus: Option<Option<u32>> = None;
     loop {
         std::thread::sleep(POINTER_TICK);
-        let focus = compositor::hyprland::focused_pid();
+        let focus = compositor.focused_pid();
         if last_focus != Some(focus) {
             last_focus = Some(focus);
             if window
@@ -113,7 +114,7 @@ fn watch_pointer(window: tauri::WebviewWindow) {
                 return;
             }
         }
-        if let Some(fullscreen) = compositor::hyprland::any_fullscreen() {
+        if let Some(fullscreen) = compositor.any_fullscreen() {
             if last_fullscreen != Some(fullscreen) {
                 last_fullscreen = Some(fullscreen);
                 if window
@@ -128,7 +129,7 @@ fn watch_pointer(window: tauri::WebviewWindow) {
         if rect.width == 0 || rect.height == 0 {
             continue;
         }
-        let Some((x, y)) = compositor::hyprland::cursor_position(&socket) else {
+        let Some((x, y)) = compositor.cursor_position() else {
             continue;
         };
         let inside = pointer_is_inside(rect, x, y);
@@ -344,15 +345,16 @@ fn terminal_icon(pid: u32) -> Option<String> {
 #[tauri::command]
 fn island_metrics() -> IslandMetrics {
     let monitor = selected_monitor();
+    let compositor = compositor::current();
     IslandMetrics {
-        scale: compositor::hyprland::ui_scale(monitor.as_deref()),
-        compact_height: compositor::hyprland::compact_height(monitor.as_deref()),
+        scale: compositor.ui_scale(monitor.as_deref()),
+        compact_height: compositor.compact_height(monitor.as_deref()),
     }
 }
 
 #[tauri::command]
 fn list_monitors() -> Vec<String> {
-    compositor::hyprland::monitor_names()
+    compositor::current().monitor_names()
 }
 
 #[tauri::command]
@@ -372,12 +374,8 @@ fn set_island_monitor(app: tauri::AppHandle, name: Option<String>) -> Result<(),
         .get_webview_window("main")
         .ok_or_else(|| "no island window".to_owned())?;
     let rect = wanted.as_deref().and_then(|name| {
-        let monitor = compositor::hyprland::monitor_named(Some(name))?;
-        Some((
-            name.to_owned(),
-            monitor.get("x")?.as_i64()? as i32,
-            monitor.get("y")?.as_i64()? as i32,
-        ))
+        let monitor = compositor::current().monitor_named(Some(name))?;
+        Some((name.to_owned(), monitor.x, monitor.y))
     });
     let target = window.clone();
     window
@@ -447,8 +445,10 @@ fn remember_origin(window: &tauri::WebviewWindow, width: f64, height: f64) {
 
 fn compact_size() -> (f64, f64) {
     let monitor = selected_monitor();
-    let scale = compositor::hyprland::ui_scale(monitor.as_deref());
-    let height = compositor::hyprland::compact_height(monitor.as_deref())
+    let compositor = compositor::current();
+    let scale = compositor.ui_scale(monitor.as_deref());
+    let height = compositor
+        .compact_height(monitor.as_deref())
         .map(f64::from)
         .unwrap_or((COMPACT_HEIGHT * scale).round());
     ((COMPACT_WIDTH * scale).round(), height)
@@ -463,15 +463,13 @@ fn monitor_box(window: &tauri::WebviewWindow) -> Result<Option<MonitorBox>, Stri
             return Ok(Some(rect));
         }
     }
-    let rect = match compositor::hyprland::monitor_named(selected_monitor().as_deref()).and_then(
-        |monitor| {
-            Some(MonitorBox {
-                x: monitor.get("x")?.as_i64()? as i32,
-                y: monitor.get("y")?.as_i64()? as i32,
-                width: monitor.get("width")?.as_u64()? as u32,
-            })
-        },
-    ) {
+    let rect = match compositor::current()
+        .monitor_named(selected_monitor().as_deref())
+        .map(|monitor| MonitorBox {
+            x: monitor.x,
+            y: monitor.y,
+            width: monitor.width,
+        }) {
         Some(rect) => Some(rect),
         None => window
             .available_monitors()
@@ -570,7 +568,7 @@ pub fn run() {
                 window.show()?;
                 let pointer_window = window.clone();
                 std::thread::spawn(move || {
-                    watch_pointer(pointer_window);
+                    watch_pointer(pointer_window, compositor::current());
                 });
             }
             Ok(())
