@@ -335,7 +335,7 @@ fn request_with(island: &mut Island, method: &str, params: Value) -> Value {
 }
 
 struct FakeKitty {
-    child: Killed,
+    child: Child,
     directory: PathBuf,
 }
 
@@ -356,8 +356,11 @@ fn spawn_when_not_busy(command: &mut Command) -> Child {
 
 impl Drop for FakeKitty {
     fn drop(&mut self) {
-        let _ = self.child.0.kill();
-        let _ = self.child.0.wait();
+        let group = self.child.id().to_string();
+        let _ = Command::new("/usr/bin/kill")
+            .args(["-KILL", "--", &format!("-{group}")])
+            .status();
+        let _ = self.child.wait();
         let _ = fs::remove_dir_all(&self.directory);
     }
 }
@@ -382,15 +385,16 @@ fn spawn_agent_under_fake_kitty(
         .current_dir(cwd)
         .env_remove("KITTY_LISTEN_ON")
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::null())
+        .process_group(0);
     if let Some(listen_on) = listen_on {
         command.env("KITTY_LISTEN_ON", listen_on);
     }
     let guard = FakeKitty {
-        child: Killed(spawn_when_not_busy(&mut command)),
+        child: spawn_when_not_busy(&mut command),
         directory,
     };
-    let parent = guard.child.0.id();
+    let parent = guard.child.id();
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let children = fs::read_to_string(format!("/proc/{parent}/task/{parent}/children"))
