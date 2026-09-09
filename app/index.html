@@ -21,6 +21,11 @@
           <div class="header-usage" id="header-usage" hidden></div>
           <div class="header-actions">
             <span class="header-usage-model" id="header-usage-model" hidden></span>
+            <button class="header-button" id="header-new-session" type="button">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+                <path d="M8 3.2v9.6M3.2 8h9.6" />
+              </svg>
+            </button>
             <button class="header-button" id="header-mute" type="button">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
                 <path d="M8.6 2.6 5 5.6H2.4v4.8H5l3.6 3V2.6Z" />
@@ -41,6 +46,19 @@
             </button>
           </div>
         </header>
+        <section
+          class="new-session-card"
+          id="new-session-card"
+          role="dialog"
+          aria-labelledby="new-session-kicker"
+          hidden
+        >
+          <div class="new-session-head">
+            <span class="new-session-kicker" id="new-session-kicker"></span>
+            <button class="new-session-close" id="new-session-close" type="button"></button>
+          </div>
+          <div class="new-session-agents" id="new-session-agents"></div>
+        </section>
         <section
           class="approval-card"
           id="approval-card"
