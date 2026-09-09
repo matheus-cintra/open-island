@@ -2379,7 +2379,7 @@ dependencies = [
 
 [[package]]
 name = "open-island"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "gtk",
  "open-island-core",
@@ -2392,7 +2392,7 @@ dependencies = [
 
 [[package]]
 name = "open-island-core"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2400,7 +2400,7 @@ dependencies = [
 
 [[package]]
 name = "open-islandd"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "open-island-core",
  "serde",
