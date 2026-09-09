@@ -6,6 +6,7 @@ pub mod daemon_config;
 pub mod installer;
 pub mod notifications;
 pub mod opencode_hook;
+pub mod poll;
 pub mod scenes;
 pub mod server;
 pub mod sound;
