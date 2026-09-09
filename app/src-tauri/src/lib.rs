@@ -227,6 +227,16 @@ fn pick_session_folder(
 }
 
 #[tauri::command]
+fn agents_available() -> Vec<String> {
+    launch::available(terminal::on_path)
+}
+
+#[tauri::command]
+fn open_session(agent: String, folder: String) -> Result<(), String> {
+    launch::open(&folder, &agent)
+}
+
+#[tauri::command]
 fn get_config(client: State<'_, DaemonClient>) -> Result<Value, String> {
     client.get_config()
 }
@@ -494,6 +504,8 @@ pub fn run() {
             set_island_size,
             island_keyboard,
             pick_session_folder,
+            agents_available,
+            open_session,
             get_config,
             get_usage,
             get_update,
