@@ -87,7 +87,7 @@ pub fn current() -> impl Compositor {
 
 #[cfg(test)]
 mod tests {
-    use super::{ui_scale_from, UI_SCALE_MAX, UI_SCALE_MIN};
+    use super::{ui_scale_from, Compositor, MonitorInfo, UI_SCALE_MAX, UI_SCALE_MIN};
 
     #[test]
     fn ui_scale_tracks_dpi_not_resolution() {
@@ -137,5 +137,147 @@ mod tests {
     fn the_scale_is_bounded() {
         let dense = ui_scale_from(3840, 400, 1.0);
         assert!(dense <= UI_SCALE_MAX);
+    }
+
+    struct FakeCompositor {
+        monitors: Vec<MonitorInfo>,
+    }
+
+    impl Compositor for FakeCompositor {
+        fn available(&self) -> bool {
+            true
+        }
+
+        fn monitors(&self) -> Vec<MonitorInfo> {
+            self.monitors.clone()
+        }
+
+        fn cursor_position(&self) -> Option<(i32, i32)> {
+            None
+        }
+
+        fn any_fullscreen(&self) -> Option<bool> {
+            None
+        }
+
+        fn focused_pid(&self) -> Option<u32> {
+            None
+        }
+
+        fn window_class(&self, _pid: u32) -> Option<String> {
+            None
+        }
+    }
+
+    fn monitor(name: &str, focused: bool, reserved_top: u32) -> MonitorInfo {
+        MonitorInfo {
+            name: name.to_owned(),
+            x: 0,
+            y: 0,
+            width: 1920,
+            physical_width_mm: 300,
+            scale: 1.0,
+            reserved_top,
+            focused,
+        }
+    }
+
+    #[test]
+    fn a_named_monitor_wins_over_the_focused_one() {
+        let compositor = FakeCompositor {
+            monitors: vec![monitor("DP-1", false, 32), monitor("eDP-1", true, 32)],
+        };
+        assert_eq!(
+            compositor.monitor_named(Some("DP-1")),
+            Some(monitor("DP-1", false, 32))
+        );
+    }
+
+    #[test]
+    fn an_unknown_or_empty_name_falls_back_to_the_focused_monitor() {
+        let compositor = FakeCompositor {
+            monitors: vec![monitor("DP-1", false, 32), monitor("eDP-1", true, 32)],
+        };
+        let focused = Some(monitor("eDP-1", true, 32));
+        assert_eq!(compositor.monitor_named(Some("nope")), focused);
+        assert_eq!(compositor.monitor_named(Some("")), focused);
+    }
+
+    #[test]
+    fn with_nothing_focused_the_first_monitor_is_used() {
+        let compositor = FakeCompositor {
+            monitors: vec![monitor("DP-1", false, 32), monitor("eDP-1", false, 32)],
+        };
+        assert_eq!(
+            compositor.monitor_named(None),
+            Some(monitor("DP-1", false, 32))
+        );
+    }
+
+    #[test]
+    fn no_monitors_means_no_monitor() {
+        let compositor = FakeCompositor { monitors: vec![] };
+        assert_eq!(compositor.monitor_named(None), None);
+        assert_eq!(compositor.ui_scale(None), UI_SCALE_MIN);
+        assert_eq!(compositor.compact_height(None), None);
+        assert!(compositor.monitor_names().is_empty());
+    }
+
+    #[test]
+    fn the_compact_height_is_the_reserved_top_plus_the_overhang() {
+        let compositor = FakeCompositor {
+            monitors: vec![monitor("eDP-1", true, 32)],
+        };
+        assert_eq!(compositor.compact_height(None), Some(36));
+    }
+
+    #[test]
+    fn a_reserved_top_outside_the_sane_range_is_ignored() {
+        for reserved_top in [15u32, 201] {
+            let compositor = FakeCompositor {
+                monitors: vec![monitor("eDP-1", true, reserved_top)],
+            };
+            assert_eq!(
+                compositor.reserved_top(None),
+                None,
+                "reserved {reserved_top}"
+            );
+            assert_eq!(
+                compositor.compact_height(None),
+                None,
+                "reserved {reserved_top}"
+            );
+        }
+        for reserved_top in [16u32, 200] {
+            let compositor = FakeCompositor {
+                monitors: vec![monitor("eDP-1", true, reserved_top)],
+            };
+            assert_eq!(
+                compositor.reserved_top(None),
+                Some(reserved_top),
+                "reserved {reserved_top}"
+            );
+        }
+    }
+
+    #[test]
+    fn monitor_names_keep_the_compositor_order() {
+        let compositor = FakeCompositor {
+            monitors: vec![
+                monitor("DP-2", false, 32),
+                monitor("eDP-1", true, 32),
+                monitor("DP-1", false, 32),
+            ],
+        };
+        assert_eq!(compositor.monitor_names(), vec!["DP-2", "eDP-1", "DP-1"]);
+    }
+
+    #[test]
+    fn ui_scale_reads_the_selected_monitor() {
+        let compositor = FakeCompositor {
+            monitors: vec![monitor("eDP-1", true, 32)],
+        };
+        let scale = compositor.ui_scale(Some("eDP-1"));
+        assert!((scale - 1.69).abs() < 0.01, "expected 1.69, got {scale}");
     }
 }
