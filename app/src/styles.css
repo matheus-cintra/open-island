@@ -371,12 +371,14 @@ body {
 }
 
 .approval-card.is-entering,
-.question-card.is-entering {
+.question-card.is-entering,
+.new-session-card.is-entering {
   animation: card-in 220ms var(--ease-out) both;
 }
 
 .approval-card.is-leaving,
-.question-card.is-leaving {
+.question-card.is-leaving,
+.new-session-card.is-leaving {
   animation: card-out 110ms var(--ease-out) both;
   pointer-events: none;
 }
@@ -822,6 +824,63 @@ body {
 
 .message-cancel:hover {
   color: var(--danger);
+}
+
+.new-session-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-top: 11px;
+  padding: 8px 10px;
+  border: 1px solid var(--separator);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--separator) 42%, var(--bg));
+}
+
+.new-session-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.new-session-kicker {
+  color: var(--fg-secondary);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.new-session-close {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.new-session-close:hover {
+  color: var(--danger);
+}
+
+.new-session-agents {
+  display: flex;
+  gap: 8px;
+}
+
+.new-session-agent {
+  background: var(--agent-bg);
+  color: var(--agent-fg);
+}
+
+.new-session-agent:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
 }
 
 .row-badge.badge-queue {

@@ -238,6 +238,11 @@ const questionCountEl = document.getElementById("question-count")!;
 const questionBodyEl = document.getElementById("question-body")!;
 const questionActionsEl = document.getElementById("question-actions")!;
 
+const headerNewSessionEl = document.getElementById("header-new-session") as HTMLButtonElement;
+const newSessionCardEl = document.getElementById("new-session-card")!;
+const newSessionKickerEl = document.getElementById("new-session-kicker")!;
+const newSessionAgentsEl = document.getElementById("new-session-agents")!;
+const newSessionCloseEl = document.getElementById("new-session-close") as HTMLButtonElement;
 const headerMuteEl = document.getElementById("header-mute") as HTMLButtonElement;
 const headerSettingsEl = document.getElementById("header-settings") as HTMLButtonElement;
 const headerUpdateEl = document.getElementById("header-update") as HTMLButtonElement;
@@ -267,6 +272,7 @@ let lastListKey = "";
 let pendingApproval: ApprovalRequest | null = null;
 let resolvingApproval = false;
 let pendingQuestion: QuestionRequest | null = null;
+let launchOpen = false;
 let questionAnswers: string[][] = [];
 let resolvingQuestion = false;
 let questionDeadline = 0;
@@ -598,7 +604,7 @@ function pointerLeft(): void {
   hovered = false;
   clearTimeout(dwellTimer);
   clearTimeout(autoCollapseTimer);
-  if (collapseOnLeave && expanded) collapse();
+  if (collapseOnLeave && expanded && !launchOpen) collapse();
 }
 
 islandEl.addEventListener("mouseenter", pointerEntered);
@@ -671,7 +677,7 @@ function showActivity(forceExpand = false): void {
   if (forceExpand || !hovered) expand();
   clearTimeout(autoCollapseTimer);
   autoCollapseTimer = window.setTimeout(() => {
-    if (!hovered && pendingApproval === null && pendingQuestion === null) collapse();
+    if (!hovered && pendingApproval === null && pendingQuestion === null && !launchOpen) collapse();
   }, autoCollapseMs);
 }
 
@@ -2087,7 +2093,7 @@ void listen<unknown>("island-toggle", () => {
     expand();
     return;
   }
-  if (pendingApproval !== null || pendingQuestion !== null) return;
+  if (pendingApproval !== null || pendingQuestion !== null || launchOpen) return;
   collapse();
 });
 
@@ -2229,6 +2235,72 @@ headerUpdateEl.addEventListener("click", () => {
   });
 });
 
+type LaunchAgent = keyof typeof strings.launch.agents;
+
+const LAUNCH_AGENTS: LaunchAgent[] = ["claude", "codex", "opencode"];
+
+function closeNewSession(): void {
+  launchOpen = false;
+  showCard(newSessionCardEl, false);
+  syncExpandedSize();
+}
+
+function pickSessionFolder(agent: LaunchAgent): void {
+  closeNewSession();
+  void invoke("pick_session_folder", {
+    agent,
+    title: strings.launch.pickFolder(strings.launch.agents[agent]),
+    accept: strings.launch.accept,
+    cancel: strings.launch.cancel,
+  }).catch((error: unknown) => {
+    showError(strings.launch.failed(reasonOf(error)));
+  });
+}
+
+function renderAgentTiles(available: string[]): void {
+  newSessionAgentsEl.replaceChildren();
+  for (const agent of LAUNCH_AGENTS) {
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "approval-button new-session-agent";
+    tile.dataset.agent = agent;
+    tile.textContent = strings.launch.agents[agent];
+    tile.style.setProperty("--agent-bg", `var(--agent-${agent}-bg)`);
+    tile.style.setProperty("--agent-fg", `var(--agent-${agent}-fg)`);
+    if (!available.includes(agent)) {
+      tile.disabled = true;
+      tile.title = strings.launch.missing;
+    }
+    tile.addEventListener("click", () => pickSessionFolder(agent));
+    newSessionAgentsEl.append(tile);
+  }
+}
+
+async function openNewSession(): Promise<void> {
+  launchOpen = true;
+  const available = await invoke<string[]>("agents_available").catch(() => [] as string[]);
+  if (!launchOpen) return;
+  renderAgentTiles(available);
+  showCard(newSessionCardEl, true);
+  syncExpandedSize();
+}
+
+headerNewSessionEl.addEventListener("click", () => {
+  if (!expanded) expand();
+  void openNewSession();
+});
+
+newSessionCloseEl.addEventListener("click", closeNewSession);
+
+void listen<{ agent: string; path: string | null }>("session-folder", (event) => {
+  if (event.payload.path === null) return;
+  void invoke("open_session", { agent: event.payload.agent, folder: event.payload.path }).catch(
+    (error: unknown) => {
+      showError(strings.launch.failed(reasonOf(error)));
+    },
+  );
+});
+
 async function saveQuiet(next: boolean): Promise<void> {
   const payload = await invoke<{ config: Record<string, unknown> }>("get_config");
   if (!isRecord(payload.config)) return;
@@ -2289,6 +2361,10 @@ function applyStaticStrings(): void {
   headerLabelEl.textContent = strings.island.sessions(0);
   headerSettingsEl.setAttribute("aria-label", strings.header.settings);
   headerSettingsEl.title = strings.header.settings;
+  headerNewSessionEl.setAttribute("aria-label", strings.header.newSession);
+  headerNewSessionEl.title = strings.header.newSession;
+  newSessionKickerEl.textContent = strings.launch.kicker;
+  newSessionCloseEl.textContent = strings.launch.close;
   paintMute();
   paintUpdate();
   approvalCardEl.setAttribute("aria-label", strings.approval.label);

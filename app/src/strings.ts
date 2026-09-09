@@ -131,12 +131,23 @@ export const strings = {
   },
   header: {
     settings: "Abrir ajustes",
+    newSession: "Abrir uma sessão",
     mute: "Silenciar os sons",
     unmute: "Voltar a tocar os sons",
     update: (version: string): string => `${version} disponível. Clique para atualizar.`,
     updatePrompt: "Pressione Enter para fechar.",
     updateFailed: (reason: string): string =>
       `Não deu para abrir um terminal (${reason}). Rode você mesmo: curl -fsSL https://raw.githubusercontent.com/matheus-cintra/open-island/master/install.sh | sh`,
+  },
+  launch: {
+    kicker: "Abrir uma sessão nova",
+    pickFolder: (agent: string): string => `Escolha a pasta para o ${agent}`,
+    accept: "Abrir aqui",
+    cancel: "Cancelar",
+    close: "Fechar",
+    missing: "não encontrado no PATH",
+    failed: (reason: string): string => `Não deu para abrir a sessão: ${reason}`,
+    agents: { claude: "Claude", codex: "Codex", opencode: "OpenCode" },
   },
   settings: {
     title: "Ajustes",
