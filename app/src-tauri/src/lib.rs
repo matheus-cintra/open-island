@@ -174,6 +174,18 @@ fn set_island_size(window: tauri::WebviewWindow, width: f64, height: f64) -> Res
 }
 
 #[tauri::command]
+fn island_keyboard(window: tauri::WebviewWindow, active: bool) -> Result<(), String> {
+    let target = window.clone();
+    window
+        .run_on_main_thread(move || {
+            if let Ok(gtk_window) = target.gtk_window() {
+                layershell::set_keyboard(&gtk_window, active);
+            }
+        })
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn get_config(client: State<'_, DaemonClient>) -> Result<Value, String> {
     client.get_config()
 }
@@ -191,6 +203,24 @@ fn get_update(client: State<'_, DaemonClient>) -> Result<Value, String> {
 #[tauri::command]
 fn run_update(prompt: String) -> Result<(), String> {
     update::run(&prompt)
+}
+
+#[tauri::command]
+fn send_message(
+    id: String,
+    text: String,
+    client: State<'_, DaemonClient>,
+) -> Result<Value, String> {
+    client.send_message(&id, &text)
+}
+
+#[tauri::command]
+fn cancel_message(
+    id: String,
+    message_id: u64,
+    client: State<'_, DaemonClient>,
+) -> Result<(), String> {
+    client.cancel_message(&id, message_id)
 }
 
 #[tauri::command]
@@ -416,10 +446,13 @@ pub fn run() {
             resolve_approval,
             answer_question,
             set_island_size,
+            island_keyboard,
             get_config,
             get_usage,
             get_update,
             run_update,
+            send_message,
+            cancel_message,
             save_config,
             sound_theme_files,
             play_sound,

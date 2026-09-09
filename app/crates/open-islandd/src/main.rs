@@ -1,9 +1,13 @@
 use open_island_core::{
     config::{self, Config, SoundEvent},
-    discovery, jump,
+    discovery,
+    jump::{self, JumpPlanner},
     protocol::{
         ApprovalDecision, Event, EventData, QuietScenes, Request, Response, UpdateAvailable,
     },
+    runner::SystemRunner,
+    send,
+    session::{QueuedMessage, Session},
     store::{ReminderScopes, SessionStore},
 };
 use open_islandd::config_handle::ConfigHandle;
@@ -134,6 +138,18 @@ fn response(id: Value, data: Result<Value, String>) -> String {
 #[derive(Deserialize)]
 struct JumpParams {
     id: String,
+}
+
+#[derive(Deserialize)]
+struct SendParams {
+    id: String,
+    text: String,
+}
+
+#[derive(Deserialize)]
+struct CancelParams {
+    id: String,
+    message_id: u64,
 }
 
 #[derive(Deserialize)]
@@ -395,6 +411,33 @@ fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> String {
                     jump::jump(&session).map(|()| Value::Null)
                 })
         }
+        "send_message" => request
+            .params
+            .ok_or_else(|| "missing send_message params".to_owned())
+            .and_then(|params| {
+                serde_json::from_value::<SendParams>(params)
+                    .map_err(|error| format!("invalid send_message params: {error}"))
+            })
+            .and_then(|params| send_message(&ctx, &params.id, &params.text)),
+        "cancel_message" => request
+            .params
+            .ok_or_else(|| "missing cancel_message params".to_owned())
+            .and_then(|params| {
+                serde_json::from_value::<CancelParams>(params)
+                    .map_err(|error| format!("invalid cancel_message params: {error}"))
+            })
+            .and_then(|params| {
+                let cancelled = ctx
+                    .state
+                    .lock()
+                    .map_err(|_| "daemon state unavailable".to_owned())
+                    .map(|mut state| state.store.cancel_message(&params.id, params.message_id))?;
+                if !cancelled {
+                    return Err("message not queued".to_owned());
+                }
+                broadcast_sessions(&ctx);
+                Ok(Value::Null)
+            }),
         "toggle" => {
             let source = request
                 .params
@@ -566,10 +609,28 @@ fn poller(ctx: DaemonContext, flag: ShutdownFlag) {
         );
         announce_quiet_scenes(&ctx, &mut source);
         let sessions = discovery::scan();
-        let reconciled = state
+        let (mut reconciled, due) = state
             .lock()
-            .map(|mut state| state.store.snapshot(&sessions))
+            .map(|mut state| {
+                let reconciled = state.store.snapshot(&sessions);
+                let due = state.store.take_due_messages(&reconciled);
+                (reconciled, due)
+            })
             .unwrap_or_default();
+        if !due.is_empty() {
+            for (session, message) in &due {
+                if let Err(error) = deliver_message(session, message) {
+                    eprintln!(
+                        "open-islandd: message {} to {}: {error}",
+                        message.id, session.id
+                    );
+                }
+            }
+            reconciled = state
+                .lock()
+                .map(|mut state| state.store.snapshot(&sessions))
+                .unwrap_or_default();
+        }
         announce_idle_reminders(&ctx);
         if previous.as_ref() != Some(&reconciled) {
             let delivered = broadcast(
@@ -680,6 +741,89 @@ fn check_for_update(ctx: &DaemonContext, cache_path: Option<&Path>) {
     broadcast(
         &ctx.state,
         event_message("update-available", EventData::UpdateAvailable(notice)),
+    );
+}
+
+fn send_message(ctx: &DaemonContext, session_id: &str, text: &str) -> Result<Value, String> {
+    let text = send::normalize(text);
+    if text.trim().is_empty() {
+        return Err("empty message".to_owned());
+    }
+    let processes = discovery::scan();
+    let (message, due) = {
+        let mut state = ctx
+            .state
+            .lock()
+            .map_err(|_| "daemon state unavailable".to_owned())?;
+        let sessions = state.store.snapshot(&processes);
+        let session = sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .cloned()
+            .ok_or_else(|| format!("session '{session_id}' not found"))?;
+        if let Some(code) = session.send_blocked.as_deref() {
+            return Err(code.to_owned());
+        }
+        let message =
+            state
+                .store
+                .enqueue_message(&session.id, text, usage::now_ms(), session.attention);
+        let due = state
+            .store
+            .take_due_messages(std::slice::from_ref(&session))
+            .into_iter()
+            .find(|(_, candidate)| candidate.id == message.id)
+            .map(|(_, candidate)| candidate);
+        (message, due)
+    };
+    let delivered = match due {
+        Some(message) => {
+            let target = {
+                let processes = discovery::scan();
+                ctx.state
+                    .lock()
+                    .map_err(|_| "daemon state unavailable".to_owned())?
+                    .store
+                    .snapshot(&processes)
+                    .into_iter()
+                    .find(|candidate| candidate.id == session_id)
+                    .ok_or_else(|| format!("session '{session_id}' not found"))?
+            };
+            deliver_message(&target, &message)?;
+            true
+        }
+        None => false,
+    };
+    broadcast_sessions(ctx);
+    Ok(json!({"message_id": message.id, "delivered": delivered}))
+}
+
+fn deliver_message(session: &Session, message: &QueuedMessage) -> Result<(), String> {
+    let host = discovery::terminal_for_session(session)
+        .ok_or_else(|| format!("session '{}' is no longer running", session.id))?;
+    let runner = SystemRunner;
+    let plan =
+        JumpPlanner::new(open_island_core::resolvers::default_resolvers()).plan(&host, &runner);
+    let runtime_dir = env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    let channel = send::channel_for(&host, &plan.steps, runtime_dir.as_deref(), &|path| {
+        path.exists()
+    })
+    .map_err(|blocked| blocked.code().to_owned())?;
+    send::execute(&send::plan(&channel, &message.text), &runner)
+}
+
+fn broadcast_sessions(ctx: &DaemonContext) {
+    let processes = discovery::scan();
+    let Ok(sessions) = ctx
+        .state
+        .lock()
+        .map(|mut state| state.store.snapshot(&processes))
+    else {
+        return;
+    };
+    broadcast(
+        &ctx.state,
+        event_message("sessions-updated", EventData::Sessions(sessions)),
     );
 }
 

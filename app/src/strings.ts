@@ -38,6 +38,20 @@ export const strings = {
     creditsUnlimited: "créditos ilimitados",
   },
   session: {
+    messageOpen: "Mandar mensagem para a sessão",
+    messagePlaceholder: "Mensagem para o agente. Enter envia, Shift+Enter quebra a linha.",
+    messageQueued: (count: number): string =>
+      count === 1 ? "1 mensagem na fila" : `${count} mensagens na fila`,
+    messageCancel: "Cancelar esta mensagem",
+    messageFailed: (reason: string): string => `Não deu para mandar a mensagem: ${reason}`,
+    messageBlocked: (code: string): string =>
+      ({
+        host_unsupported: "Este terminal não tem como receber texto pela ilha.",
+        kitty_remote_control_off:
+          "Ligue allow_remote_control e listen_on no kitty para escrever daqui.",
+        wezterm_socket_missing: "O socket da GUI do wezterm não foi encontrado.",
+        pane_gone: "O pane desta sessão não existe mais.",
+      })[code] ?? code,
     promptPrefix: "Você:",
     done: "Concluído",
     tasksLabel: "Tarefas",

@@ -745,7 +745,88 @@ body {
 }
 
 .session-list > li {
+  position: relative;
   transition: height 260ms var(--ease-out);
+}
+
+.row-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.message-hint {
+  margin: 0 4px;
+  font-size: var(--content-sm);
+  color: var(--muted);
+}
+
+.message-input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  overflow: hidden;
+  border: 1px solid var(--row-stroke);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--content-font);
+  resize: none;
+}
+
+.message-input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.message-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.message-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0 4px;
+  list-style: none;
+}
+
+.message-queued {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--content-sm);
+  color: var(--muted);
+}
+
+.message-queued-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.message-cancel {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.message-cancel:hover {
+  color: var(--danger);
+}
+
+.row-badge.badge-queue {
+  background: var(--accent);
+  color: var(--fg);
 }
 
 .session-list > li.is-entering {

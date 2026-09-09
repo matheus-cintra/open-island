@@ -167,6 +167,18 @@ impl DaemonClient {
         self.request("get_update", json!({}))
     }
 
+    pub fn send_message(&self, id: &str, text: &str) -> Result<Value, String> {
+        self.request("send_message", json!({"id": id, "text": text}))
+    }
+
+    pub fn cancel_message(&self, id: &str, message_id: u64) -> Result<(), String> {
+        let _ = self.request(
+            "cancel_message",
+            json!({"id": id, "message_id": message_id}),
+        )?;
+        Ok(())
+    }
+
     pub fn jump(&self, id: &str) -> Result<(), String> {
         let _ = self.request("jump", json!({"id": id}))?;
         Ok(())

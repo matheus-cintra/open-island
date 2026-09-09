@@ -1631,3 +1631,107 @@ fn unblocking_a_launcher_brings_the_hook_session_back_with_its_id() {
     assert_eq!(back.len(), 1);
     assert_eq!(back[0].hook_id, Some(HookId::new("claude", "probe")));
 }
+
+fn queued_ids(store: &mut SessionStore, sessions: &[Session], pid: u32) -> Vec<u64> {
+    store
+        .snapshot_at(sessions, Instant::now())
+        .into_iter()
+        .find(|session| session.pid == pid)
+        .and_then(|session| session.queued_messages)
+        .map(|messages| messages.into_iter().map(|message| message.id).collect())
+        .unwrap_or_default()
+}
+
+fn with_attention(mut session: Session, attention: Option<Attention>) -> Session {
+    session.attention = attention;
+    session
+}
+
+#[test]
+fn a_message_waits_while_the_agent_works_and_leaves_once_per_stop() {
+    let mut store = SessionStore::new();
+    let working = with_attention(process(7, "/tmp/p"), Some(Attention::Working));
+    let idle = with_attention(process(7, "/tmp/p"), Some(Attention::Idle));
+    let first = store.enqueue_message(&working.id, "primeira".into(), 1, working.attention);
+    let second = store.enqueue_message(&working.id, "segunda".into(), 2, working.attention);
+    assert_eq!(first.id, 1);
+    assert_eq!(second.id, 2);
+    assert!(store
+        .take_due_messages(std::slice::from_ref(&working))
+        .is_empty());
+    assert_eq!(
+        queued_ids(&mut store, std::slice::from_ref(&working), 7),
+        vec![1, 2]
+    );
+
+    let due = store.take_due_messages(std::slice::from_ref(&idle));
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].1.text, "primeira");
+    assert_eq!(due[0].0.id, idle.id);
+    assert!(
+        store
+            .take_due_messages(std::slice::from_ref(&idle))
+            .is_empty(),
+        "the second one waits for another working phase"
+    );
+    assert!(store
+        .take_due_messages(std::slice::from_ref(&working))
+        .is_empty());
+    let due = store.take_due_messages(std::slice::from_ref(&idle));
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].1.text, "segunda");
+    assert!(queued_ids(&mut store, std::slice::from_ref(&idle), 7).is_empty());
+}
+
+#[test]
+fn a_message_sent_to_a_stopped_session_is_due_at_once() {
+    let mut store = SessionStore::new();
+    let idle = with_attention(process(7, "/tmp/p"), Some(Attention::WaitingForInput));
+    store.enqueue_message(&idle.id, "agora".into(), 1, idle.attention);
+    assert_eq!(
+        store.take_due_messages(std::slice::from_ref(&idle)).len(),
+        1
+    );
+    let unknown = process(8, "/tmp/q");
+    store.enqueue_message(&unknown.id, "sem hook".into(), 2, None);
+    assert_eq!(
+        store
+            .take_due_messages(std::slice::from_ref(&unknown))
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn a_queued_message_can_be_cancelled_and_a_vanished_session_drops_its_queue() {
+    let mut store = SessionStore::new();
+    let working = with_attention(process(7, "/tmp/p"), Some(Attention::Working));
+    let kept = store.enqueue_message(&working.id, "fica".into(), 1, working.attention);
+    let gone = store.enqueue_message(&working.id, "sai".into(), 2, working.attention);
+    assert!(store.cancel_message(&working.id, gone.id));
+    assert!(!store.cancel_message(&working.id, gone.id));
+    assert!(!store.cancel_message("claude:999", kept.id));
+    assert_eq!(
+        queued_ids(&mut store, std::slice::from_ref(&working), 7),
+        vec![kept.id]
+    );
+    assert!(store.take_due_messages(&[]).is_empty());
+    assert!(queued_ids(&mut store, &[working], 7).is_empty());
+}
+
+#[test]
+fn the_queue_is_bounded_and_keeps_the_newest() {
+    let mut store = SessionStore::new();
+    let working = with_attention(process(7, "/tmp/p"), Some(Attention::Working));
+    for index in 0..(MAX_QUEUED_MESSAGES + 3) {
+        store.enqueue_message(
+            &working.id,
+            format!("m{index}"),
+            index as u64,
+            working.attention,
+        );
+    }
+    let ids = queued_ids(&mut store, &[working], 7);
+    assert_eq!(ids.len(), MAX_QUEUED_MESSAGES);
+    assert_eq!(ids[0], 4);
+}
