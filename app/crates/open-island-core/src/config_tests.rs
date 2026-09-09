@@ -251,6 +251,41 @@ fn the_island_timings_mirror_the_constants_the_front_end_ships_with() {
     assert_eq!(island.hover_dwell, Duration::from_millis(250));
     assert_eq!(island.auto_collapse, Duration::from_millis(2500));
     assert_eq!(island.idle_fade, Duration::from_millis(120_000));
+    assert!(!island.idle_fade_enabled);
+}
+
+#[test]
+fn the_idle_fade_switch_is_off_until_the_user_turns_it_on() {
+    assert!(
+        !Config::from_json_str(r#"{"island": {"idle_fade_ms": 30000}}"#)
+            .island
+            .idle_fade_enabled
+    );
+    assert!(
+        Config::from_json_str(r#"{"island": {"idle_fade": true}}"#)
+            .island
+            .idle_fade_enabled
+    );
+    assert!(
+        !Config::from_json_str(r#"{"island": {"idle_fade": "yes"}}"#)
+            .island
+            .idle_fade_enabled
+    );
+    assert_eq!(
+        Config::default().to_json_value()["island"]["idle_fade"],
+        json!(false)
+    );
+}
+
+#[test]
+fn turning_the_idle_fade_on_survives_a_save_fired_by_another_control() {
+    let mut config = Config::default();
+    config.island.idle_fade_enabled = true;
+    config.sound.enabled = !config.sound.enabled;
+    let written = config.to_json_value().to_string();
+    let read_back = Config::from_json_str(&written);
+    assert!(read_back.island.idle_fade_enabled);
+    assert_eq!(read_back.sound.enabled, config.sound.enabled);
 }
 
 #[test]
@@ -314,6 +349,7 @@ fn a_config_with_every_field_moved_off_its_default() -> Config {
             hover_dwell: Duration::from_millis(400),
             auto_collapse: Duration::from_millis(9_000),
             idle_fade: Duration::from_millis(30_000),
+            idle_fade_enabled: true,
             expand_on_hover: false,
             collapse_on_leave: false,
             hide_in_fullscreen: false,
