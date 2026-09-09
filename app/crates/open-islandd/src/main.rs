@@ -236,13 +236,8 @@ fn configure_detected_agents(config: &mut Config) {
     let Some(path) = config::path() else {
         return;
     };
-    match serde_json::to_string_pretty(&config.to_json_value()) {
-        Ok(text) => {
-            if let Err(error) = config::write_atomic(&path, &format!("{text}\n")) {
-                eprintln!("open-islandd: {error}");
-            }
-        }
-        Err(error) => eprintln!("open-islandd: serialize config: {error}"),
+    if let Err(error) = config::save(&path, config) {
+        eprintln!("open-islandd: {error}");
     }
 }
 

@@ -6,11 +6,9 @@ use std::process::Command;
 use crate::client::daemon_candidates;
 
 pub fn save(config: Value) -> Result<(), String> {
-    let normalized = Config::from_json_str(&config.to_string()).to_json_value();
-    let text = serde_json::to_string_pretty(&normalized)
-        .map_err(|error| format!("serialize config: {error}"))?;
+    let parsed = Config::from_json_str(&config.to_string());
     let path = config::path().ok_or_else(|| "no config directory for this user".to_owned())?;
-    config::write_atomic(&path, &format!("{text}\n"))
+    config::save(&path, &parsed)
 }
 
 pub fn user_sound_dir() -> Option<PathBuf> {
@@ -142,9 +140,7 @@ fn remember_agent(name: &str) -> Result<(), String> {
     }
     config.integrations.known_agents.push(name.to_owned());
     config.integrations.known_agents.sort();
-    let text = serde_json::to_string_pretty(&config.to_json_value())
-        .map_err(|error| format!("serialize config: {error}"))?;
-    config::write_atomic(&path, &format!("{text}\n"))
+    config::save(&path, &config)
 }
 
 fn is_installed(args: &[&str]) -> Result<bool, String> {

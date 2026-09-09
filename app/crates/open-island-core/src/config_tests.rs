@@ -469,6 +469,128 @@ fn writing_a_config_creates_the_directory_it_lives_in() {
 }
 
 #[test]
+fn merge_keeps_what_the_binary_does_not_know_and_replaces_what_it_does() {
+    let existing = json!({
+        "hotkey": "SUPER+I",
+        "island": {"idle_fade_after_ms": 1, "hide_when_idle": false},
+        "sound": {"packs": [], "events": {"task_complete": "custom.oga"}},
+        "filters": {"rules": [{"pattern": "old", "enabled": true}]},
+        "experiments": {"pixel_shift": true}
+    });
+    let fresh = json!({
+        "island": {"hide_when_idle": true},
+        "sound": {"events": {"task_complete": null}},
+        "filters": {"rules": []}
+    });
+
+    let merged = merge_document(existing, fresh);
+
+    assert_eq!(merged["hotkey"], json!("SUPER+I"));
+    assert_eq!(merged["island"]["idle_fade_after_ms"], json!(1));
+    assert_eq!(merged["sound"]["packs"], json!([]));
+    assert_eq!(merged["experiments"], json!({"pixel_shift": true}));
+    assert_eq!(merged["island"]["hide_when_idle"], json!(true));
+    assert_eq!(merged["filters"]["rules"], json!([]));
+    assert_eq!(merged["sound"]["events"]["task_complete"], Value::Null);
+    assert!(merged["sound"]["events"]
+        .as_object()
+        .expect("events object")
+        .contains_key("task_complete"));
+
+    assert_eq!(
+        merge_document(json!([1, 2]), json!({"updates": {"check_enabled": false}})),
+        json!({"updates": {"check_enabled": false}})
+    );
+    assert_eq!(
+        merge_document(Value::Null, json!({"hotkey": "SUPER+I"})),
+        json!({"hotkey": "SUPER+I"})
+    );
+}
+
+#[test]
+fn a_missing_corrupt_or_non_object_file_is_replaced_by_the_fresh_document() {
+    let root = std::env::temp_dir().join(format!(
+        "open-island-config-heals-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    let path = root.join("open-island").join("config.json");
+    let config = Config::default();
+    let fresh = config.to_json_value();
+    let written =
+        || serde_json::from_str::<Value>(&fs::read_to_string(&path).expect("read")).expect("parse");
+
+    save(&path, &config).expect("save over a missing file");
+    assert_eq!(written(), fresh);
+
+    for document in ["{ not json", "[1,2]"] {
+        write_atomic(&path, document).expect("seed");
+        save(&path, &config).expect("save over a document that is not a config object");
+        assert_eq!(written(), fresh);
+    }
+
+    fs::remove_dir_all(&root).expect("cleanup");
+}
+
+#[test]
+fn an_old_schema_document_keeps_its_unknown_keys_after_a_save_by_another_control() {
+    let root = std::env::temp_dir().join(format!(
+        "open-island-config-merge-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    let path = root.join("open-island").join("config.json");
+    let on_disk = json!({
+        "hotkey": "SUPER+I",
+        "island": {"idle_fade_after_ms": 1, "hide_when_idle": true},
+        "sound": {"packs": [], "events": {"task_complete": "custom.oga"}},
+        "filters": {"rules": [{
+            "field": "cwd",
+            "match_type": "contains",
+            "pattern": "scratch",
+            "name": "scratch",
+            "built_in": false,
+            "enabled": true
+        }]}
+    });
+    write_atomic(
+        &path,
+        &serde_json::to_string_pretty(&on_disk).expect("serialize"),
+    )
+    .expect("seed");
+
+    let mut config = Config::from_json_str(&fs::read_to_string(&path).expect("read"));
+    assert_eq!(
+        config.sound.events.task_complete,
+        Some(PathBuf::from("custom.oga"))
+    );
+    assert_eq!(config.filters.rules.len(), 1);
+    assert!(config.island.hide_when_idle);
+    config.sound.events.task_complete = None;
+    config.updates.check_enabled = false;
+    config.filters.rules = Vec::new();
+
+    save(&path, &config).expect("save");
+
+    let written =
+        serde_json::from_str::<Value>(&fs::read_to_string(&path).expect("read")).expect("parse");
+    assert_eq!(written["hotkey"], json!("SUPER+I"));
+    assert_eq!(written["island"]["idle_fade_after_ms"], json!(1));
+    assert_eq!(written["island"]["hide_when_idle"], json!(true));
+    assert_eq!(written["sound"]["packs"], json!([]));
+    assert_eq!(written["sound"]["events"]["task_complete"], Value::Null);
+    assert_eq!(written["filters"]["rules"], json!([]));
+    assert!(!written["updates"]["check_enabled"]
+        .as_bool()
+        .expect("check_enabled"));
+    assert_eq!(Config::from_json_str(&written.to_string()), config);
+
+    fs::remove_dir_all(&root).expect("cleanup");
+}
+
+#[test]
 fn agents_are_configured_without_asking_and_none_are_known_before_the_first_start() {
     let integrations = IntegrationsConfig::default();
 

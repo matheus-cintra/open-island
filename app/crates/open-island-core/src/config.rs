@@ -599,6 +599,34 @@ pub fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
     result.map_err(|error| format!("write {}: {error}", path.display()))
 }
 
+pub fn save(path: &Path, config: &Config) -> Result<(), String> {
+    let existing = fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .filter(Value::is_object)
+        .unwrap_or(Value::Null);
+    let merged = merge_document(existing, config.to_json_value());
+    let text = serde_json::to_string_pretty(&merged)
+        .map_err(|error| format!("serialize config: {error}"))?;
+    write_atomic(path, &format!("{text}\n"))
+}
+
+fn merge_document(existing: Value, fresh: Value) -> Value {
+    match (existing, fresh) {
+        (Value::Object(mut document), Value::Object(incoming)) => {
+            for (key, value) in incoming {
+                let merged = match document.remove(&key) {
+                    Some(previous) => merge_document(previous, value),
+                    None => value,
+                };
+                document.insert(key, merged);
+            }
+            Value::Object(document)
+        }
+        (_, fresh) => fresh,
+    }
+}
+
 fn as_millis(duration: Duration) -> u64 {
     duration.as_millis() as u64
 }
