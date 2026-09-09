@@ -204,7 +204,7 @@ A ilha é a única superfície. Não existe notificação de desktop: ela existi
 
 Três acoplamentos diretos:
 
-- O sensor de ponteiro que faz a ilha expandir no hover abre o socket de eventos do Hyprland. Sem `HYPRLAND_INSTANCE_SIGNATURE` no ambiente ele sai na primeira linha e a ilha nunca expande sozinha (`app/src-tauri/src/lib.rs:91-94`, `app/src-tauri/src/hypr.rs:5-13`).
+- O sensor de ponteiro que faz a ilha expandir no hover abre o socket de eventos do Hyprland. Sem `HYPRLAND_INSTANCE_SIGNATURE` no ambiente ele sai na primeira linha e a ilha nunca expande sozinha (`app/src-tauri/src/lib.rs:99-101`, `app/src-tauri/src/compositor/hyprland.rs:7-15`).
 - O clique para pular para a sessão manda `hyprctl dispatch focuswindow address:…` (`app/crates/open-island-core/src/jump.rs:126`). Existe um fallback por X11, mas ele só enxerga janelas XWayland (`app/crates/open-island-core/src/focus.rs:117-124`).
 - A altura da ilha é a altura reservada pela sua barra, lida do Hyprland.
 
