@@ -78,3 +78,43 @@ fn island_candidates_look_beside_the_daemon_before_the_bare_name() {
         vec![PathBuf::from("open-island"), PathBuf::from("open-island")]
     );
 }
+
+#[test]
+fn installing_reloads_systemd_before_enabling_the_units() {
+    assert_eq!(
+        systemd_steps(true),
+        vec![
+            ("systemctl", vec!["--user", "daemon-reload"]),
+            (
+                "systemctl",
+                vec![
+                    "--user",
+                    "enable",
+                    "--now",
+                    "open-islandd.service",
+                    "open-island.service",
+                ],
+            ),
+        ]
+    );
+}
+
+#[test]
+fn uninstalling_disables_the_units_before_reloading_systemd() {
+    assert_eq!(
+        systemd_steps(false),
+        vec![
+            (
+                "systemctl",
+                vec![
+                    "--user",
+                    "disable",
+                    "--now",
+                    "open-islandd.service",
+                    "open-island.service",
+                ],
+            ),
+            ("systemctl", vec!["--user", "daemon-reload"]),
+        ]
+    );
+}
