@@ -42,34 +42,34 @@ function calls(command: string) {
   return tauri.calls.filter((call) => call.command === command);
 }
 
-test("a session with a channel gets an enabled toggle and no hint", () => {
+test("a session with a channel gets an enabled field and no hint", () => {
   const li = main.createRow({ ...base, send_channel: "tmux" }, false);
-  const toggle = li.querySelector<HTMLButtonElement>(".message-toggle")!;
-  expect(toggle.disabled).toBe(false);
-  expect(toggle.title).toBe("Mandar mensagem para a sessão");
+  const input = li.querySelector<HTMLTextAreaElement>(".message-input")!;
+  expect(input.disabled).toBe(false);
+  expect(input.placeholder).toBe(
+    "Mensagem para o agente. Enter envia, Shift+Enter quebra a linha.",
+  );
   expect(li.querySelector<HTMLElement>(".message-hint")!.hidden).toBe(true);
-  expect(li.querySelector<HTMLElement>(".message-panel")!.hidden).toBe(true);
 });
 
-test("a blocked session shows the toggle disabled with the reason in Portuguese", () => {
+test("a blocked session shows the field disabled with the reason in Portuguese", () => {
   const li = main.createRow({ ...base, send_blocked: "kitty_remote_control_off" }, false);
-  const toggle = li.querySelector<HTMLButtonElement>(".message-toggle")!;
-  expect(toggle.disabled).toBe(true);
+  const input = li.querySelector<HTMLTextAreaElement>(".message-input")!;
+  expect(input.disabled).toBe(true);
   const hint = li.querySelector<HTMLElement>(".message-hint")!;
   expect(hint.hidden).toBe(false);
   expect(hint.textContent).toBe(
     "Ligue allow_remote_control e listen_on no kitty para escrever daqui.",
   );
-  expect(toggle.title).toBe(hint.textContent ?? "");
+  expect(input.title).toBe(hint.textContent ?? "");
 });
 
-test("Enter sends the text, Shift+Enter keeps typing, Escape closes the panel", async () => {
+test("Enter sends the text, Shift+Enter keeps typing, Escape drops the focus", async () => {
   const li = main.createRow({ ...base, send_channel: "kitty" }, false);
-  const toggle = li.querySelector<HTMLButtonElement>(".message-toggle")!;
-  const panel = li.querySelector<HTMLElement>(".message-panel")!;
+  document.getElementById("session-list")!.append(li);
   const input = li.querySelector<HTMLTextAreaElement>(".message-input")!;
-  toggle.click();
-  expect(panel.hidden).toBe(false);
+  input.focus();
+  expect(document.activeElement).toBe(input);
 
   input.value = "oi tudo bem";
   expect(keydown(input, "Enter", true)).toBe(true);
@@ -87,7 +87,8 @@ test("Enter sends the text, Shift+Enter keeps typing, Escape closes the panel", 
   expect(calls("send_message").length).toBe(1);
 
   keydown(input, "Escape");
-  expect(panel.hidden).toBe(true);
+  expect(document.activeElement).not.toBe(input);
+  li.remove();
 });
 
 test("queued messages show a badge with the count and a cancel button each", async () => {
@@ -131,4 +132,13 @@ test("a refused send shows the mapped reason and keeps the text", async () => {
   );
   expect(input.value).toBe("vai falhar");
   sendFails = null;
+});
+
+test("expanding the island asks for keyboard focus on demand and collapsing gives it back", async () => {
+  tauri.emit("island-toggle", {});
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(calls("island_keyboard").pop()!.args).toEqual({ active: true });
+  tauri.emit("island-toggle", {});
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(calls("island_keyboard").pop()!.args).toEqual({ active: false });
 });

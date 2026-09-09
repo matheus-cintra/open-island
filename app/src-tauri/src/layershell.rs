@@ -6,6 +6,7 @@ use std::os::raw::c_char;
 const LAYER_OVERLAY: i32 = 3;
 const EDGE_TOP: i32 = 2;
 const KEYBOARD_NONE: i32 = 0;
+const KEYBOARD_ON_DEMAND: i32 = 2;
 const NAMESPACE: &[u8] = b"open-island\0";
 
 #[link(name = "gtk-layer-shell")]
@@ -45,6 +46,15 @@ pub fn init(window: &gtk::ApplicationWindow) -> Result<(), String> {
         return Err("gtk_layer_init_for_window refused the window".to_string());
     }
     Ok(())
+}
+
+pub fn set_keyboard(window: &gtk::ApplicationWindow, interactive: bool) {
+    let mode = if interactive {
+        KEYBOARD_ON_DEMAND
+    } else {
+        KEYBOARD_NONE
+    };
+    unsafe { gtk_layer_set_keyboard_mode(handle(window), mode) }
 }
 
 pub struct MonitorTarget<'a> {

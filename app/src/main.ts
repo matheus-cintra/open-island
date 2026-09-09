@@ -546,6 +546,7 @@ export function expandedSize(): Size {
 
 function expand(): void {
   expanded = true;
+  void invoke("island_keyboard", { active: true }).catch(() => {});
   // Swap SVG + content at tween START (expanding).
   islandEl.classList.add("expanded");
   setView("expanded");
@@ -556,6 +557,7 @@ function expand(): void {
 
 function collapse(): void {
   expanded = false;
+  void invoke("island_keyboard", { active: false }).catch(() => {});
   // Keep the expanded SVG during the shrink; swap at tween END.
   morphTo(COMPACT, noop, () => {
     islandEl.classList.remove("expanded");
@@ -747,7 +749,9 @@ function renderList(): void {
       clearOnAnimationEnd(li, "is-entering");
       index += 1;
     }
-    sessionListEl.insertBefore(li, previous === null ? sessionListEl.firstChild : previous.nextSibling);
+    const anchor: ChildNode | null =
+      previous === null ? sessionListEl.firstChild : previous.nextSibling;
+    if (li !== anchor) sessionListEl.insertBefore(li, anchor);
     previous = li;
   }
 }
@@ -912,8 +916,6 @@ function strongestAttention(list: Session[]): Attention {
   return order.find((state) => states.includes(state)) ?? "working";
 }
 
-const MESSAGE_GLYPH =
-  '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.6 3.4h10.8v7.2H6.2L3.4 13V10.6h-.8Z"/><path d="M5.4 6.2h6M5.4 8.4h4"/></svg>';
 const BRANCH_GLYPH =
   `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" ` +
   `stroke-linecap="round" aria-hidden="true">` +
@@ -1281,18 +1283,9 @@ function reasonOf(error: unknown): string {
 function createMessageBox(sessionId: string): HTMLElement {
   const box = document.createElement("div");
   box.className = "row-message";
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "message-toggle";
-  toggle.innerHTML = MESSAGE_GLYPH;
-  toggle.setAttribute("aria-label", strings.session.messageOpen);
-  toggle.title = strings.session.messageOpen;
-  const panel = document.createElement("div");
-  panel.className = "message-panel";
-  panel.hidden = true;
   const input = document.createElement("textarea");
   input.className = "message-input";
-  input.rows = 2;
+  input.rows = 1;
   input.placeholder = strings.session.messagePlaceholder;
   input.setAttribute("aria-label", strings.session.messageOpen);
   const hint = document.createElement("span");
@@ -1300,15 +1293,15 @@ function createMessageBox(sessionId: string): HTMLElement {
   hint.hidden = true;
   const queue = document.createElement("ul");
   queue.className = "message-queue";
-  panel.append(input, queue);
-  box.append(toggle, hint, panel);
-  toggle.addEventListener("click", () => {
-    panel.hidden = !panel.hidden;
-    if (!panel.hidden) input.focus();
+  box.append(input, hint, queue);
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = `${input.scrollHeight}px`;
+    syncExpandedSize();
   });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
-      panel.hidden = true;
+      input.blur();
       return;
     }
     if (event.key !== "Enter" || event.shiftKey) return;
@@ -1316,6 +1309,7 @@ function createMessageBox(sessionId: string): HTMLElement {
     const text = input.value;
     if (text.trim() === "") return;
     input.value = "";
+    input.style.removeProperty("height");
     void invoke<{ delivered: boolean }>("send_message", { id: sessionId, text }).catch(
       (error: unknown) => {
         input.value = text;
@@ -1328,16 +1322,14 @@ function createMessageBox(sessionId: string): HTMLElement {
 
 function fillMessageBox(li: HTMLLIElement, session: Session): void {
   const box = li.querySelector<HTMLElement>(".row-message")!;
-  const toggle = box.querySelector<HTMLButtonElement>(".message-toggle")!;
+  const input = box.querySelector<HTMLTextAreaElement>(".message-input")!;
   const hint = box.querySelector<HTMLElement>(".message-hint")!;
-  const panel = box.querySelector<HTMLElement>(".message-panel")!;
   const blocked = session.send_blocked;
-  toggle.disabled = blocked !== undefined;
+  input.disabled = blocked !== undefined;
   const reason = blocked === undefined ? "" : strings.session.messageBlocked(blocked);
   hint.textContent = reason;
   hint.hidden = blocked === undefined;
-  toggle.title = blocked === undefined ? strings.session.messageOpen : reason;
-  if (blocked !== undefined) panel.hidden = true;
+  input.title = reason;
 
   const queued = session.queued_messages ?? [];
   const badges = li.querySelector<HTMLElement>(".row-badges")!;

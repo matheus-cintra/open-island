@@ -752,75 +752,33 @@ body {
 .row-message {
   display: flex;
   flex-direction: column;
-}
-
-.message-toggle {
-  position: absolute;
-  right: 10px;
-  bottom: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fg-secondary);
-  cursor: pointer;
-  transition:
-    background 160ms var(--ease-out),
-    color 160ms var(--ease-out);
-}
-
-.message-toggle:hover:not(:disabled) {
-  background: var(--separator);
-  color: var(--fg);
-}
-
-.message-toggle:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.message-toggle svg {
-  width: 15px;
-  height: 15px;
-}
-
-.row-message:has(.message-panel:not([hidden])) .message-toggle {
-  color: var(--accent);
+  gap: 4px;
+  margin-top: 6px;
 }
 
 .message-hint {
-  margin: 4px 14px 0;
+  margin: 0 4px;
   font-size: var(--content-sm);
   color: var(--muted);
-}
-
-.message-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 6px;
-  padding: 8px 10px;
-  border: 1px solid var(--transcript-stroke);
-  border-radius: 6px;
-  background: var(--transcript-head);
 }
 
 .message-input {
   width: 100%;
   min-width: 0;
-  padding: 6px 8px;
+  padding: 7px 10px;
+  overflow: hidden;
   border: 1px solid var(--row-stroke);
   border-radius: 6px;
   background: transparent;
   color: var(--fg);
   font: inherit;
   font-size: var(--content-font);
-  resize: vertical;
+  resize: none;
+}
+
+.message-input:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .message-input:focus {
@@ -833,7 +791,7 @@ body {
   flex-direction: column;
   gap: 4px;
   margin: 0;
-  padding: 0;
+  padding: 0 4px;
   list-style: none;
 }
 
@@ -866,7 +824,7 @@ body {
   color: var(--danger);
 }
 
-.badge-queue {
+.row-badge.badge-queue {
   background: var(--accent);
   color: var(--fg);
 }
