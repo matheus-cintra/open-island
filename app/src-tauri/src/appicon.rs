@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::hypr;
+use crate::compositor::hyprland;
 
 const MAX_DEPTH: usize = 5;
 const MAX_BYTES: u64 = 512 * 1024;
@@ -15,7 +15,8 @@ pub fn for_pid(pid: u32) -> Option<String> {
 }
 
 fn window_class(pid: u32) -> Option<String> {
-    let clients = serde_json::from_str::<serde_json::Value>(&hypr::request("j/clients")?).ok()?;
+    let clients =
+        serde_json::from_str::<serde_json::Value>(&hyprland::request("j/clients")?).ok()?;
     clients.as_array()?.iter().find_map(|client| {
         (client.get("pid").and_then(serde_json::Value::as_u64) == Some(u64::from(pid)))
             .then(|| client.get("class").and_then(serde_json::Value::as_str))

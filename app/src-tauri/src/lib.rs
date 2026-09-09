@@ -1,7 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod appicon;
 mod client;
-mod hypr;
+mod compositor;
 mod launch;
 mod layershell;
 mod settings;
@@ -95,7 +95,7 @@ fn pointer_is_inside(rect: IslandRect, x: i32, y: i32) -> bool {
 }
 
 fn watch_pointer(window: tauri::WebviewWindow) {
-    let Some(socket) = hypr::socket_path() else {
+    let Some(socket) = compositor::hyprland::socket_path() else {
         return;
     };
     let mut last: Option<bool> = None;
@@ -103,7 +103,7 @@ fn watch_pointer(window: tauri::WebviewWindow) {
     let mut last_focus: Option<Option<u32>> = None;
     loop {
         std::thread::sleep(POINTER_TICK);
-        let focus = hypr::focused_pid();
+        let focus = compositor::hyprland::focused_pid();
         if last_focus != Some(focus) {
             last_focus = Some(focus);
             if window
@@ -113,7 +113,7 @@ fn watch_pointer(window: tauri::WebviewWindow) {
                 return;
             }
         }
-        if let Some(fullscreen) = hypr::any_fullscreen() {
+        if let Some(fullscreen) = compositor::hyprland::any_fullscreen() {
             if last_fullscreen != Some(fullscreen) {
                 last_fullscreen = Some(fullscreen);
                 if window
@@ -128,7 +128,7 @@ fn watch_pointer(window: tauri::WebviewWindow) {
         if rect.width == 0 || rect.height == 0 {
             continue;
         }
-        let Some((x, y)) = hypr::cursor_position(&socket) else {
+        let Some((x, y)) = compositor::hyprland::cursor_position(&socket) else {
             continue;
         };
         let inside = pointer_is_inside(rect, x, y);
@@ -345,14 +345,14 @@ fn terminal_icon(pid: u32) -> Option<String> {
 fn island_metrics() -> IslandMetrics {
     let monitor = selected_monitor();
     IslandMetrics {
-        scale: hypr::ui_scale(monitor.as_deref()),
-        compact_height: hypr::compact_height(monitor.as_deref()),
+        scale: compositor::hyprland::ui_scale(monitor.as_deref()),
+        compact_height: compositor::hyprland::compact_height(monitor.as_deref()),
     }
 }
 
 #[tauri::command]
 fn list_monitors() -> Vec<String> {
-    hypr::monitor_names()
+    compositor::hyprland::monitor_names()
 }
 
 #[tauri::command]
@@ -372,7 +372,7 @@ fn set_island_monitor(app: tauri::AppHandle, name: Option<String>) -> Result<(),
         .get_webview_window("main")
         .ok_or_else(|| "no island window".to_owned())?;
     let rect = wanted.as_deref().and_then(|name| {
-        let monitor = hypr::monitor_named(Some(name))?;
+        let monitor = compositor::hyprland::monitor_named(Some(name))?;
         Some((
             name.to_owned(),
             monitor.get("x")?.as_i64()? as i32,
@@ -447,8 +447,8 @@ fn remember_origin(window: &tauri::WebviewWindow, width: f64, height: f64) {
 
 fn compact_size() -> (f64, f64) {
     let monitor = selected_monitor();
-    let scale = hypr::ui_scale(monitor.as_deref());
-    let height = hypr::compact_height(monitor.as_deref())
+    let scale = compositor::hyprland::ui_scale(monitor.as_deref());
+    let height = compositor::hyprland::compact_height(monitor.as_deref())
         .map(f64::from)
         .unwrap_or((COMPACT_HEIGHT * scale).round());
     ((COMPACT_WIDTH * scale).round(), height)
@@ -463,13 +463,15 @@ fn monitor_box(window: &tauri::WebviewWindow) -> Result<Option<MonitorBox>, Stri
             return Ok(Some(rect));
         }
     }
-    let rect = match hypr::monitor_named(selected_monitor().as_deref()).and_then(|monitor| {
-        Some(MonitorBox {
-            x: monitor.get("x")?.as_i64()? as i32,
-            y: monitor.get("y")?.as_i64()? as i32,
-            width: monitor.get("width")?.as_u64()? as u32,
-        })
-    }) {
+    let rect = match compositor::hyprland::monitor_named(selected_monitor().as_deref()).and_then(
+        |monitor| {
+            Some(MonitorBox {
+                x: monitor.get("x")?.as_i64()? as i32,
+                y: monitor.get("y")?.as_i64()? as i32,
+                width: monitor.get("width")?.as_u64()? as u32,
+            })
+        },
+    ) {
         Some(rect) => Some(rect),
         None => window
             .available_monitors()
