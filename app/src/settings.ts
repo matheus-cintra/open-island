@@ -93,6 +93,7 @@ interface Row {
   hint?: string;
   control: Control;
   visible?: () => boolean;
+  visibleWhen?: string;
 }
 
 interface Identity {
@@ -213,8 +214,15 @@ const PANES: Pane[] = [
             control: { kind: "duration", unit: "s", min: 0.5, max: 30, step: 0.5 },
           },
           {
-            path: "island.idle_fade_ms",
+            path: "island.idle_fade",
             label: copy.general.idleFade,
+            hint: copy.general.idleFadeHint,
+            control: { kind: "switch" },
+          },
+          {
+            path: "island.idle_fade_ms",
+            label: copy.general.idleFadeAfter,
+            visibleWhen: "island.idle_fade",
             control: { kind: "duration", unit: "s", min: 5, max: 600, step: 5 },
           },
           {
@@ -899,7 +907,7 @@ let savePending = false;
 const dirtyPaths = new Set<string>();
 let toastTimer = 0;
 let toastExitTimer = 0;
-let dependants: { element: HTMLElement; path: string }[] = [];
+let dependants: { element: HTMLElement; path: string; mode: "dim" | "hide" }[] = [];
 
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -1012,6 +1020,10 @@ function dependencyMet(value: JsonValue | undefined): boolean {
 function refreshDependencies(): void {
   for (const entry of dependants) {
     const enabled = dependencyMet(readPath(config, entry.path));
+    if (entry.mode === "hide") {
+      entry.element.hidden = !enabled;
+      continue;
+    }
     entry.element.classList.toggle("is-muted", !enabled);
     const controls = entry.element.querySelectorAll<
       HTMLInputElement | HTMLSelectElement | HTMLButtonElement
@@ -2011,7 +2023,10 @@ function renderPane(): void {
     card.className = "card";
     for (const row of section.rows) {
       if (row.visible?.() === false) continue;
-      card.append(buildRow(row));
+      const built = buildRow(row);
+      if (row.visibleWhen !== undefined)
+        dependants.push({ element: built, path: row.visibleWhen, mode: "hide" });
+      card.append(built);
     }
     for (const note of section.notes ?? [])
       card.append(buildNote(note, section.notesTone ?? "warning"));
@@ -2036,7 +2051,7 @@ function renderPane(): void {
     }
     wrapper.style.setProperty("--index", String(body.childElementCount));
     if (section.dependsOn !== undefined) {
-      dependants.push({ element: wrapper, path: section.dependsOn });
+      dependants.push({ element: wrapper, path: section.dependsOn, mode: "dim" });
     }
     body.append(wrapper);
   }

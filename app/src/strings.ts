@@ -372,7 +372,10 @@ export const strings = {
       smartSuppressionHint:
         "Não expandir automaticamente quando o terminal do agente já estiver em foco.",
       autoCollapse: "Fechar sozinha depois de",
-      idleFade: "Escurecer quando ociosa depois de",
+      idleFade: "Ocultar quando não estiver em uso",
+      idleFadeHint:
+        "A ilha some depois do tempo abaixo sem o mouse por cima e sem novidade nas sessões. Volta ao passar o mouse ou quando uma sessão muda. Útil em telas OLED.",
+      idleFadeAfter: "Ocultar depois de",
       sessions: "Sessões",
       idleAfter: "Considerar a sessão ociosa depois de",
       idleAfterHint: "Vale para a cor da bolinha na linha da sessão.",
