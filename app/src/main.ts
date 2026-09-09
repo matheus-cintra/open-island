@@ -192,6 +192,7 @@ let expandOnHover = true;
 let collapseOnLeave = true;
 let hideInFullscreen = true;
 let hideWhenIdle = false;
+let idleFadeEnabled = false;
 let clickToJump = true;
 let smartSuppression = true;
 let expandOnCompletion = true;
@@ -1976,10 +1977,12 @@ function resetIdle(): void {
     islandEl.style.opacity = "1";
   }
   clearTimeout(idleTimer);
-  idleTimer = window.setTimeout(() => {
-    idle = true;
-    islandEl.style.opacity = "0";
-  }, idleMs);
+  if (idleFadeEnabled) {
+    idleTimer = window.setTimeout(() => {
+      idle = true;
+      islandEl.style.opacity = "0";
+    }, idleMs);
+  }
   paintHidden();
 }
 
@@ -2133,6 +2136,7 @@ export function applyConfig(next: Record<string, unknown>): void {
   collapseOnLeave = island.collapse_on_leave !== false;
   hideInFullscreen = island.hide_in_fullscreen !== false;
   hideWhenIdle = island.hide_when_idle === true;
+  idleFadeEnabled = island.idle_fade === true;
   clickToJump = island.click_to_jump !== false;
   smartSuppression = island.smart_suppression !== false;
   const notifications = section(next, "notifications");

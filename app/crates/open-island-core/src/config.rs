@@ -269,6 +269,7 @@ pub struct IslandConfig {
     pub hover_dwell: Duration,
     pub auto_collapse: Duration,
     pub idle_fade: Duration,
+    pub idle_fade_enabled: bool,
     pub expand_on_hover: bool,
     pub collapse_on_leave: bool,
     pub hide_in_fullscreen: bool,
@@ -406,6 +407,7 @@ impl Default for IslandConfig {
             hover_dwell: DEFAULT_HOVER_DWELL,
             auto_collapse: DEFAULT_AUTO_COLLAPSE,
             idle_fade: DEFAULT_IDLE_FADE,
+            idle_fade_enabled: false,
             expand_on_hover: true,
             collapse_on_leave: true,
             hide_in_fullscreen: true,
@@ -492,6 +494,7 @@ impl Config {
             "island": {
                 "hover_dwell_ms": as_millis(self.island.hover_dwell),
                 "auto_collapse_ms": as_millis(self.island.auto_collapse),
+                "idle_fade": self.island.idle_fade_enabled,
                 "idle_fade_ms": as_millis(self.island.idle_fade),
                 "expand_on_hover": self.island.expand_on_hover,
                 "collapse_on_leave": self.island.collapse_on_leave,
@@ -599,6 +602,34 @@ pub fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
     result.map_err(|error| format!("write {}: {error}", path.display()))
 }
 
+pub fn save(path: &Path, config: &Config) -> Result<(), String> {
+    let existing = fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .filter(Value::is_object)
+        .unwrap_or(Value::Null);
+    let merged = merge_document(existing, config.to_json_value());
+    let text = serde_json::to_string_pretty(&merged)
+        .map_err(|error| format!("serialize config: {error}"))?;
+    write_atomic(path, &format!("{text}\n"))
+}
+
+fn merge_document(existing: Value, fresh: Value) -> Value {
+    match (existing, fresh) {
+        (Value::Object(mut document), Value::Object(incoming)) => {
+            for (key, value) in incoming {
+                let merged = match document.remove(&key) {
+                    Some(previous) => merge_document(previous, value),
+                    None => value,
+                };
+                document.insert(key, merged);
+            }
+            Value::Object(document)
+        }
+        (_, fresh) => fresh,
+    }
+}
+
 fn as_millis(duration: Duration) -> u64 {
     duration.as_millis() as u64
 }
@@ -678,6 +709,7 @@ fn island_from(value: Option<&Value>, defaults: IslandConfig) -> IslandConfig {
         hover_dwell: milliseconds(value, "hover_dwell_ms", defaults.hover_dwell),
         auto_collapse: milliseconds(value, "auto_collapse_ms", defaults.auto_collapse),
         idle_fade: milliseconds(value, "idle_fade_ms", defaults.idle_fade),
+        idle_fade_enabled: boolean(value, "idle_fade", defaults.idle_fade_enabled),
         expand_on_hover: boolean(value, "expand_on_hover", defaults.expand_on_hover),
         collapse_on_leave: boolean(value, "collapse_on_leave", defaults.collapse_on_leave),
         hide_in_fullscreen: boolean(value, "hide_in_fullscreen", defaults.hide_in_fullscreen),
