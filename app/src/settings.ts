@@ -20,7 +20,7 @@ type PaneId =
   | "usage"
   | "filters"
   | "about";
-type ActionName = "removeAutoConfig" | "quit";
+type ActionName = "removeAutoConfig" | "quit" | "checkUpdate";
 type DurationUnit = "ms" | "s" | "min";
 type RuleField = "cwd" | "prompt";
 type MatchType = "contains" | "prefix" | "equals";
@@ -821,6 +821,12 @@ const PANES: Pane[] = [
             hint: copy.about.updateCheckHint,
             control: { kind: "switch" },
           },
+          {
+            path: "about.check_update",
+            label: copy.about.checkUpdate,
+            hint: copy.about.checkUpdateHint,
+            control: { kind: "action", name: "checkUpdate", text: copy.about.checkUpdateNow },
+          },
         ],
       },
       {
@@ -1254,6 +1260,14 @@ const ACTIONS: Record<ActionName, () => Promise<void>> = {
   },
   quit: async () => {
     await invoke("quit_app");
+  },
+  checkUpdate: async () => {
+    const result = await invoke<{ version: string | null }>("check_update");
+    availableUpdate = result.version;
+    if (activePane === "about") renderPane();
+    showToast(
+      result.version === null ? copy.about.updateNone : copy.about.updateFound(result.version),
+    );
   },
 };
 

@@ -5,6 +5,7 @@ import { tauriMock } from "./tauri";
 type ConfigDocument = Record<string, Record<string, unknown>>;
 
 let update: { version: string } | null = null;
+let checkResult: { version: string | null } = { version: null };
 let checkEnabled = true;
 const writes: ConfigDocument[] = [];
 
@@ -13,6 +14,7 @@ const tauri = tauriMock(({ command, args }) => {
     return { config: { updates: { check_enabled: checkEnabled } }, env_locked: {} };
   }
   if (command === "get_update") return update;
+  if (command === "check_update") return checkResult;
   if (command === "save_config") {
     writes.push(structuredClone(args.config as ConfigDocument));
     return null;
@@ -85,4 +87,32 @@ test("a pane opened after the daemon already knows about the update shows it fro
   await new Promise((resolve) => setTimeout(resolve, 50));
   const pane = document.getElementById("pane-about")!;
   expect(pane.querySelector(".row-value")!.textContent).toBe("v0.3.0");
+});
+
+function checkButton(pane: HTMLElement): HTMLButtonElement {
+  return [...pane.querySelectorAll<HTMLButtonElement>("button.row-button")].find(
+    (button) => button.textContent === "Buscar agora",
+  )!;
+}
+
+test("the check-now action asks the daemon and shows the newer version it found", async () => {
+  update = null;
+  tauri.emit("settings-revealed", {});
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  checkResult = { version: "v0.4.0" };
+  checkButton(document.getElementById("pane-about")!).click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const pane = document.getElementById("pane-about")!;
+  expect(tauri.calls.filter((call) => call.command === "check_update").length).toBe(1);
+  expect(pane.querySelector(".row-value")!.textContent).toBe("v0.4.0");
+  expect(document.getElementById("toast")!.textContent).toBe("Versão v0.4.0 disponível.");
+});
+
+test("the check-now action says so when the running build is already the newest", async () => {
+  checkResult = { version: null };
+  checkButton(document.getElementById("pane-about")!).click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const pane = document.getElementById("pane-about")!;
+  expect(labels(pane)).not.toContain("Versão nova disponível");
+  expect(document.getElementById("toast")!.textContent).toBe("Você já está na versão mais recente.");
 });

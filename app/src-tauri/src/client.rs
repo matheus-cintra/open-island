@@ -167,6 +167,10 @@ impl DaemonClient {
         self.request("get_update", json!({}))
     }
 
+    pub fn check_update(&self) -> Result<Value, String> {
+        self.request("check_update", json!({}))
+    }
+
     pub fn send_message(&self, id: &str, text: &str) -> Result<Value, String> {
         self.request("send_message", json!({"id": id, "text": text}))
     }

@@ -411,6 +411,11 @@ fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> String {
                     jump::jump(&session).map(|()| Value::Null)
                 })
         }
+        "check_update" => {
+            let cache_path = update::cache::path();
+            refresh_update(&ctx, cache_path.as_deref(), true)
+                .map(|notice| json!({"version": notice.map(|notice| notice.version)}))
+        }
         "send_message" => request
             .params
             .ok_or_else(|| "missing send_message params".to_owned())
@@ -701,7 +706,7 @@ fn update_poller(ctx: DaemonContext, flag: ShutdownFlag) {
     let cache_path = update::cache::path();
     loop {
         if ctx.config.get().updates.check_enabled {
-            check_for_update(&ctx, cache_path.as_deref());
+            let _ = refresh_update(&ctx, cache_path.as_deref(), false);
         }
         if !shutdown::wait_for_interval(&flag, update::cache::TTL) {
             return;
@@ -709,15 +714,23 @@ fn update_poller(ctx: DaemonContext, flag: ShutdownFlag) {
     }
 }
 
-fn check_for_update(ctx: &DaemonContext, cache_path: Option<&Path>) {
+fn refresh_update(
+    ctx: &DaemonContext,
+    cache_path: Option<&Path>,
+    force: bool,
+) -> Result<Option<UpdateAvailable>, String> {
     let now_ms = usage::now_ms();
-    let tag = match cache_path.and_then(|path| update::cache::load(path, now_ms)) {
+    let cached = if force {
+        None
+    } else {
+        cache_path.and_then(|path| update::cache::load(path, now_ms))
+    };
+    let tag = match cached {
         Some(cached) => cached.tag,
         None => {
-            let Ok(tag) = update::release::fetch().and_then(|body| update::release::parse(&body))
-            else {
-                return;
-            };
+            let tag = update::release::fetch()
+                .and_then(|body| update::release::parse(&body))
+                .map_err(|error| error.message().to_owned())?;
             if let Some(path) = cache_path {
                 let check = CachedCheck {
                     tag: tag.clone(),
@@ -729,19 +742,23 @@ fn check_for_update(ctx: &DaemonContext, cache_path: Option<&Path>) {
         }
     };
     if !update::is_newer(&tag, VERSION) {
-        return;
+        return Ok(None);
     }
     let notice = UpdateAvailable { version: tag };
     if let Ok(mut state) = ctx.state.lock() {
         if state.update.as_ref() == Some(&notice) {
-            return;
+            return Ok(Some(notice));
         }
         state.update = Some(notice.clone());
     }
     broadcast(
         &ctx.state,
-        event_message("update-available", EventData::UpdateAvailable(notice)),
+        event_message(
+            "update-available",
+            EventData::UpdateAvailable(notice.clone()),
+        ),
     );
+    Ok(Some(notice))
 }
 
 fn send_message(ctx: &DaemonContext, session_id: &str, text: &str) -> Result<Value, String> {

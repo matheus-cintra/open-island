@@ -201,6 +201,11 @@ fn get_update(client: State<'_, DaemonClient>) -> Result<Value, String> {
 }
 
 #[tauri::command]
+fn check_update(client: State<'_, DaemonClient>) -> Result<Value, String> {
+    client.check_update()
+}
+
+#[tauri::command]
 fn run_update(prompt: String) -> Result<(), String> {
     update::run(&prompt)
 }
@@ -450,6 +455,7 @@ pub fn run() {
             get_config,
             get_usage,
             get_update,
+            check_update,
             run_update,
             send_message,
             cancel_message,

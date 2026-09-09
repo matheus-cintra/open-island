@@ -166,6 +166,11 @@ export const strings = {
       updateCheck: "Avisar quando sair uma versão nova",
       updateCheckHint:
         "Uma vez por dia o daemon pergunta ao GitHub qual é a versão publicada mais recente. Nada seu vai junto. Desligue para que essa consulta não seja feita.",
+      checkUpdate: "Buscar atualização",
+      checkUpdateHint: "Pergunta ao GitHub agora, sem esperar a consulta diária.",
+      checkUpdateNow: "Buscar agora",
+      updateFound: (version: string): string => `Versão ${version} disponível.`,
+      updateNone: "Você já está na versão mais recente.",
       updateAvailable: "Versão nova disponível",
       updateAvailableHint:
         "Para atualizar, rode de novo: curl -fsSL https://raw.githubusercontent.com/matheus-cintra/open-island/master/install.sh | sh",
