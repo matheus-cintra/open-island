@@ -2,14 +2,18 @@
 mod appicon;
 mod client;
 mod hypr;
+mod launch;
 mod layershell;
 mod settings;
 mod terminal;
 mod update;
 
 use client::DaemonClient;
+use gtk::prelude::{FileChooserExt, NativeDialogExt};
 use open_island_core::{protocol::ApprovalDecision, session::Session};
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Listener, Manager, State};
@@ -182,6 +186,42 @@ fn island_keyboard(window: tauri::WebviewWindow, active: bool) -> Result<(), Str
             if let Ok(gtk_window) = target.gtk_window() {
                 layershell::set_keyboard(&gtk_window, active);
             }
+        })
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn pick_session_folder(
+    window: tauri::WebviewWindow,
+    agent: String,
+    title: String,
+    accept: String,
+    cancel: String,
+) -> Result<(), String> {
+    let agent = launch::known_agent(&agent)?;
+    let target = window.clone();
+    window
+        .run_on_main_thread(move || {
+            let dialog = gtk::FileChooserNative::new(
+                Some(&title),
+                None::<&gtk::Window>,
+                gtk::FileChooserAction::SelectFolder,
+                Some(&accept),
+                Some(&cancel),
+            );
+            if let Some(home) = std::env::var_os("HOME") {
+                dialog.set_current_folder(home);
+            }
+            let holder = Rc::new(RefCell::new(Some(dialog.clone())));
+            dialog.connect_response(move |dialog, response| {
+                let path = (response == gtk::ResponseType::Accept)
+                    .then(|| dialog.filename())
+                    .flatten()
+                    .map(|folder| folder.to_string_lossy().into_owned());
+                let _ = target.emit("session-folder", json!({ "agent": agent, "path": path }));
+                holder.borrow_mut().take();
+            });
+            dialog.show();
         })
         .map_err(|error| error.to_string())
 }
@@ -453,6 +493,7 @@ pub fn run() {
             answer_question,
             set_island_size,
             island_keyboard,
+            pick_session_folder,
             get_config,
             get_usage,
             get_update,
