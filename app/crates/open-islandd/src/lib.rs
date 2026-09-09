@@ -2,6 +2,7 @@ pub mod broadcast;
 pub mod claude_hook;
 pub mod codex_hook;
 pub mod config_handle;
+pub mod daemon_config;
 pub mod installer;
 pub mod notifications;
 pub mod opencode_hook;

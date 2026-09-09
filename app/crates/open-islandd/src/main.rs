@@ -1,5 +1,5 @@
 use open_island_core::{
-    config::{self, Config, SoundEvent},
+    config::{self, SoundEvent},
     discovery,
     jump::{self, JumpPlanner},
     protocol::{EventData, QuietScenes, Request, UpdateAvailable},
@@ -12,6 +12,10 @@ use open_islandd::broadcast::{
     broadcast, broadcast_except, broadcast_sessions, make_broadcast, make_hook_broadcast,
 };
 use open_islandd::config_handle::ConfigHandle;
+use open_islandd::daemon_config::{
+    approval_timeout, config_stamp, configure_detected_agents, env_locked, hook_timeout,
+    idle_after, load_config, question_timeout, reload_config, VERSION,
+};
 use open_islandd::notifications::{
     approval::QuestionSettlement,
     lifecycle::{self, DaemonContext, DaemonState, SharedState},
@@ -43,8 +47,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
 const HELP: &str = "\
 Uso: open-islandd [--socket <caminho>]
      open-islandd <comando> [opções]
@@ -64,7 +66,6 @@ Opções:
   --socket <caminho>   socket usado para falar com o daemon.
                        Padrão: $OPEN_ISLAND_SOCKET ou $XDG_RUNTIME_DIR/open-island.sock";
 
-const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(90);
 const STOP_DEADLINE: Duration = Duration::from_millis(500);
 
 /// The accept loop polls instead of blocking so a shutdown can break it, and every new
@@ -115,102 +116,6 @@ fn bind_socket(path: &Path) -> io::Result<UnixListener> {
             }
         },
     }
-}
-
-fn approval_timeout() -> Duration {
-    env::var("OPEN_ISLAND_APPROVAL_TIMEOUT_MS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .map_or(DEFAULT_APPROVAL_TIMEOUT, Duration::from_millis)
-}
-
-fn question_timeout() -> Duration {
-    env::var("OPEN_ISLAND_QUESTION_TIMEOUT_MS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .map_or(DEFAULT_APPROVAL_TIMEOUT, Duration::from_millis)
-}
-
-const IDLE_AFTER_VARIABLE: &str = "OPEN_ISLAND_IDLE_MS";
-
-fn idle_after_override() -> Option<Duration> {
-    env::var(IDLE_AFTER_VARIABLE)
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .map(Duration::from_millis)
-}
-
-fn idle_after(config: &Config) -> Duration {
-    idle_after_override().unwrap_or(config.sessions.idle_after)
-}
-
-fn env_locked() -> Value {
-    let mut locked = serde_json::Map::new();
-    if idle_after_override().is_some() {
-        locked.insert(
-            "sessions.idle_after_ms".to_owned(),
-            Value::String(IDLE_AFTER_VARIABLE.to_owned()),
-        );
-    }
-    Value::Object(locked)
-}
-
-fn config_stamp(path: &Path) -> Option<(std::time::SystemTime, u64)> {
-    let metadata = fs::metadata(path).ok()?;
-    Some((metadata.modified().ok()?, metadata.len()))
-}
-
-fn configure_detected_agents(config: &mut Config) {
-    if !config.integrations.auto_configure {
-        return;
-    }
-    let (Ok(home), Ok(executable)) = (installer::home_dir(), env::current_exe()) else {
-        return;
-    };
-    let (configured, errors) =
-        installer::auto_configure(&home, &executable, &config.integrations.known_agents);
-    for error in errors {
-        eprintln!("open-islandd: auto-configure {error}");
-    }
-    if configured.is_empty() {
-        return;
-    }
-    for agent in &configured {
-        println!("open-islandd: configured the {agent} hooks");
-    }
-    config.integrations.known_agents.extend(configured);
-    config.integrations.known_agents.sort();
-    config.integrations.known_agents.dedup();
-    let Some(path) = config::path() else {
-        return;
-    };
-    if let Err(error) = config::save(&path, config) {
-        eprintln!("open-islandd: {error}");
-    }
-}
-
-fn load_config() -> Config {
-    let Some(path) = config::path() else {
-        return Config::default();
-    };
-    match fs::read_to_string(&path) {
-        Ok(text) => Config::from_json_str(&text),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Config::default(),
-        Err(error) => {
-            eprintln!("open-islandd: {}: {error}", path.display());
-            Config::default()
-        }
-    }
-}
-
-fn hook_timeout() -> Duration {
-    env::var("OPEN_ISLAND_HOOK_TIMEOUT_MS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .map_or(
-            DEFAULT_APPROVAL_TIMEOUT + Duration::from_secs(30),
-            Duration::from_millis,
-        )
 }
 
 fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> String {
@@ -707,25 +612,6 @@ fn deliver_message(session: &Session, message: &QueuedMessage) -> Result<(), Str
     })
     .map_err(|blocked| blocked.code().to_owned())?;
     send::execute(&send::plan(&channel, &message.text), &runner)
-}
-
-fn reload_config(ctx: &DaemonContext, broadcast: impl Fn(String) -> bool) {
-    let config = load_config();
-    if *ctx.config.get() == config {
-        return;
-    }
-    let idle_after = idle_after(&config);
-    let rules = config.filters.rules.clone();
-    let launchers = config.filters.launchers.clone();
-    let cleanup_after = config.sessions.cleanup_after;
-    let payload = config.to_json_value();
-    ctx.config.set(config);
-    if let Ok(mut state) = ctx.state.lock() {
-        state.store.set_idle_after(idle_after);
-        state.store.set_cleanup_after(cleanup_after);
-        state.store.set_filter_rules(rules, launchers);
-    }
-    broadcast(lifecycle::config_changed_message(payload));
 }
 
 fn announce_idle_reminders(ctx: &DaemonContext) {
