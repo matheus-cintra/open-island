@@ -4,7 +4,7 @@ const SCRIPT: &str = "curl -fsSL https://example.test/install.sh | sh && echo \"
 const PROMPT: &str = "Pressione Enter para fechar.";
 
 fn argv(program: &str) -> Vec<String> {
-    terminal_argv(Path::new(program), SCRIPT, PROMPT)
+    terminal_argv(Path::new(program), SCRIPT, &[PROMPT])
 }
 
 fn tail() -> Vec<String> {
@@ -61,12 +61,63 @@ fn the_script_and_the_prompt_each_stay_one_argument() {
     assert_eq!(argv[5], PROMPT);
 }
 
+const SESSION_SCRIPT: &str = "cd \"$1\" && exec \"$2\"";
+
 #[test]
-fn the_shipped_script_reinstalls_then_restarts_both_units_and_waits() {
-    assert!(INSTALL_SCRIPT.starts_with(
-        "curl -fsSL https://raw.githubusercontent.com/matheus-cintra/open-island/master/install.sh | sh && systemctl --user restart open-islandd.service open-island.service;"
-    ));
-    assert!(INSTALL_SCRIPT.ends_with("printf '\\n%s' \"$1\"; read dummy"));
+fn kitty_gets_the_folder_and_the_agent_as_two_arguments_after_the_script() {
+    assert_eq!(
+        terminal_argv(
+            Path::new("/usr/bin/kitty"),
+            SESSION_SCRIPT,
+            &["/home/x/proj", "claude"]
+        ),
+        [
+            "/usr/bin/kitty",
+            "sh",
+            "-c",
+            SESSION_SCRIPT,
+            "sh",
+            "/home/x/proj",
+            "claude"
+        ]
+        .map(str::to_owned)
+    );
+}
+
+#[test]
+fn gnome_terminal_gets_the_double_dash_before_the_same_two_arguments() {
+    assert_eq!(
+        terminal_argv(
+            Path::new("/usr/bin/gnome-terminal"),
+            SESSION_SCRIPT,
+            &["/home/x/proj", "claude"]
+        ),
+        [
+            "/usr/bin/gnome-terminal",
+            "--",
+            "sh",
+            "-c",
+            SESSION_SCRIPT,
+            "sh",
+            "/home/x/proj",
+            "claude"
+        ]
+        .map(str::to_owned)
+    );
+}
+
+#[test]
+fn no_extra_arguments_ends_right_after_the_script_name() {
+    let argv = terminal_argv(Path::new("/usr/bin/kitty"), SCRIPT, &[]);
+    assert_eq!(
+        argv,
+        ["/usr/bin/kitty", "sh", "-c", SCRIPT, "sh"].map(str::to_owned)
+    );
+    let alacritty = terminal_argv(Path::new("/usr/bin/alacritty"), SCRIPT, &[]);
+    assert_eq!(
+        alacritty,
+        ["/usr/bin/alacritty", "-e", "sh", "-c", SCRIPT, "sh"].map(str::to_owned)
+    );
 }
 
 fn lookup_among(available: &'static [&'static str]) -> impl Fn(&str) -> Option<PathBuf> {

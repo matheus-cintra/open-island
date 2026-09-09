@@ -4,6 +4,7 @@ mod client;
 mod hypr;
 mod layershell;
 mod settings;
+mod terminal;
 mod update;
 
 use client::DaemonClient;
