@@ -339,6 +339,21 @@ struct FakeKitty {
     directory: PathBuf,
 }
 
+fn spawn_when_not_busy(command: &mut Command) -> Child {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match command.spawn() {
+            Ok(child) => return child,
+            Err(error)
+                if error.kind() == ErrorKind::ExecutableFileBusy && Instant::now() < deadline =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("spawn fake kitty: {error}"),
+        }
+    }
+}
+
 impl Drop for FakeKitty {
     fn drop(&mut self) {
         let _ = self.child.0.kill();
@@ -372,7 +387,7 @@ fn spawn_agent_under_fake_kitty(
         command.env("KITTY_LISTEN_ON", listen_on);
     }
     let guard = FakeKitty {
-        child: Killed(command.spawn().expect("spawn fake kitty")),
+        child: Killed(spawn_when_not_busy(&mut command)),
         directory,
     };
     let parent = guard.child.0.id();
