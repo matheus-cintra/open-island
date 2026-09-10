@@ -27,6 +27,46 @@ import {
   UsageSnapshot,
 } from "./types";
 import { isRecord, milliseconds, planSummary, reasonOf, section, stringField } from "./json";
+import {
+  islandEl,
+  compactViewEl,
+  expandedViewEl,
+  compactRowEl,
+  headerLabelEl,
+  headerUsageEl,
+  headerUsageModelEl,
+  sessionListEl,
+  jumpErrorEl,
+  approvalCardEl,
+  approvalToolEl,
+  approvalSummaryEl,
+  approvalAllowEl,
+  approvalAlwaysEl,
+  approvalDenyEl,
+  approvalDiffEl,
+  approvalKickerEl,
+  approvalActionsEl,
+  questionCardEl,
+  questionKickerEl,
+  questionCountEl,
+  questionBodyEl,
+  questionActionsEl,
+  headerNewSessionEl,
+  newSessionCardEl,
+  newSessionKickerEl,
+  newSessionAgentsEl,
+  newSessionCloseEl,
+  headerMuteEl,
+  headerSettingsEl,
+  headerUpdateEl,
+  muteWavesEl,
+  muteCrossEl,
+  compactSpriteEl,
+  compactProject,
+  compactTail,
+  compactCount,
+  compactLabel,
+} from "./elements";
 
 let compactClean = false;
 let notchWidth = 0;
@@ -102,57 +142,6 @@ let agentIdleTimer = 0;
 const DEBUG_SPEED = false;
 const PIXEL_PERIOD_X = 180_000 * (DEBUG_SPEED ? 0.02 : 1);
 const PIXEL_PERIOD_Y = 291_240 * (DEBUG_SPEED ? 0.02 : 1);
-
-/* ------------------------------------------------------------------ */
-/* Element refs                                                        */
-/* ------------------------------------------------------------------ */
-
-const islandEl = document.getElementById("island")!;
-const compactViewEl = document.getElementById("compact-view")!;
-const expandedViewEl = document.getElementById("expanded-view")!;
-const compactRowEl = document.getElementById("compact-row")!;
-const headerLabelEl = document.getElementById("header-label")!;
-const headerUsageEl = document.getElementById("header-usage")!;
-const headerUsageModelEl = document.getElementById("header-usage-model")!;
-const sessionListEl = document.getElementById("session-list")!;
-const jumpErrorEl = document.getElementById("jump-error")!;
-const approvalCardEl = document.getElementById("approval-card")!;
-const approvalToolEl = document.getElementById("approval-tool")!;
-const approvalSummaryEl = document.getElementById("approval-summary")!;
-const approvalAllowEl = document.getElementById("approval-allow") as HTMLButtonElement;
-const approvalAlwaysEl = document.getElementById("approval-always") as HTMLButtonElement;
-const approvalDenyEl = document.getElementById("approval-deny") as HTMLButtonElement;
-const approvalDiffEl = document.getElementById("approval-diff")!;
-const approvalKickerEl = document.getElementById("approval-kicker")!;
-const approvalActionsEl = document.getElementById("approval-actions")!;
-const questionCardEl = document.getElementById("question-card")!;
-const questionKickerEl = document.getElementById("question-kicker")!;
-const questionCountEl = document.getElementById("question-count")!;
-const questionBodyEl = document.getElementById("question-body")!;
-const questionActionsEl = document.getElementById("question-actions")!;
-
-const headerNewSessionEl = document.getElementById("header-new-session") as HTMLButtonElement;
-const newSessionCardEl = document.getElementById("new-session-card")!;
-const newSessionKickerEl = document.getElementById("new-session-kicker")!;
-const newSessionAgentsEl = document.getElementById("new-session-agents")!;
-const newSessionCloseEl = document.getElementById("new-session-close") as HTMLButtonElement;
-const headerMuteEl = document.getElementById("header-mute") as HTMLButtonElement;
-const headerSettingsEl = document.getElementById("header-settings") as HTMLButtonElement;
-const headerUpdateEl = document.getElementById("header-update") as HTMLButtonElement;
-const muteWavesEl = document.getElementById("header-mute-waves") as unknown as SVGGElement;
-const muteCrossEl = document.getElementById("header-mute-cross") as unknown as SVGGElement;
-
-const compactSpriteEl = document.createElement("span");
-compactSpriteEl.className = "compact-sprite";
-const compactProject = document.createElement("span");
-compactProject.className = "compact-project";
-const compactTail = document.createElement("span");
-compactTail.className = "compact-tail";
-const compactCount = document.createElement("span");
-compactCount.className = "compact-count";
-const compactLabel = document.createElement("span");
-compactLabel.className = "compact-label";
-compactTail.append(compactCount, compactLabel);
 
 /* ------------------------------------------------------------------ */
 /* State                                                               */
