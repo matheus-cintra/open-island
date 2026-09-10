@@ -3,6 +3,15 @@ import { listen } from "@tauri-apps/api/event";
 import { strings } from "./strings";
 import { createSprite } from "./sprites";
 import {
+  config,
+  envLocked,
+  isJsonObject,
+  loadConfig,
+  readPath,
+  savePending,
+  setValue,
+} from "./settings-config";
+import {
   ICON_CHECK,
   ICON_CHEVRON_DOWN,
   ICON_CHEVRON_UP,
@@ -22,7 +31,6 @@ import {
 import { showToast } from "./settings-toast";
 import {
   ActionName,
-  ConfigPayload,
   Control,
   DurationUnit,
   IntegrationName,
@@ -43,10 +51,10 @@ import {
 } from "./settings-types";
 
 export type { Control } from "./settings-types";
+export { flushSave, setValue } from "./settings-config";
 
 const SCALE_STEPS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 const REMINDER_DELAYS = [0, 600_000, 1_800_000, 3_600_000] as const;
-const SAVE_DEBOUNCE_MS = 250;
 const CONFIRM_MS = 8000;
 const MILLISECONDS_PER_UNIT: Record<DurationUnit, number> = {
   ms: 1,
@@ -775,9 +783,7 @@ const contentEl = document.getElementById("content") as HTMLElement;
 const markerEl = document.createElement("span");
 markerEl.className = "sidebar-marker";
 
-let config: JsonObject = {};
 let observedLaunchers: string[] = [];
-let envLocked: Record<string, string> = {};
 const UNKNOWN_INTEGRATION: IntegrationState = { detected: false, installed: false };
 let integrations: IntegrationStatus = {
   autostart: UNKNOWN_INTEGRATION,
@@ -791,74 +797,12 @@ let autoScale: number | null = null;
 let appVersion = "";
 let availableUpdate: string | null = null;
 let activePane: PaneId = "general";
-let saveTimer = 0;
-let savePending = false;
-const dirtyPaths = new Set<string>();
 let dependants: { element: HTMLElement; path: string; mode: "dim" | "hide" }[] = [];
-
-function isJsonObject(value: JsonValue | undefined): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function readPath(root: JsonObject, path: string): JsonValue | undefined {
-  const parts = path.split(".");
-  let cursor: JsonValue | undefined = root;
-  for (const part of parts) {
-    if (!isJsonObject(cursor)) return undefined;
-    cursor = cursor[part];
-  }
-  return cursor;
-}
-
-function writePath(root: JsonObject, path: string, value: JsonValue): void {
-  const parts = path.split(".");
-  const last = parts.pop();
-  if (last === undefined) return;
-  let cursor: JsonObject = root;
-  for (const part of parts) {
-    const next = cursor[part];
-    if (!isJsonObject(next)) return;
-    cursor = next;
-  }
-  cursor[last] = value;
-}
 
 function icon(markup: string): SVGElement {
   const holder = document.createElement("span");
   holder.innerHTML = markup;
   return holder.firstElementChild as SVGElement;
-}
-
-export function setValue(path: string, value: JsonValue): void {
-  writePath(config, path, value);
-  dirtyPaths.add(path);
-  queueSave();
-}
-
-export async function flushSave(): Promise<void> {
-  const payload = await invoke<ConfigPayload>("get_config");
-  for (const path of dirtyPaths) {
-    const value = readPath(config, path);
-    if (value !== undefined) writePath(payload.config, path, value);
-  }
-  config = payload.config;
-  envLocked = payload.env_locked;
-  await invoke("save_config", { config });
-  dirtyPaths.clear();
-}
-
-function queueSave(): void {
-  clearTimeout(saveTimer);
-  savePending = true;
-  saveTimer = window.setTimeout(() => {
-    void flushSave()
-      .catch((error: unknown) => {
-        showToast(copy.saveFailed(String(error)));
-      })
-      .finally(() => {
-        savePending = false;
-      });
-  }, SAVE_DEBOUNCE_MS);
 }
 
 function toUnit(milliseconds: number, unit: DurationUnit): number {
@@ -1990,14 +1934,6 @@ function rememberAgent(name: IntegrationName): void {
   const known = readPath(config, "integrations.known_agents");
   if (!Array.isArray(known) || known.includes(name)) return;
   known.push(name);
-}
-
-async function loadConfig(): Promise<boolean> {
-  const payload = await invoke<ConfigPayload>("get_config");
-  const changed = JSON.stringify(payload.config) !== JSON.stringify(config);
-  config = payload.config;
-  envLocked = payload.env_locked;
-  return changed;
 }
 
 async function load(): Promise<void> {
