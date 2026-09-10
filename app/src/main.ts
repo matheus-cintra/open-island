@@ -26,6 +26,7 @@ import {
   UsageReport,
   UsageSnapshot,
 } from "./types";
+import { isRecord, milliseconds, planSummary, reasonOf, section, stringField } from "./json";
 
 let compactClean = false;
 let notchWidth = 0;
@@ -1138,10 +1139,6 @@ export function fillRow(li: HTMLLIElement, session: Session, transcript: boolean
   fillMessageBox(li, session);
 }
 
-function reasonOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function createMessageBox(sessionId: string): HTMLElement {
   const box = document.createElement("div");
   box.className = "row-message";
@@ -1372,16 +1369,6 @@ function jumpToId(id: string): void {
   });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function stringField(value: unknown, field: string): string | undefined {
-  if (!isRecord(value)) return undefined;
-  const fieldValue = value[field];
-  return typeof fieldValue === "string" && fieldValue.length > 0 ? fieldValue : undefined;
-}
-
 function parseApproval(value: unknown): ApprovalRequest | null {
   const approvalId = stringField(value, "approval_id");
   const sessionId = stringField(value, "session_id");
@@ -1403,13 +1390,6 @@ function parseResolution(value: unknown): ApprovalResolved | null {
   const decision = stringField(value, "decision");
   if (!approvalId || !sessionId || (decision !== "allow" && decision !== "deny")) return null;
   return { approval_id: approvalId, session_id: sessionId, decision };
-}
-
-function planSummary(plan: string): string | undefined {
-  return plan
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => line.length > 0 && !line.startsWith("#"));
 }
 
 function approvalDescription(approval: ApprovalRequest): string {
@@ -1949,16 +1929,6 @@ void listen<unknown>("island-toggle", () => {
   if (pendingApproval !== null || pendingQuestion !== null || launchOpen) return;
   collapse();
 });
-
-function section(root: Record<string, unknown>, name: string): Record<string, unknown> {
-  const value = root[name];
-  return isRecord(value) ? value : {};
-}
-
-function milliseconds(root: Record<string, unknown>, name: string, fallback: number): number {
-  const value = root[name];
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
 
 function paintUpdate(): void {
   headerUpdateEl.hidden = availableUpdate === null;
