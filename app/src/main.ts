@@ -4,89 +4,28 @@ import { listen } from "@tauri-apps/api/event";
 import { strings } from "./strings";
 import { SESSION_ICONS } from "./session-icons";
 import { createSprite, spriteAgent } from "./sprites";
-
-type TerminalKind = "kitty" | "alacritty" | "unknown" | "wezterm" | "ghostty" | "zed" | "code" | "cursor" | "windsurf" | "codium";
-
-interface QueuedMessage {
-  id: number;
-  text: string;
-  queued_at_ms: number;
-}
-
-interface Task {
-  content: string;
-  status: "pending" | "in_progress" | "completed" | "cancelled";
-}
-
-interface Session {
-  id: string;
-  agent: string;
-  cwd: string;
-  title: string;
-  pid: number;
-  terminal: TerminalKind;
-  hook_id?: string;
-  status?: string;
-  current_tool?: string;
-  summary?: string;
-  last_message?: string;
-  last_message_body?: string;
-  tasks?: Task[];
-  mode?: string;
-  subagents?: Subagent[];
-  permission_state?: "unknown" | "pending" | "allowed" | "denied";
-  question_state?: "pending" | "answered" | "expired";
-  attention?: Attention;
-  queued_messages?: QueuedMessage[];
-  send_channel?: string;
-  send_blocked?: string;
-  name?: string;
-  branch?: string;
-  model?: string;
-  effort?: string;
-  since_ms?: number;
-  raise_pid?: number;
-  launcher?: string;
-}
-
-type Attention = "waiting_for_input" | "needs_attention" | "working" | "idle";
-type SubagentTiming = "root_responses" | "all_finished" | "every_completion";
-
-interface PointerState {
-  inside: boolean;
-}
-
-interface FocusState {
-  pid: number | null;
-}
-
-interface QuietScenes {
-  active: boolean;
-}
-
-type ApprovalDecision = "allow" | "deny" | "allow_always";
-
-interface Subagent {
-  id: string;
-  kind: string;
-  description?: string;
-  tool?: string;
-  summary?: string;
-  since_ms?: number;
-  done?: boolean;
-}
-
-interface RowVisibility {
-  tasks: boolean;
-  project: boolean;
-  worktree: boolean;
-  agentIcons: boolean;
-  terminalIcons: boolean;
-  model: boolean;
-  effort: boolean;
-  activity: boolean;
-  subagents: boolean;
-}
+import {
+  ApprovalDecision,
+  ApprovalRequest,
+  ApprovalResolved,
+  Attention,
+  BadgeSpec,
+  DiffLine,
+  FocusState,
+  PointerState,
+  Question,
+  QuestionRequest,
+  QuestionResolved,
+  QuietScenes,
+  RowVisibility,
+  Session,
+  Size,
+  Subagent,
+  SubagentTiming,
+  Task,
+  UsageReport,
+  UsageSnapshot,
+} from "./types";
 
 let compactClean = false;
 let notchWidth = 0;
@@ -112,57 +51,9 @@ function supportsAlways(approval: ApprovalRequest): boolean {
   return ALWAYS_CAPABLE.has(approval.session_id.split(":")[0] ?? "");
 }
 
-interface ApprovalRequest {
-  approval_id: string;
-  session_id: string;
-  tool_name?: string;
-  tool_input?: unknown;
-  reason?: string;
-}
-
-interface ApprovalResolved {
-  approval_id: string;
-  session_id: string;
-  decision: ApprovalDecision;
-}
-
-interface QuestionOption {
-  label: string;
-  description?: string;
-}
-
-interface Question {
-  question: string;
-  header?: string;
-  options: QuestionOption[];
-  multi_select: boolean;
-  custom: boolean;
-  id?: string;
-}
-
-interface QuestionRequest {
-  question_id: string;
-  session_id: string;
-  agent: string;
-  questions: Question[];
-  answerable: boolean;
-  expires_in_ms?: number;
-}
-
-interface QuestionResolved {
-  question_id: string;
-  session_id: string;
-  outcome: "answered" | "cancelled" | "expired";
-}
-
 /* ------------------------------------------------------------------ */
 /* Sizes / tuning                                                      */
 /* ------------------------------------------------------------------ */
-
-interface Size {
-  w: number;
-  h: number;
-}
 
 const BASE_COMPACT: Size = { w: 232, h: 46 };
 const BASE_SCOOP = 8;
@@ -279,40 +170,6 @@ let resolvingQuestion = false;
 let questionDeadline = 0;
 let countdownTimer = 0;
 let config: Record<string, unknown> = {};
-
-interface UsageWindow {
-  key: string;
-  label: string;
-  percent: number;
-  resets_at_ms?: number;
-}
-
-interface UsageModelWindow {
-  model: string;
-  percent: number;
-  resets_at_ms?: number;
-}
-
-interface UsageSnapshot {
-  provider: string;
-  windows: UsageWindow[];
-  models?: UsageModelWindow[];
-  reset_cards?: { id: string; title?: string; expires_at_ms?: number }[];
-  credits?: { balance: number; unlimited: boolean };
-  fetched_at_ms: number;
-}
-
-interface ProviderUsage {
-  provider: string;
-  detected: boolean;
-  snapshot?: UsageSnapshot;
-  error?: string;
-  checked_at_ms: number;
-}
-
-interface UsageReport {
-  providers: ProviderUsage[];
-}
 
 const USAGE_STALE_AFTER_MS = 900_000;
 let usage: UsageReport = { providers: [] };
@@ -929,8 +786,6 @@ const BRANCH_GLYPH =
   `<circle cx="3.2" cy="2.6" r="1.3"/><circle cx="3.2" cy="9.4" r="1.3"/>` +
   `<circle cx="8.8" cy="4.4" r="1.3"/><path d="M3.2 3.9v4.2M4.5 4.4h2.2a1.4 1.4 0 0 1 1.4 1.4v.5"/>` +
   `</svg>`;
-
-type BadgeSpec = [string, string, string | undefined, string?];
 
 const terminalIconCache = new Map<string, string | null>();
 const terminalIconPending = new Set<string>();
@@ -1570,11 +1425,6 @@ function approvalDescription(approval: ApprovalRequest): string {
     if (typeof path === "string" && path.length > 0) return path;
   }
   return strings.approval.fallback;
-}
-
-interface DiffLine {
-  sign: "-" | "+";
-  text: string;
 }
 
 /// The three shapes the three agents actually send: `old_string`/`new_string` from Edit,
