@@ -19,6 +19,7 @@ import {
   ICON_USAGE,
   ICON_WARNING,
 } from "./settings-icons";
+import { showToast } from "./settings-toast";
 import {
   ActionName,
   ConfigPayload,
@@ -46,9 +47,7 @@ export type { Control } from "./settings-types";
 const SCALE_STEPS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 const REMINDER_DELAYS = [0, 600_000, 1_800_000, 3_600_000] as const;
 const SAVE_DEBOUNCE_MS = 250;
-const TOAST_MS = 6000;
 const CONFIRM_MS = 8000;
-const TOAST_EXIT_MS = 220;
 const MILLISECONDS_PER_UNIT: Record<DurationUnit, number> = {
   ms: 1,
   s: 1000,
@@ -773,7 +772,6 @@ const PANES: Pane[] = [
 const sidebarEl = document.getElementById("sidebar") as HTMLElement;
 const headerEl = document.getElementById("paneHeader") as HTMLElement;
 const contentEl = document.getElementById("content") as HTMLElement;
-const toastEl = document.getElementById("toast") as HTMLElement;
 const markerEl = document.createElement("span");
 markerEl.className = "sidebar-marker";
 
@@ -796,8 +794,6 @@ let activePane: PaneId = "general";
 let saveTimer = 0;
 let savePending = false;
 const dirtyPaths = new Set<string>();
-let toastTimer = 0;
-let toastExitTimer = 0;
 let dependants: { element: HTMLElement; path: string; mode: "dim" | "hide" }[] = [];
 
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {
@@ -831,20 +827,6 @@ function icon(markup: string): SVGElement {
   const holder = document.createElement("span");
   holder.innerHTML = markup;
   return holder.firstElementChild as SVGElement;
-}
-
-function showToast(message: string): void {
-  clearTimeout(toastExitTimer);
-  toastEl.textContent = message;
-  toastEl.hidden = false;
-  requestAnimationFrame(() => toastEl.classList.add("is-open"));
-  clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => {
-    toastEl.classList.remove("is-open");
-    toastExitTimer = window.setTimeout(() => {
-      toastEl.hidden = true;
-    }, TOAST_EXIT_MS);
-  }, TOAST_MS);
 }
 
 export function setValue(path: string, value: JsonValue): void {
