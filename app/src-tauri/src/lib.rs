@@ -2,6 +2,7 @@
 mod appicon;
 mod client;
 mod compositor;
+mod geometry;
 mod launch;
 mod layershell;
 mod settings;
@@ -10,28 +11,20 @@ mod update;
 
 use client::DaemonClient;
 use compositor::Compositor;
+use geometry::{
+    compact_size, forget_monitor_box, island_rect, pointer_is_inside, position_island,
+    remember_origin, selected_monitor, SELECTED_MONITOR,
+};
 use gtk::prelude::{FileChooserExt, NativeDialogExt};
 use open_island_core::{protocol::ApprovalDecision, session::Session};
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::{Emitter, Listener, Manager, State};
 
 const POINTER_TICK: Duration = Duration::from_millis(100);
 const REVEAL_REMAP: Duration = Duration::from_millis(80);
-const MONITOR_CACHE_TTL: Duration = Duration::from_millis(1000);
-const COMPACT_WIDTH: f64 = 232.0;
-const COMPACT_HEIGHT: f64 = 46.0;
-
-#[derive(Clone, Copy)]
-struct IslandRect {
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-}
 
 #[derive(Clone, serde::Serialize)]
 struct PointerState {
@@ -46,53 +39,6 @@ struct FullscreenState {
 #[derive(Clone, serde::Serialize)]
 struct FocusState {
     pid: Option<u32>,
-}
-
-static ISLAND_RECT: Mutex<IslandRect> = Mutex::new(IslandRect {
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
-});
-
-#[derive(Clone, Copy)]
-struct MonitorBox {
-    x: i32,
-    y: i32,
-    width: u32,
-}
-
-static MONITOR_BOX: Mutex<Option<(MonitorBox, Instant)>> = Mutex::new(None);
-static SELECTED_MONITOR: Mutex<Option<String>> = Mutex::new(None);
-
-fn selected_monitor() -> Option<String> {
-    SELECTED_MONITOR
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone()
-}
-
-fn forget_monitor_box() {
-    *MONITOR_BOX
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-}
-
-fn remember_rect(rect: IslandRect) {
-    let mut guard = ISLAND_RECT
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    *guard = rect;
-}
-
-fn island_rect() -> IslandRect {
-    *ISLAND_RECT
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-fn pointer_is_inside(rect: IslandRect, x: i32, y: i32) -> bool {
-    x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
 }
 
 fn watch_pointer(window: tauri::WebviewWindow, compositor: impl Compositor) {
@@ -417,79 +363,6 @@ fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
         .get_webview_window("settings")
         .ok_or_else(|| "no settings window".to_owned())?;
     reveal_settings(&window)
-}
-
-fn position_island(window: &tauri::WebviewWindow, width: f64, height: f64) -> Result<(), String> {
-    remember_origin(window, width, height);
-    let target = window.clone();
-    let (width, height) = (width as i32, height as i32);
-    window
-        .run_on_main_thread(move || {
-            if let Ok(gtk_window) = target.gtk_window() {
-                layershell::resize(&gtk_window, width, height);
-            }
-        })
-        .map_err(|error| error.to_string())
-}
-
-fn remember_origin(window: &tauri::WebviewWindow, width: f64, height: f64) {
-    if let Ok(Some((x, y))) = centered_origin(window, width) {
-        remember_rect(IslandRect {
-            x,
-            y,
-            width: width as i32,
-            height: height as i32,
-        });
-    }
-}
-
-fn compact_size() -> (f64, f64) {
-    let monitor = selected_monitor();
-    let compositor = compositor::current();
-    let scale = compositor.ui_scale(monitor.as_deref());
-    let height = compositor
-        .compact_height(monitor.as_deref())
-        .map(f64::from)
-        .unwrap_or((COMPACT_HEIGHT * scale).round());
-    ((COMPACT_WIDTH * scale).round(), height)
-}
-
-fn monitor_box(window: &tauri::WebviewWindow) -> Result<Option<MonitorBox>, String> {
-    let mut guard = MONITOR_BOX
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((rect, stamp)) = *guard {
-        if stamp.elapsed() < MONITOR_CACHE_TTL {
-            return Ok(Some(rect));
-        }
-    }
-    let rect = match compositor::current()
-        .monitor_named(selected_monitor().as_deref())
-        .map(|monitor| MonitorBox {
-            x: monitor.x,
-            y: monitor.y,
-            width: monitor.width,
-        }) {
-        Some(rect) => Some(rect),
-        None => window
-            .available_monitors()
-            .map_err(|e| e.to_string())?
-            .first()
-            .map(|monitor| MonitorBox {
-                x: 0,
-                y: 0,
-                width: monitor.size().width,
-            }),
-    };
-    *guard = rect.map(|value| (value, Instant::now()));
-    Ok(rect)
-}
-
-fn centered_origin(
-    window: &tauri::WebviewWindow,
-    width: f64,
-) -> Result<Option<(i32, i32)>, String> {
-    Ok(monitor_box(window)?.map(|rect| (rect.x + (rect.width as i32 - width as i32) / 2, rect.y)))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
