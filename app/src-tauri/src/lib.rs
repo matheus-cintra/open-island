@@ -5,6 +5,7 @@ mod compositor;
 mod geometry;
 mod launch;
 mod layershell;
+mod pointer;
 mod settings;
 mod terminal;
 mod update;
@@ -12,85 +13,19 @@ mod update;
 use client::DaemonClient;
 use compositor::Compositor;
 use geometry::{
-    compact_size, forget_monitor_box, island_rect, pointer_is_inside, position_island,
-    remember_origin, selected_monitor, SELECTED_MONITOR,
+    compact_size, forget_monitor_box, position_island, remember_origin, selected_monitor,
+    SELECTED_MONITOR,
 };
 use gtk::prelude::{FileChooserExt, NativeDialogExt};
 use open_island_core::{protocol::ApprovalDecision, session::Session};
+use pointer::watch_pointer;
 use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 use tauri::{Emitter, Listener, Manager, State};
 
-const POINTER_TICK: Duration = Duration::from_millis(100);
 const REVEAL_REMAP: Duration = Duration::from_millis(80);
-
-#[derive(Clone, serde::Serialize)]
-struct PointerState {
-    inside: bool,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct FullscreenState {
-    fullscreen: bool,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct FocusState {
-    pid: Option<u32>,
-}
-
-fn watch_pointer(window: tauri::WebviewWindow, compositor: impl Compositor) {
-    if !compositor.available() {
-        return;
-    }
-    let mut last: Option<bool> = None;
-    let mut last_fullscreen: Option<bool> = None;
-    let mut last_focus: Option<Option<u32>> = None;
-    loop {
-        std::thread::sleep(POINTER_TICK);
-        let focus = compositor.focused_pid();
-        if last_focus != Some(focus) {
-            last_focus = Some(focus);
-            if window
-                .emit("island-focus", FocusState { pid: focus })
-                .is_err()
-            {
-                return;
-            }
-        }
-        if let Some(fullscreen) = compositor.any_fullscreen() {
-            if last_fullscreen != Some(fullscreen) {
-                last_fullscreen = Some(fullscreen);
-                if window
-                    .emit("island-fullscreen", FullscreenState { fullscreen })
-                    .is_err()
-                {
-                    return;
-                }
-            }
-        }
-        let rect = island_rect();
-        if rect.width == 0 || rect.height == 0 {
-            continue;
-        }
-        let Some((x, y)) = compositor.cursor_position() else {
-            continue;
-        };
-        let inside = pointer_is_inside(rect, x, y);
-        if last == Some(inside) {
-            continue;
-        }
-        last = Some(inside);
-        if window
-            .emit("island-pointer", PointerState { inside })
-            .is_err()
-        {
-            return;
-        }
-    }
-}
 
 #[tauri::command]
 fn list_sessions(client: State<'_, DaemonClient>) -> Result<Vec<Session>, String> {
