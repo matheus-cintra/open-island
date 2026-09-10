@@ -70,3 +70,33 @@ pub fn watch_pointer(window: tauri::WebviewWindow, compositor: impl Compositor) 
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{FocusState, FullscreenState, PointerState};
+    use serde_json::json;
+
+    #[test]
+    fn the_pointer_payload_carries_inside() {
+        let payload = PointerState { inside: true };
+        assert_eq!(
+            serde_json::to_value(payload).unwrap(),
+            json!({"inside": true})
+        );
+    }
+
+    #[test]
+    fn the_fullscreen_payload_carries_fullscreen() {
+        let payload = FullscreenState { fullscreen: false };
+        assert_eq!(
+            serde_json::to_value(payload).unwrap(),
+            json!({"fullscreen": false})
+        );
+    }
+
+    #[test]
+    fn the_focus_payload_carries_pid() {
+        let payload = FocusState { pid: Some(42) };
+        assert_eq!(serde_json::to_value(payload).unwrap(), json!({"pid": 42}));
+    }
+}

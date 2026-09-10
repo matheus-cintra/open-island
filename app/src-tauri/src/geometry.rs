@@ -138,3 +138,45 @@ pub fn centered_origin(
 ) -> Result<Option<(i32, i32)>, String> {
     Ok(monitor_box(window)?.map(|rect| (rect.x + (rect.width as i32 - width as i32) / 2, rect.y)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{pointer_is_inside, IslandRect};
+
+    fn sample_rect() -> IslandRect {
+        IslandRect {
+            x: 100,
+            y: 50,
+            width: 232,
+            height: 46,
+        }
+    }
+
+    #[test]
+    fn the_top_left_corner_is_inside() {
+        let rect = sample_rect();
+        assert!(pointer_is_inside(rect, rect.x, rect.y));
+    }
+
+    #[test]
+    fn the_last_pixel_before_the_far_edges_is_inside() {
+        let rect = sample_rect();
+        assert!(pointer_is_inside(
+            rect,
+            rect.x + rect.width - 1,
+            rect.y + rect.height - 1
+        ));
+    }
+
+    #[test]
+    fn the_far_right_edge_is_outside() {
+        let rect = sample_rect();
+        assert!(!pointer_is_inside(rect, rect.x + rect.width, rect.y));
+    }
+
+    #[test]
+    fn one_pixel_above_the_top_is_outside() {
+        let rect = sample_rect();
+        assert!(!pointer_is_inside(rect, rect.x, rect.y - 1));
+    }
+}
