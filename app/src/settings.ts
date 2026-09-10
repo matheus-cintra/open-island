@@ -2,124 +2,29 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { strings } from "./strings";
 import { createSprite } from "./sprites";
+import {
+  ActionName,
+  ConfigPayload,
+  Control,
+  DurationUnit,
+  IntegrationName,
+  IntegrationState,
+  IntegrationStatus,
+  IslandMetrics,
+  JsonObject,
+  JsonValue,
+  LauncherRule,
+  MatchType,
+  Pane,
+  PaneId,
+  Row,
+  RuleField,
+  SessionLauncher,
+  SilenceRule,
+  UpdateAvailable,
+} from "./settings-types";
 
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-type JsonObject = { [key: string]: JsonValue };
-
-type PaneId =
-  | "general"
-  | "integrations"
-  | "display"
-  | "sound"
-  | "usage"
-  | "filters"
-  | "about";
-type ActionName = "removeAutoConfig" | "quit" | "checkUpdate";
-type DurationUnit = "ms" | "s" | "min";
-type RuleField = "cwd" | "prompt";
-type MatchType = "contains" | "prefix" | "equals";
-
-interface SessionLauncher {
-  launcher?: string | null;
-}
-
-interface LauncherRule {
-  app_id: string;
-  name: string;
-  enabled: boolean;
-}
-
-interface SilenceRule {
-  field: RuleField;
-  match_type: MatchType;
-  pattern: string;
-  name: string;
-  built_in: boolean;
-  enabled: boolean;
-}
-type IntegrationName = "autostart" | "hyprland" | "claude" | "codex" | "opencode";
-
-interface ConfigPayload {
-  config: JsonObject;
-  env_locked: Record<string, string>;
-}
-
-type IntegrationState = { detected: boolean; installed: boolean };
-type IntegrationStatus = Record<IntegrationName, IntegrationState>;
-
-interface IslandMetrics {
-  scale: number;
-  compact_height: number | null;
-}
-
-interface UpdateAvailable {
-  version: string;
-}
-
-export type Control =
-  | { kind: "switch" }
-  | { kind: "duration"; unit: DurationUnit; min: number; max: number; step: number }
-  | { kind: "volume" }
-  | { kind: "size"; min: number; max: number; step: number; unit: string; scale?: number }
-  | {
-      kind: "picker";
-      values: readonly number[];
-      unit: string;
-      defaultValue: number;
-      label?: (value: number) => string;
-    }
-  | { kind: "time" }
-  | { kind: "sound" }
-  | { kind: "scale" }
-  | { kind: "options"; choices: readonly (readonly [string, string])[] }
-  | { kind: "tiles"; choices: readonly (readonly [string, string, string])[] }
-  | { kind: "percent"; min: number; max: number; step: number }
-  | { kind: "integration"; name: IntegrationName }
-  | { kind: "rules"; field: RuleField }
-  | { kind: "launchers" }
-  | { kind: "value"; text: () => string }
-  | { kind: "action"; name: ActionName; text: string; tone?: "danger"; confirm?: string }
-  | { kind: "row-action"; name: ActionName; icon: string; confirm: string };
-
-interface Row {
-  path: string;
-  label: string;
-  hint?: string;
-  control: Control;
-  visible?: () => boolean;
-  visibleWhen?: string;
-}
-
-interface Identity {
-  name: string;
-  version: () => string;
-}
-
-interface Section {
-  title?: string;
-  description?: string;
-  rows: Row[];
-  dependsOn?: string;
-  requiresIntegration?: IntegrationName;
-  notes?: string[];
-  notesTone?: "warning" | "info";
-  footer?: string;
-}
-
-interface Pane {
-  id: PaneId;
-  label: string;
-  icon: string;
-  tint: string;
-  identity?: Identity;
-  sections: Section[];
-}
+export type { Control } from "./settings-types";
 
 const SCALE_STEPS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 const REMINDER_DELAYS = [0, 600_000, 1_800_000, 3_600_000] as const;
