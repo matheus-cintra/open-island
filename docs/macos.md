@@ -9,8 +9,16 @@ comprova hover, teclado, Spaces, tela cheia, suspensão, login ou permissões de
 Baixe `open-island-macos-aarch64.dmg` (Apple Silicon) ou
 `open-island-macos-x86_64.dmg` (Intel) da release. Confira `SHA256SUMS`, abra o DMG e
 arraste Open Island para Aplicativos antes da primeira execução. O instalador `install.sh`
-abre o download correspondente no Darwin. A atualização pelo aplicativo faz o mesmo;
-encerre a versão anterior e substitua o aplicativo manualmente.
+abre o download correspondente no Darwin.
+
+O novo fluxo de atualização pelo aplicativo está em validação: ao clicar no botão,
+ele consulta `latest.json`, verifica a assinatura do arquivo `.app.tar.gz`, valida
+identidade, versão, arquitetura e sons do bundle e faz a troca atômica. O daemon
+é reiniciado e sua versão é confirmada antes do reinício da interface. Se essa etapa
+falhar, o pacote anterior é restaurado. Aprovações e perguntas pendentes precisam ser
+respondidas antes. A instalação exige escrita na pasta do aplicativo; se não houver
+permissão, use o DMG manualmente. Releases antigas sem o índice assinado continuam
+disponíveis pelo DMG. Não há instalação silenciosa em segundo plano.
 
 Os pacotes têm assinatura ad hoc e **não são notarizados**. O Gatekeeper pode impedir a
 primeira abertura. Siga a autorização manual em Ajustes do Sistema → Privacidade e
@@ -35,10 +43,12 @@ esvazie o campo para desativá-lo. Falhas de registro e conflitos aparecem nesse
 - Terminal.app e iTerm2 são reconhecidos. O foco por PID ativa o aplicativo; painéis
   identificáveis continuam usando os resolvers CLI existentes. Não há garantia de aba
   ou janela exata no fallback.
-- Novas sessões abrem no Terminal.app. Se a Automação for recusada, permita Open Island
-  → Terminal em Ajustes do Sistema → Privacidade e Segurança → Automação.
-- Não Perturbe, tela desligada e detecção de fullscreen não são consultados no macOS.
-  Os ajustes automáticos correspondentes ficam ocultos. Mute e horários silenciosos funcionam.
+- Em Ajustes → Geral, escolha Terminal.app, iTerm2, Warp, WezTerm ou Kitty para novas
+  sessões. Terminal é o padrão. Terminal e iTerm2 podem exigir autorização de Automação.
+- Foco/Não Perturbe usa autorização explícita nas configurações de som. Estado indisponível
+  não é tratado como Foco desligado. Telas em repouso são consultadas via CoreGraphics;
+  bloqueio com a tela acesa ainda não é detectado. A detecção de tela cheia considera
+  o aplicativo ativo. Esses recursos ainda exigem validação física no Mac.
 - WAVs originais acompanham o app e são reproduzidos pelo player nativo `afplay`.
 
 ## Dados e login
