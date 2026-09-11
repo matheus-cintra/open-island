@@ -238,7 +238,7 @@ function applyUiScale(scale: number, compactHeight?: number): void {
   // Dimensions now describe the whole panel, including the camera strip.
   // Compact content lives in two wings beside the camera, never beneath it.
   const height = hasPhysicalNotch
-    ? Math.max(physicalNotchHeight + COMPACT_OVERHANG, fixed ? islandHeight : 0)
+    ? Math.max(physicalNotchHeight, fixed ? islandHeight : 0)
     : base + Math.max(floor, notchHeight);
   const width = hasPhysicalNotch
     ? Math.ceil(physicalNotchWidth + (compactClean ? 112 : 208) * next)

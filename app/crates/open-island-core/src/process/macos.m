@@ -28,6 +28,7 @@ int oi_procargs(int pid, char *out, size_t *length) {
 int oi_activate(int pid) {
     @autoreleasepool {
         NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
-        return app && [app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+        if (!app || app.activationPolicy == NSApplicationActivationPolicyProhibited) return -1;
+        return [app activateWithOptions:NSApplicationActivateIgnoringOtherApps] ? 1 : 0;
     }
 }

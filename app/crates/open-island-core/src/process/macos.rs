@@ -63,11 +63,12 @@ pub fn environment(pid: u32) -> Vec<u8> {
     args(pid).map(|(_, env)| env).unwrap_or_default()
 }
 pub fn activate(pid: u32) -> Result<(), String> {
-    if unsafe { oi_activate(pid as i32) } != 0 {
-        Ok(())
-    } else {
-        Err(format!(
-            "Não foi possível ativar o aplicativo do processo {pid}."
-        ))
-    }
+    super::activate_ancestor(
+        pid,
+        |pid| match unsafe { oi_activate(pid as i32) } {
+            -1 => None,
+            result => Some(result == 1),
+        },
+        |pid| parent_and_comm(pid).map(|(parent, _)| parent),
+    )
 }

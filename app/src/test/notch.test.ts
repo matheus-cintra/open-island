@@ -26,14 +26,14 @@ const sizes = () => tauri.calls.filter((call) => call.command === "set_island_si
 test("a collapsed notch panel includes the camera between two wings", () => {
   expect(document.body.classList.contains("has-notch")).toBe(true);
   expect(document.documentElement.style.getPropertyValue("--camera-top")).toBe("32px");
-  expect(sizes().pop()?.args).toEqual({ width: 428, height: 36 });
+  expect(sizes().pop()?.args).toEqual({ width: 428, height: 32 });
 });
 
 test("UI scaling grows the wings while camera dimensions stay in physical points", async () => {
   scale = 1.5;
   tauri.emit("island-screen-changed", {});
   await settle();
-  expect(sizes().pop()?.args).toEqual({ width: 532, height: 36 });
+  expect(sizes().pop()?.args).toEqual({ width: 532, height: 32 });
   expect(Number.parseFloat(document.documentElement.style.getPropertyValue("--camera-width")) * scale).toBeCloseTo(220);
   expect(Number.parseFloat(document.documentElement.style.getPropertyValue("--camera-top")) * scale).toBeCloseTo(32);
   scale = 1;
@@ -43,7 +43,7 @@ test("clean mode only reserves narrow wings for the sprite and count", async () 
   clean = true;
   tauri.emit("island-screen-changed", {});
   await settle();
-  expect(sizes().pop()?.args).toEqual({ width: 332, height: 36 });
+  expect(sizes().pop()?.args).toEqual({ width: 332, height: 32 });
   clean = false;
 });
 

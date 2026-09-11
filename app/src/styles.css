@@ -1504,7 +1504,7 @@ body {
   --notch-gap: calc(var(--camera-width) + 24px);
 }
 .has-notch .view-compact {
-  padding: 0 12px;
+  padding: 0 20px;
   height: var(--camera-top);
 }
 .has-notch .compact-row,
