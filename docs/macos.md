@@ -27,7 +27,8 @@ esvazie o campo para desativá-lo. Falhas de registro e conflitos aparecem nesse
 - O monitor principal é usado por padrão. A seleção em Ajustes é preservada.
 - O painel usa coordenadas lógicas do AppKit, áreas seguras e
   [áreas auxiliares da tela](https://developer.apple.com/documentation/appkit/nsscreen/auxiliarytopleftarea-uglc).
-  Uma faixa reserva a câmera; textos, botões e expansão ficam abaixo dela.
+  O painel começa no topo da tela. Texto e controles ocupam duas áreas laterais
+  à câmera; somente os cartões expandidos ficam abaixo dela.
 - O painel não ativa o aplicativo no hover. Entrada de perguntas habilita o teclado.
 - A descoberta usa `libproc` e `sysctl`; só as variáveis de terminal permitidas entram
   nas sessões. Falhas de inspeção não removem um hook cujo processo ainda existe.
@@ -105,14 +106,17 @@ passaram nas duas arquiteturas, sem grupos de processos sobreviventes.
 A validação visual/interativa do checklist continua pendente; os DMGs permanecem
 experimentais e sem notarização.
 
-### Ajustes após as primeiras capturas no Mac
+### Integração visual com o notch
 
-A faixa recolhida abaixo da câmera passou de 46 para 30 pontos na escala padrão.
-Os cantos côncavos foram retirados nas telas com notch, e o painel expandido usa
-cantos arredondados. O campo de mensagem fica oculto quando o host não oferece
-envio; mensagens já enfileiradas continuam disponíveis para cancelamento.
+A geometria usa a altura total do painel; o backend não soma a altura da câmera.
+O fundo preto começa na borda superior em ambos os estados. No modo recolhido,
+a câmera fica entre o projeto à esquerda e a contagem à direita. O cabeçalho
+expandido usa a mesma área de exclusão; cartões e perguntas crescem abaixo dele.
+A escala da interface amplia as áreas laterais sem alterar a medida física do recorte.
+Telas sem notch preservam o posicionamento abaixo da barra de menus.
 
-Validação local: 150 testes do frontend, três testes de geometria e build
-TypeScript/Vite aprovados. O frontend foi conferido em Chromium com medidas de
-notch e Retina simuladas. [Build dos DMGs ajustados](https://github.com/matheus-cintra/open-island/actions/runs/34608578758).
-A validação do novo visual no Mac físico continua pendente.
+A composição segue as [referências fornecidas pelo autor](https://github.com/matheus-cintra/open-island-private/blob/master/images/reference-island/README.md).
+Foram verificadas em Chromium as posições reais dos elementos ao expandir/recolher,
+com notch, escala de 150%, modo limpo e sem notch. O campo de mensagem fica oculto
+em hosts sem suporte; mensagens enfileiradas continuam disponíveis para cancelamento.
+A confirmação visual no Mac físico continua pendente.

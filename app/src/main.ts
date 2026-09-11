@@ -64,6 +64,7 @@ export let compactClean = false;
 let notchWidth = 0;
 let physicalNotchWidth = 0;
 let hasPhysicalNotch = false;
+let physicalNotchHeight = 0;
 let notchHeight = 0;
 let islandHeight = 0;
 export let show: RowVisibility = {
@@ -232,14 +233,22 @@ function applyUiScale(scale: number, compactHeight?: number): void {
     ? islandHeight
     : fromCompositor
       ? compactHeight
-      : Math.round((hasPhysicalNotch ? 30 : BASE_COMPACT.h) * next);
+      : Math.round(BASE_COMPACT.h * next);
   const floor = fromCompositor ? -(COMPACT_OVERHANG - 1) : -(base - MIN_COMPACT_H);
-  const height = base + Math.max(floor, notchHeight);
-  const width = Math.max(MIN_COMPACT_W, physicalNotchWidth + (hasPhysicalNotch ? 0 : 16), Math.round(BASE_COMPACT.w * next) + notchWidth);
+  // Dimensions now describe the whole panel, including the camera strip.
+  // Compact content lives in two wings beside the camera, never beneath it.
+  const height = hasPhysicalNotch
+    ? Math.max(physicalNotchHeight + COMPACT_OVERHANG, fixed ? islandHeight : 0)
+    : base + Math.max(floor, notchHeight);
+  const width = hasPhysicalNotch
+    ? Math.ceil(physicalNotchWidth + (BASE_COMPACT.w + 24) * next)
+    : Math.max(MIN_COMPACT_W, Math.round(BASE_COMPACT.w * next) + notchWidth);
+  document.documentElement.style.setProperty("--camera-top", `${physicalNotchHeight / next}px`);
+  document.documentElement.style.setProperty("--camera-width", `${physicalNotchWidth / next}px`);
   if (next === uiScale && height === COMPACT.h && width === COMPACT.w) return;
   uiScale = next;
   COMPACT = { w: width, h: height };
-  EXPANDED = { w: Math.round(BASE_EXPANDED.w * next), h: Math.round(BASE_EXPANDED.h * next) };
+  EXPANDED = { w: Math.max(Math.round(BASE_EXPANDED.w * next), hasPhysicalNotch ? Math.ceil(physicalNotchWidth + 320 * next) : 0), h: Math.round(BASE_EXPANDED.h * next) };
   islandEl.style.zoom = String(next);
   islandEl.style.setProperty("--badge-icon", `${Math.round(BADGE_ICON * next)}px`);
   if (expanded) {
@@ -267,7 +276,7 @@ function pillShape(w: number, h: number, scoop: number, bottom: number): string 
 }
 
 function compactShape(w: number, h: number): string {
-  return pillShape(w, h, hasPhysicalNotch ? 0 : Math.round(BASE_SCOOP * uiScale), Math.round(8 * uiScale));
+  return pillShape(w, h, Math.round(BASE_SCOOP * uiScale), Math.round(8 * uiScale));
 }
 
 function setMorph(h: number): void {
@@ -353,13 +362,6 @@ function setView(which: "compact" | "expanded"): void {
 // window would stretch its corners too. The path is parametric in width and height, so
 // it is regenerated for whatever height a card needs.
 function expandedShape(w: number, h: number): string {
-  if (hasPhysicalNotch) {
-    // A regular rounded panel joins the camera strip at its centre. The Linux
-    // concave corners belong at the screen edge, not below the macOS menu bar.
-    const radius = Math.min(Math.round(16.5 * uiScale), h / 2, w / 2);
-    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}'><rect width='${w}' height='${h}' rx='${radius}' fill='#000000'/></svg>`;
-    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-  }
   return pillShape(w, h, Math.round(BASE_SCOOP * uiScale), Math.round(16.5 * uiScale));
 }
 
@@ -1110,7 +1112,8 @@ async function resolveUiScale(override: unknown): Promise<void> {
   }
   const scale = typeof override === "number" && override > 0 ? override : metrics.scale;
   const previousNotch = hasPhysicalNotch;
-  hasPhysicalNotch = (metrics.safe_top ?? 0) > 0;
+  physicalNotchHeight = metrics.safe_top ?? 0;
+  hasPhysicalNotch = physicalNotchHeight > 0;
   physicalNotchWidth = metrics.notch_width ?? 0;
   document.body.classList.toggle("has-notch", hasPhysicalNotch);
   // A monitor switch can change the shape even when dimensions stay the same.
@@ -1119,8 +1122,6 @@ async function resolveUiScale(override: unknown): Promise<void> {
       ? expandedShape(curSize.w, curSize.h)
       : compactShape(curSize.w, curSize.h);
   }
-  document.documentElement.style.setProperty("--camera-top", `${metrics.safe_top ?? 0}px`);
-  document.documentElement.style.setProperty("--camera-width", `${physicalNotchWidth}px`);
   applyUiScale(scale, metrics.compact_height ?? undefined);
 }
 

@@ -62,8 +62,11 @@ export function renderCompact(n: number): void {
     compactSpriteEl.replaceChildren(sprite);
   }
   sprite.classList.toggle("is-walking", strongestAttention(sessions) !== "idle");
-  if (compactSpriteEl.parentElement === null) {
-    compactRowEl.append(compactSpriteEl, compactProject, compactTail);
+  if (!compactRowEl.contains(compactSpriteEl)) {
+    const leading = document.createElement("div");
+    leading.className = "compact-leading";
+    leading.append(compactSpriteEl, compactProject);
+    compactRowEl.append(leading, compactTail);
   }
   compactProject.hidden = compactClean || !show.project;
   if (compactProject.textContent !== lead.title) compactProject.textContent = lead.title;

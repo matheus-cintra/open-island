@@ -3,11 +3,12 @@ import { mountIsland } from "./dom";
 import { tauriMock } from "./tauri";
 
 let safeTop = 32;
+let scale = 1;
 const tauri = tauriMock(({ command }) => {
   if (command === "get_config") return { config: {} };
   if (command === "island_metrics") return {
     // Reproduce the value sent by the original native macOS backend.
-    scale: 1, compact_height: 46, safe_top: safeTop, notch_width: safeTop ? 220 : 0,
+    scale, compact_height: 46, safe_top: safeTop, notch_width: safeTop ? 220 : 0,
   };
   if (command === "list_sessions") return [];
   if (command === "get_usage") return { providers: [] };
@@ -21,10 +22,20 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
 await settle();
 const sizes = () => tauri.calls.filter((call) => call.command === "set_island_size");
 
-test("a notch reserves the camera and uses a slim compact strip", () => {
+test("a collapsed notch panel includes the camera between two wings", () => {
   expect(document.body.classList.contains("has-notch")).toBe(true);
   expect(document.documentElement.style.getPropertyValue("--camera-top")).toBe("32px");
-  expect(sizes().pop()?.args).toEqual({ width: 232, height: 30 });
+  expect(sizes().pop()?.args).toEqual({ width: 476, height: 36 });
+});
+
+test("UI scaling grows the wings while camera dimensions stay in physical points", async () => {
+  scale = 1.5;
+  tauri.emit("island-screen-changed", {});
+  await settle();
+  expect(sizes().pop()?.args).toEqual({ width: 604, height: 36 });
+  expect(Number.parseFloat(document.documentElement.style.getPropertyValue("--camera-width")) * scale).toBeCloseTo(220);
+  expect(Number.parseFloat(document.documentElement.style.getPropertyValue("--camera-top")) * scale).toBeCloseTo(32);
+  scale = 1;
 });
 
 test("moving to a screen without a notch restores the usual compact geometry", async () => {

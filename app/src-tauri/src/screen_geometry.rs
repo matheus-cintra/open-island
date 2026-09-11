@@ -20,27 +20,28 @@ pub fn place(
         x: x + (screen_width - width) / 2.0,
         y,
         width,
-        height: height + safe_top,
+        // The frontend reserves the camera within the panel, not above it.
+        height: height.max(safe_top),
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn notch_is_reserved_above_content_and_negative_monitors_stay_centered() {
-        let p = place(-1728.0, -900.0, 1728.0, 220.0, 32.0, 232.0, 46.0);
+    fn notch_is_inside_the_panel_and_negative_monitors_stay_centered() {
+        let p = place(-1728.0, -900.0, 1728.0, 220.0, 32.0, 476.0, 36.0);
         assert_eq!(
             p,
             Placement {
-                x: -980.0,
+                x: -1102.0,
                 y: -900.0,
-                width: 232.0,
-                height: 78.0
+                width: 476.0,
+                height: 36.0
             }
         );
         let expanded = place(-1728.0, -900.0, 1728.0, 220.0, 32.0, 664.0, 300.0);
         assert_eq!(expanded.y, p.y);
-        assert_eq!(expanded.height, 332.0);
+        assert_eq!(expanded.height, 300.0);
     }
     #[test]
     fn no_notch_uses_the_visible_top_without_extra_padding() {
