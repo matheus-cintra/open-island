@@ -116,11 +116,25 @@ pub fn install(
     for agent in agents {
         let path = agent_path(home, agent)?;
         let did_change = match *agent {
-            "claude" => {
-                merge_agent_json(&path, CLAUDE_EVENTS, "claude", executable, true, dry_run)?
-            }
-            "codex" => merge_agent_json(&path, CODEX_EVENTS, "codex", executable, true, dry_run)?,
-            "opencode" => merge_opencode_plugin(&path, executable, true, dry_run)?,
+            "claude" => merge_agent_json(
+                &path,
+                CLAUDE_EVENTS,
+                "claude",
+                home,
+                executable,
+                true,
+                dry_run,
+            )?,
+            "codex" => merge_agent_json(
+                &path,
+                CODEX_EVENTS,
+                "codex",
+                home,
+                executable,
+                true,
+                dry_run,
+            )?,
+            "opencode" => merge_opencode_plugin(&path, home, executable, true, dry_run)?,
             _ => false,
         };
         if did_change {
@@ -140,11 +154,25 @@ pub fn uninstall(
     for agent in agents {
         let path = agent_path(home, agent)?;
         let did_change = match *agent {
-            "claude" => {
-                merge_agent_json(&path, CLAUDE_EVENTS, "claude", executable, false, dry_run)?
-            }
-            "codex" => merge_agent_json(&path, CODEX_EVENTS, "codex", executable, false, dry_run)?,
-            "opencode" => merge_opencode_plugin(&path, executable, false, dry_run)?,
+            "claude" => merge_agent_json(
+                &path,
+                CLAUDE_EVENTS,
+                "claude",
+                home,
+                executable,
+                false,
+                dry_run,
+            )?,
+            "codex" => merge_agent_json(
+                &path,
+                CODEX_EVENTS,
+                "codex",
+                home,
+                executable,
+                false,
+                dry_run,
+            )?,
+            "opencode" => merge_opencode_plugin(&path, home, executable, false, dry_run)?,
             _ => false,
         };
         if did_change {
@@ -562,11 +590,29 @@ pub fn install_notes(agents: &[&str]) -> Vec<String> {
     ]
 }
 
-fn command(executable: &Path, agent: &str) -> String {
+fn command(home: &Path, executable: &Path, agent: &str) -> String {
     format!(
         "{} hook --agent {agent} {MANAGED_MARKER}",
-        shell_quote(&executable.to_string_lossy())
+        shell_executable(home, executable)
     )
+}
+
+fn shell_executable(home: &Path, executable: &Path) -> String {
+    match executable.strip_prefix(home) {
+        Ok(relative) => format!(
+            "\"$HOME/{}\"",
+            shell_double_quote_escape(&relative.to_string_lossy())
+        ),
+        Err(_) => shell_quote(&executable.to_string_lossy()),
+    }
+}
+
+fn shell_double_quote_escape(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('`', "\\`")
 }
 
 fn shell_quote(value: &str) -> String {
@@ -577,6 +623,7 @@ fn merge_agent_json(
     path: &Path,
     events: &[&str],
     agent: &str,
+    home: &Path,
     executable: &Path,
     install: bool,
     dry_run: bool,
@@ -597,7 +644,7 @@ fn merge_agent_json(
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .ok_or_else(|| format!("{} hooks must contain a JSON object", path.display()))?;
-    let managed = command(executable, agent);
+    let managed = command(home, executable, agent);
     let mut changed = false;
     for event in events {
         if install {
@@ -611,6 +658,7 @@ fn merge_agent_json(
                         path.display()
                     )
                 })?;
+            changed |= rewrite_stale_managed_handlers(groups, agent, &managed);
             let present = groups
                 .iter()
                 .any(|group| group_has_command(group, &managed));
@@ -659,6 +707,24 @@ fn merge_agent_json(
     Ok(true)
 }
 
+fn rewrite_stale_managed_handlers(groups: &mut [Value], agent: &str, managed: &str) -> bool {
+    let mut changed = false;
+    for group in groups.iter_mut() {
+        let Some(items) = group.get_mut("hooks").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for item in items.iter_mut() {
+            if is_managed_handler(item, agent)
+                && item.get("command").and_then(Value::as_str) != Some(managed)
+            {
+                item["command"] = json!(managed);
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 fn group_has_command(group: &Value, command: &str) -> bool {
     group
         .get("hooks")
@@ -683,6 +749,7 @@ fn is_managed_handler(item: &Value, agent: &str) -> bool {
 
 fn merge_opencode_plugin(
     path: &Path,
+    home: &Path,
     executable: &Path,
     install: bool,
     dry_run: bool,
@@ -693,7 +760,7 @@ fn merge_opencode_plugin(
         .transpose()
         .map_err(|error| format!("read {}: {error}", path.display()))?;
     if install {
-        let content = opencode_plugin(executable)?;
+        let content = opencode_plugin(home, executable)?;
         if let Some(existing) = existing {
             if !existing.contains(OPENCODE_START) || !existing.contains(OPENCODE_END) {
                 return Err(format!("refusing to replace unrelated {}", path.display()));
@@ -728,11 +795,20 @@ fn merge_opencode_plugin(
     Ok(true)
 }
 
-fn opencode_plugin(executable: &Path) -> Result<String, String> {
-    let path = serde_json::to_string(&executable.to_string_lossy().to_string())
-        .map_err(|error| format!("encode daemon path: {error}"))?;
+fn opencode_plugin(home: &Path, executable: &Path) -> Result<String, String> {
+    let daemon = match executable.strip_prefix(home) {
+        Ok(relative) => format!(
+            "`${{process.env.HOME}}/${{{}}}`",
+            json_string(&relative.to_string_lossy())?
+        ),
+        Err(_) => json_string(&executable.to_string_lossy())?,
+    };
     let template = include_str!("../templates/open-island-opencode.ts.template");
-    Ok(template.replace("__OPEN_ISLANDD_PATH__", &path))
+    Ok(template.replace("__OPEN_ISLANDD_PATH__", &daemon))
+}
+
+fn json_string(value: &str) -> Result<String, String> {
+    serde_json::to_string(value).map_err(|error| format!("encode daemon path: {error}"))
 }
 
 fn write_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
@@ -804,22 +880,40 @@ mod tests {
         )
         .expect("seed");
         let executable = Path::new("/opt/open-islandd");
-        assert!(
-            merge_agent_json(&path, CLAUDE_EVENTS, "claude", executable, true, false)
-                .expect("install")
-        );
+        assert!(merge_agent_json(
+            &path,
+            CLAUDE_EVENTS,
+            "claude",
+            &root,
+            executable,
+            true,
+            false
+        )
+        .expect("install"));
         let first = fs::read(&path).expect("read");
-        assert!(
-            !merge_agent_json(&path, CLAUDE_EVENTS, "claude", executable, true, false)
-                .expect("repeat")
-        );
+        assert!(!merge_agent_json(
+            &path,
+            CLAUDE_EVENTS,
+            "claude",
+            &root,
+            executable,
+            true,
+            false
+        )
+        .expect("repeat"));
         assert_eq!(first, fs::read(&path).expect("read repeat"));
         let text = String::from_utf8(first).expect("utf8");
         assert!(text.contains("keep-me"));
-        assert!(
-            merge_agent_json(&path, CLAUDE_EVENTS, "claude", executable, false, false)
-                .expect("uninstall")
-        );
+        assert!(merge_agent_json(
+            &path,
+            CLAUDE_EVENTS,
+            "claude",
+            &root,
+            executable,
+            false,
+            false
+        )
+        .expect("uninstall"));
         let final_text = fs::read_to_string(&path).expect("read final");
         assert!(final_text.contains("keep-me"));
         assert!(!final_text.contains(MANAGED_MARKER));
@@ -836,6 +930,7 @@ mod tests {
             &path,
             CODEX_EVENTS,
             "codex",
+            &root,
             Path::new("/opt/open-islandd"),
             true,
             false,
@@ -850,11 +945,11 @@ mod tests {
         let root = home();
         let path = root.join(".config/opencode/plugins/open-island.ts");
         let executable = Path::new("/opt/open-islandd");
-        assert!(merge_opencode_plugin(&path, executable, true, false).expect("install"));
+        assert!(merge_opencode_plugin(&path, &root, executable, true, false).expect("install"));
         let first = fs::read(&path).expect("read");
-        assert!(!merge_opencode_plugin(&path, executable, true, false).expect("repeat"));
+        assert!(!merge_opencode_plugin(&path, &root, executable, true, false).expect("repeat"));
         assert_eq!(first, fs::read(&path).expect("read repeat"));
-        assert!(merge_opencode_plugin(&path, executable, false, false).expect("uninstall"));
+        assert!(merge_opencode_plugin(&path, &root, executable, false, false).expect("uninstall"));
         assert!(!path.exists());
         let _ = fs::remove_dir_all(root);
     }
@@ -867,6 +962,7 @@ mod tests {
             &path,
             CLAUDE_EVENTS,
             "claude",
+            &root,
             Path::new("/opt/open-islandd"),
             true,
             false,
@@ -902,6 +998,7 @@ mod tests {
                 &path,
                 CLAUDE_EVENTS,
                 agent,
+                &root,
                 Path::new("/opt/open-islandd"),
                 true,
                 false,
@@ -1600,12 +1697,110 @@ mod tests {
         let path = root.join(".config/opencode/plugins/open-island.ts");
         fs::create_dir_all(path.parent().expect("parent")).expect("directory");
         fs::write(&path, "export default {};\n").expect("seed");
-        let result = merge_opencode_plugin(&path, Path::new("/opt/open-islandd"), true, false);
+        let result =
+            merge_opencode_plugin(&path, &root, Path::new("/opt/open-islandd"), true, false);
         assert!(result.is_err());
         assert_eq!(
             fs::read_to_string(&path).expect("read"),
             "export default {};\n"
         );
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_daemon_under_home_is_addressed_through_home_so_the_synced_file_works_on_every_machine() {
+        let root = home();
+        let path = root.join(".claude/settings.json");
+        let executable = root.join(".local/bin/open-islandd");
+        merge_agent_json(
+            &path,
+            CLAUDE_EVENTS,
+            "claude",
+            &root,
+            &executable,
+            true,
+            false,
+        )
+        .expect("install");
+        let settings: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("JSON");
+        assert_eq!(
+            settings["hooks"]["Stop"][0]["hooks"][0]["command"],
+            json!("\"$HOME/.local/bin/open-islandd\" hook --agent claude --managed-by open-island")
+        );
+        assert!(installed(&root, "claude", &executable).expect("status"));
+
+        let elsewhere = Path::new("/opt/open-islandd");
+        assert_eq!(
+            command(&root, elsewhere, "codex"),
+            "'/opt/open-islandd' hook --agent codex --managed-by open-island"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_stale_absolute_managed_hook_is_rewritten_in_place_instead_of_duplicated() {
+        let root = home();
+        let path = root.join(".claude/settings.json");
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        let stale = format!(
+            "'{}' hook --agent claude --managed-by open-island",
+            root.join(".local/bin/open-islandd").display()
+        );
+        fs::write(
+            &path,
+            json!({"hooks": {"PermissionRequest": [{"matcher": "*", "hooks": [
+                {"type": "command", "command": stale, "timeout": 7}
+            ]}]}})
+            .to_string(),
+        )
+        .expect("seed");
+        let executable = root.join(".local/bin/open-islandd");
+        assert!(merge_agent_json(
+            &path,
+            CLAUDE_EVENTS,
+            "claude",
+            &root,
+            &executable,
+            true,
+            false
+        )
+        .expect("install"));
+        let settings: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("JSON");
+        let handlers = settings["hooks"]["PermissionRequest"]
+            .as_array()
+            .expect("groups")
+            .iter()
+            .flat_map(|group| group["hooks"].as_array().expect("hooks").clone())
+            .collect::<Vec<_>>();
+        assert_eq!(handlers.len(), 1, "{handlers:?}");
+        assert_eq!(
+            handlers[0]["command"],
+            json!("\"$HOME/.local/bin/open-islandd\" hook --agent claude --managed-by open-island")
+        );
+        assert_eq!(
+            handlers[0]["timeout"],
+            json!(7),
+            "the caller's own timeout survives"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_opencode_plugin_resolves_a_daemon_under_home_at_runtime() {
+        let root = home();
+        let executable = root.join(".local/bin/open-islandd");
+        let content = opencode_plugin(&root, &executable).expect("render");
+        assert!(
+            content
+                .contains("const DAEMON = `${process.env.HOME}/${\".local/bin/open-islandd\"}`;"),
+            "{content}"
+        );
+        let outside = opencode_plugin(&root, Path::new("/opt/open-islandd")).expect("render");
+        assert!(
+            outside.contains("const DAEMON = \"/opt/open-islandd\";"),
+            "{outside}"
+        );
     }
 }
