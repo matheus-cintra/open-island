@@ -132,6 +132,24 @@ function refreshDependencies(): void {
   }
 }
 
+const ACTIONS: Record<ActionName, () => Promise<void>> = {
+  removeAutoConfig: async () => {
+    const removed = await invoke<string[]>("remove_auto_configuration");
+    showToast(copy.about.removeDone(removed.length));
+  },
+  quit: async () => {
+    await invoke("quit_app");
+  },
+  checkUpdate: async () => {
+    const result = await invoke<{ version: string | null }>("check_update");
+    availableUpdate = result.version;
+    if (activePane === "about") renderPane();
+    showToast(
+      result.version === null ? copy.about.updateNone : copy.about.updateFound(result.version),
+    );
+  },
+};
+
 function buildSwitch(
   row: Row,
   checked: boolean,
@@ -361,24 +379,6 @@ function buildValue(text: string): HTMLElement {
   value.textContent = text;
   return value;
 }
-
-const ACTIONS: Record<ActionName, () => Promise<void>> = {
-  removeAutoConfig: async () => {
-    const removed = await invoke<string[]>("remove_auto_configuration");
-    showToast(copy.about.removeDone(removed.length));
-  },
-  quit: async () => {
-    await invoke("quit_app");
-  },
-  checkUpdate: async () => {
-    const result = await invoke<{ version: string | null }>("check_update");
-    availableUpdate = result.version;
-    if (activePane === "about") renderPane();
-    showToast(
-      result.version === null ? copy.about.updateNone : copy.about.updateFound(result.version),
-    );
-  },
-};
 
 function buildAction(control: Extract<Control, { kind: "action" }>): HTMLElement {
   const button = document.createElement("button");
