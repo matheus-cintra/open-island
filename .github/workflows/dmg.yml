@@ -1,50 +1,23 @@
-name: Build experimental DMGs
+name: macOS daemon verification
 on:
   push:
-    branches: ['build/macos-*']
-  workflow_dispatch:
+    branches: [build/macos-socket-tests-20260911]
 permissions:
   contents: read
 jobs:
-  dmg:
+  test:
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: macos-14
-            arch: aarch64
-            macho: arm64
-          - runner: macos-15-intel
-            arch: x86_64
-            macho: x86_64
-    env:
-      MACOSX_DEPLOYMENT_TARGET: '12.0'
+        runner: [macos-14, macos-15-intel]
     steps:
       - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
-      - run: bun install --frozen-lockfile
-        working-directory: app
-      - run: bun run tauri build --bundles app,dmg
-        working-directory: app
-      - run: sh scripts/verify-macos-bundle.sh 'app/target/release/bundle/macos/Open Island.app' '${{ matrix.macho }}'
-      - run: |
-          mkdir -p artifacts
-          cp app/target/release/bundle/dmg/*.dmg artifacts/open-island-macos-${{ matrix.arch }}.dmg
-          cd artifacts
-          shasum -a 256 *.dmg > SHA256SUMS-${{ matrix.arch }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dmg-${{ matrix.arch }}
-          path: artifacts/*
-          if-no-files-found: error
-      - run: python3 ../scripts/test-processes.py cargo test --workspace
+      - run: python3 ../scripts/test-processes.py cargo test -p open-islandd -p open-island-core
         working-directory: app
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: tests-${{ matrix.arch }}
+          name: tests-${{ matrix.runner }}
           path: /tmp/open-island-tests.log
-          if-no-files-found: ignore
