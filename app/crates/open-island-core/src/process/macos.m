@@ -1,4 +1,5 @@
 #import <AppKit/AppKit.h>
+#import <CoreGraphics/CoreGraphics.h>
 #include <libproc.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
@@ -37,4 +38,16 @@ int oi_activate(int pid) {
         if (!app || app.activationPolicy == NSApplicationActivationPolicyProhibited) return -1;
         return [app activateWithOptions:NSApplicationActivateIgnoringOtherApps] ? 1 : 0;
     }
+}
+
+// Query current state instead of relying only on notifications: this also works
+// when the daemon starts while displays are already asleep.
+int oi_displays_asleep(void) {
+    CGDirectDisplayID displays[64];
+    uint32_t count = 0;
+    if (CGGetOnlineDisplayList(64, displays, &count) != kCGErrorSuccess || count == 0 || count >= 64) return -1;
+    for (uint32_t i = 0; i < count; i++) {
+        if (!CGDisplayIsAsleep(displays[i])) return 0;
+    }
+    return 1;
 }

@@ -1,6 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <objc/runtime.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <Intents/Intents.h>
 #include <stdatomic.h>
 static atomic_bool layoutInvalidated = false;
 int oi_take_layout_invalidated(void) { return atomic_exchange(&layoutInvalidated, false); }
@@ -96,4 +97,23 @@ int oi_application_icon(unsigned pid, unsigned char *out, int capacity) {
     if (NSThread.isMainThread) readIcon();
     else dispatch_sync(dispatch_get_main_queue(), readIcon);
     return length;
+}
+
+int oi_focus_authorization(void) {
+    switch (INFocusStatusCenter.defaultCenter.authorizationStatus) {
+        case INFocusStatusAuthorizationStatusNotDetermined: return 0;
+        case INFocusStatusAuthorizationStatusRestricted: return 1;
+        case INFocusStatusAuthorizationStatusDenied: return 2;
+        case INFocusStatusAuthorizationStatusAuthorized: return 3;
+        default: return 4;
+    }
+}
+int oi_focus_silenced(void) {
+    INFocusStatusCenter *center = INFocusStatusCenter.defaultCenter;
+    if (center.authorizationStatus != INFocusStatusAuthorizationStatusAuthorized) return -1;
+    NSNumber *silenced = center.focusStatus.isFocused;
+    return silenced ? (silenced.boolValue ? 1 : 0) : -1;
+}
+void oi_request_focus(void) {
+    [INFocusStatusCenter.defaultCenter requestAuthorizationWithCompletionHandler:^(INFocusStatusAuthorizationStatus status) {}];
 }

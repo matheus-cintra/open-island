@@ -15,6 +15,15 @@ pub fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> Strin
     let id = request.id.clone();
     let broadcast = make_broadcast(Arc::clone(&ctx.state));
     let result: Result<Value, String> = match request.method.as_str() {
+        #[cfg(target_os = "macos")]
+        "native_state" => serde_json::from_value::<crate::native_state::Report>(
+            request.params.unwrap_or(Value::Null),
+        )
+        .map_err(|error| format!("invalid native state: {error}"))
+        .map(|report| {
+            crate::native_state::report(report);
+            json!({"reported": true})
+        }),
         "ping" => {
             Ok(json!({"daemon":"open-islandd", "version": VERSION, "pid": std::process::id()}))
         }

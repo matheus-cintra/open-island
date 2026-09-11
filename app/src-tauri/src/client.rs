@@ -142,6 +142,12 @@ impl DaemonClient {
             .map_err(|error| format!("daemon response timeout: {error}"))?
     }
 
+    #[cfg(target_os = "macos")]
+    pub fn report_focus(&self, focus: Option<bool>) -> Result<(), String> {
+        self.request("native_state", json!({"focus": focus}))
+            .map(|_| ())
+    }
+
     pub fn play_sound(&self, path: &str) -> Result<(), String> {
         self.request("play_sound", json!({ "path": path }))
             .map(|_| ())

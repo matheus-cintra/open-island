@@ -138,7 +138,7 @@ impl SceneSource for SystemScenes {
         }
         #[cfg(target_os = "macos")]
         {
-            false
+            open_island_core::process::displays_asleep().unwrap_or(false)
         }
     }
 }

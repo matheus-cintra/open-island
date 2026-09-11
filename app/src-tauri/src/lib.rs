@@ -40,6 +40,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::platform_capabilities,
+            commands::macos_focus_status,
+            commands::request_focus_permission,
             shortcut::get_shortcut,
             shortcut::set_shortcut,
             commands::list_sessions,

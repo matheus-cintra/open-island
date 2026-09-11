@@ -265,6 +265,6 @@ impl DndProbe {
         Self
     }
     pub fn do_not_disturb(&mut self) -> bool {
-        false
+        crate::native_state::focus()
     }
 }

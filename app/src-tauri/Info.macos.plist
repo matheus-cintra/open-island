@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>LSUIElement</key><true/>
+  <key>NSFocusStatusUsageDescription</key>
+  <string>Open Island consulta seu estado de Foco para respeitar o Não Perturbe nos sons e alertas dos agentes.</string>
   <key>NSAppleEventsUsageDescription</key>
   <string>Open Island usa o Terminal para abrir sessões dos seus agentes na pasta escolhida.</string>
 </dict></plist>

@@ -7,8 +7,8 @@ macOS 12+, Apple Silicon/Intel, português e integração com o notch.
 | --- | --- | --- |
 | Ícone real do terminal nos cartões | Em implementação: AppKit, PNG 64 px, busca pelos ancestrais | Build nativo, imagem de aplicativo real e fallback para processo encerrado |
 | Escala automática por monitor | Em implementação: largura lógica e dimensão física via CoreGraphics | Testes Retina/sem Retina/EDID ausente, troca de monitor no Mac |
-| Seguir Não Perturbe/Foco | Pendente: INFocusStatusCenter e autorização explícita | Autorização, recusa, indisponibilidade, ativar/desativar Foco, atualização no daemon |
-| Silenciar com tela desligada/sessão indisponível | Pendente: APIs públicas de tela e sessão | Daemon iniciado antes/depois da suspensão e retorno sem estado preso |
+| Seguir Não Perturbe/Foco | Em implementação: INFocusStatusCenter, permissão nos ajustes e estado enviado ao daemon com TTL | Autorização, recusa, indisponibilidade, ativar/desativar Foco, atualização no daemon |
+| Silenciar com tela desligada/sessão indisponível | Em implementação: CGDisplayIsAsleep; bloqueio com tela acesa ainda pendente | Daemon iniciado antes/depois da suspensão e retorno sem estado preso |
 | Ocultar durante tela cheia | Pendente | Tela cheia real, maximizada, troca de Spaces, várias telas e permissão recusada |
 | Abrir sessão no terminal preferido, incluindo Warp | Pendente | Escolha persistente, terminal ausente, caminhos especiais, recusa de Automação |
 | Instalar atualização pelo app | Pendente | Artefato autenticado, instalação atômica, rollback, permissões, relançamento e daemon atualizado |
@@ -25,3 +25,18 @@ macOS 12+, Apple Silicon/Intel, português e integração com o notch.
 - A validação em Linux ou em mocks não comprova interação com o macOS físico.
 - Integração com Hyprland é substituída por AppKit; não há motivo para copiar
   configurações exclusivas de outro compositor para os ajustes do Mac.
+
+## Evidência de desenvolvimento
+
+- Ícones: API pública `NSRunningApplication.icon`, conversão PNG no thread principal,
+  limite de 64 KiB e busca dos ancestrais para processos auxiliares.
+- Densidade: a largura de NSScreen já está em pontos; backingScale não é dividido
+  novamente. Testes incluem Retina, monitor comum, monitor denso e dimensão ausente.
+- Foco: `INFocusStatusCenter` está disponível no macOS 12 segundo a documentação
+  oficial da Apple. O pedido de autorização usa `NSFocusStatusUsageDescription`.
+  Estado indisponível é diferente de Foco desligado nos ajustes; os relatórios ao
+  daemon expiram em 10 segundos para não manter silêncio após desconexão.
+- Tela: consulta atual via CoreGraphics permite iniciar o daemon com a tela já
+  em repouso. Não anuncia detecção de bloqueio quando a tela continua acesa.
+- Testes Linux da implementação inicial: workspace Rust e frontend aprovados.
+  Builds nativos e confirmação física continuam necessários antes de conclusão.

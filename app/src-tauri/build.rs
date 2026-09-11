@@ -8,6 +8,7 @@ fn main() {
             .compile("oi_panel");
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=CoreGraphics");
+        println!("cargo:rustc-link-lib=framework=Intents");
     }
     tauri_build::build()
 }

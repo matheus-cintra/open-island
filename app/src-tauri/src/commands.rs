@@ -247,7 +247,9 @@ pub fn monitor_report() -> Vec<String> {
 // never moves a window off another workspace; unmapping makes it be placed again.
 pub fn reveal_settings(window: &tauri::WebviewWindow) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    window.set_title("Ajustes do Open Island").map_err(|error| error.to_string())?;
+    window
+        .set_title("Ajustes do Open Island")
+        .map_err(|error| error.to_string())?;
     #[cfg(target_os = "linux")]
     if window.is_visible().unwrap_or(false) {
         window.hide().map_err(|error| error.to_string())?;
@@ -271,7 +273,31 @@ pub fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn platform_capabilities() -> Value {
     json!({"os": std::env::consts::OS, "experimental": cfg!(target_os = "macos"),
-        "hyprland": cfg!(target_os = "linux"), "automatic_dnd": cfg!(target_os = "linux"),
-        "screen_off": cfg!(target_os = "linux"), "fullscreen_detection": cfg!(target_os = "linux"),
+        "hyprland": cfg!(target_os = "linux"), "automatic_dnd": true,
+        "screen_off": true, "fullscreen_detection": cfg!(target_os = "linux"),
         "global_shortcut": cfg!(target_os = "macos"), "manual_update": cfg!(target_os = "macos")})
+}
+
+#[tauri::command]
+pub fn macos_focus_status() -> Value {
+    #[cfg(target_os = "macos")]
+    {
+        json!(platform::focus_status())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Value::Null
+    }
+}
+#[tauri::command]
+pub fn request_focus_permission(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        platform::request_focus_permission(&window)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        Err("Disponível somente no macOS.".into())
+    }
 }

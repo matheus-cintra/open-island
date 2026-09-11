@@ -1,3 +1,4 @@
+import { focusPermissionSection, type FocusStatus } from "./settings-focus";
 import { linuxCapabilities, supportsRow, type PlatformCapabilities } from "./platform-capabilities";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -52,6 +53,7 @@ export let autoScale: number | null = null;
 export let appVersion = "";
 export let availableUpdate: string | null = null;
 let capabilities = linuxCapabilities;
+let focusStatus: FocusStatus = { authorization: 0, silenced: null };
 let shortcutStatus: { shortcut: string; error: string | null } = { shortcut: "", error: null };
 let activePane: PaneId = "general";
 let dependants: { element: HTMLElement; path: string; mode: "dim" | "hide" }[] = [];
@@ -158,7 +160,14 @@ export function renderPane(): void {
         ? { ...row, hint: "Inicia a ilha e o daemon ao entrar na sua conta do Mac." }
         : capabilities.os === "macos" && row.path === "display.island_height"
           ? { ...row, hint: "0 usa a altura automática. Valores menores que 16 usam 16 pontos; 40 define a altura em 40 pontos." }
-          : row;
+          : { ...row };
+      if (capabilities.os === "macos" && ["sound.follow_dnd", "filters.quiet.focus_mode"].includes(row.path)) {
+        effectiveRow.hint = "Respeita o estado de Foco compartilhado pelo macOS. Requer a autorização acima.";
+      }
+      if (capabilities.os === "macos" && row.path === "filters.quiet.screen_off") {
+        effectiveRow.label = "Telas desligadas";
+        effectiveRow.hint = "Silencia enquanto todas as telas estiverem em repouso. Bloquear a sessão com a tela acesa não ativa esta condição.";
+      }
       const built = buildRow(effectiveRow);
       if (row.visibleWhen !== undefined)
         dependants.push({ element: built, path: row.visibleWhen, mode: "hide" });
@@ -198,8 +207,8 @@ export function renderPane(): void {
   if (capabilities.experimental && pane.id === "about") {
     body.prepend(buildNote("macOS experimental — validação em um Mac real pendente. O foco ativa o aplicativo; a janela ou aba exata depende da integração do terminal.", "warning"));
   }
-  if (!capabilities.automatic_dnd && (pane.id === "sound" || pane.id === "filters")) {
-    body.prepend(buildNote("A leitura automática de Não Perturbe e da tela desligada não está disponível no macOS. Use o modo silencioso ou o horário silencioso.", "warning"));
+  if (capabilities.os === "macos" && (pane.id === "sound" || pane.id === "filters")) {
+    body.prepend(focusPermissionSection(focusStatus));
   }
   if (capabilities.global_shortcut && pane.id === "general") {
     const section = document.createElement("section");
@@ -325,6 +334,7 @@ async function load(): Promise<void> {
   try {
     capabilities = (await invoke<PlatformCapabilities>("platform_capabilities").catch(() => linuxCapabilities)) ?? linuxCapabilities;
     document.documentElement.dataset.platform = capabilities.os;
+    if (capabilities.os === "macos") focusStatus = await invoke<FocusStatus>("macos_focus_status").catch(() => ({ authorization: 4, silenced: null }));
     if (capabilities.global_shortcut) shortcutStatus = await invoke<typeof shortcutStatus>("get_shortcut");
     const [, status, sounds, metrics, soundDir, screens, version, sessions, update] =
       await Promise.all([
@@ -374,6 +384,11 @@ async function load(): Promise<void> {
   renderSidebar();
   renderPane();
 }
+
+void listen<FocusStatus>("macos-focus-status", (event) => {
+  focusStatus = event.payload;
+  if (activePane === "sound" || activePane === "filters") renderPane();
+});
 
 void listen("config-changed", () => {
   if (savePending) return;

@@ -4,6 +4,7 @@ extern "C" {
     fn oi_process(pid: i32, parent: *mut u32, name: *mut i8, capacity: i32) -> i32;
     fn oi_cwd(pid: i32, out: *mut i8, capacity: i32) -> i32;
     fn oi_procargs(pid: i32, out: *mut i8, length: *mut usize) -> i32;
+    fn oi_displays_asleep() -> i32;
     fn oi_activate(pid: i32) -> i32;
 }
 pub fn pids() -> Vec<u32> {
@@ -71,4 +72,12 @@ pub fn activate(pid: u32) -> Result<(), String> {
         },
         |pid| parent_and_comm(pid).map(|(parent, _)| parent),
     )
+}
+
+pub fn displays_asleep() -> Option<bool> {
+    match unsafe { oi_displays_asleep() } {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
 }

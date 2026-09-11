@@ -18,19 +18,32 @@ struct Screen {
     notch_width: f64,
     physical_width_mm: f64,
 }
+#[derive(Clone, Copy, Default, PartialEq, serde::Serialize)]
+pub struct FocusStatus {
+    authorization: i32,
+    silenced: Option<bool>,
+}
 #[derive(Default)]
 struct Snapshot {
     screens: Vec<Screen>,
     pointer: (i32, i32),
     pid: u32,
+    focus: FocusStatus,
 }
 static SNAPSHOT: Mutex<Snapshot> = Mutex::new(Snapshot {
     screens: Vec::new(),
     pointer: (0, 0),
     pid: 0,
+    focus: FocusStatus {
+        authorization: 0,
+        silenced: None,
+    },
 });
 static SIZE: Mutex<(f64, f64)> = Mutex::new((232.0, 46.0));
 extern "C" {
+    fn oi_focus_authorization() -> i32;
+    fn oi_focus_silenced() -> i32;
+    fn oi_request_focus();
     fn oi_application_icon(pid: u32, bytes: *mut u8, capacity: i32) -> i32;
     fn oi_take_layout_invalidated() -> i32;
     fn oi_panel_init(handle: *mut c_void);
@@ -65,6 +78,15 @@ fn refresh(window: &tauri::WebviewWindow) {
     unsafe {
         oi_pointer(&mut x, &mut y, &mut pid);
     }
+    let focus = FocusStatus {
+        authorization: unsafe { oi_focus_authorization() },
+        silenced: match unsafe { oi_focus_silenced() } {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        },
+    };
+    let previous_focus = focus_status();
     let changed = {
         let mut snapshot = SNAPSHOT.lock().unwrap_or_else(|e| e.into_inner());
         let next = screens[..count.min(screens.len())].to_vec();
@@ -73,9 +95,13 @@ fn refresh(window: &tauri::WebviewWindow) {
             screens: next,
             pointer: (x as i32, y as i32),
             pid,
+            focus,
         };
         changed
     };
+    if focus != previous_focus {
+        let _ = window.app_handle().emit("macos-focus-status", focus);
+    }
     if changed || unsafe { oi_take_layout_invalidated() != 0 } {
         geometry::forget_monitor_box();
         let (width, height) = *SIZE.lock().unwrap_or_else(|e| e.into_inner());
@@ -89,14 +115,26 @@ pub fn init(window: &tauri::WebviewWindow) -> Result<(), String> {
     }
     refresh(window);
     let target = window.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        let current = target.clone();
-        if target
-            .run_on_main_thread(move || refresh(&current))
-            .is_err()
-        {
-            break;
+    std::thread::spawn(move || {
+        let mut tick = 0u32;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            let current = target.clone();
+            if target
+                .run_on_main_thread(move || refresh(&current))
+                .is_err()
+            {
+                break;
+            }
+            tick = tick.wrapping_add(1);
+            if tick % 8 == 0 {
+                if let Some(client) = target
+                    .app_handle()
+                    .try_state::<crate::client::DaemonClient>()
+                {
+                    let _ = client.report_focus(focus_status().silenced);
+                }
+            }
         }
     });
     Ok(())
@@ -243,4 +281,16 @@ pub fn application_icon(pid: u32) -> Result<Vec<u8>, bool> {
     }
     bytes.truncate(length as usize);
     Ok(bytes)
+}
+
+pub fn focus_status() -> FocusStatus {
+    SNAPSHOT
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .focus
+}
+pub fn request_focus_permission(window: &tauri::WebviewWindow) -> Result<(), String> {
+    window
+        .run_on_main_thread(|| unsafe { oi_request_focus() })
+        .map_err(|error| error.to_string())
 }

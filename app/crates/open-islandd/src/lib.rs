@@ -15,3 +15,5 @@ pub mod update;
 pub mod usage;
 
 pub mod launchagent;
+
+pub mod native_state;
