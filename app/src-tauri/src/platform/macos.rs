@@ -197,8 +197,16 @@ pub fn setup_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
         .items(&[&settings, &toggle, &quit])
         .build()?;
+    let icon = app.default_window_icon().cloned().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Ícone do aplicativo ausente no pacote",
+        )
+    })?;
     TrayIconBuilder::new()
-        .title("◒")
+        .icon(icon)
+        // Keep the blue tile and white pixel art instead of applying a template mask.
+        .icon_as_template(false)
         .tooltip("Open Island (experimental)")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
