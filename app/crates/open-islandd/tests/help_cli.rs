@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
     process::{Child, Command, Stdio},
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 mod support;
@@ -17,9 +17,7 @@ fn socket(label: &str) -> PathBuf {
     env::temp_dir().join(format!(
         "open-island-test-help-{label}-{}-{}.sock",
         std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_nanos())
+        support::unique_id()
     ))
 }
 

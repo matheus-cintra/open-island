@@ -15,7 +15,7 @@ pub fn place(
     width: f64,
     height: f64,
 ) -> Placement {
-    let width = width.max(notch_width + 16.0).min(screen_width);
+    let width = width.max(notch_width).min(screen_width);
     Placement {
         x: x + (screen_width - width) / 2.0,
         y,
@@ -32,9 +32,9 @@ mod tests {
         assert_eq!(
             p,
             Placement {
-                x: -982.0,
+                x: -980.0,
                 y: -900.0,
-                width: 236.0,
+                width: 232.0,
                 height: 78.0
             }
         );

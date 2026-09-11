@@ -52,10 +52,14 @@ export function fillMessageBox(li: HTMLLIElement, session: Session): void {
   input.disabled = blocked !== undefined;
   const reason = blocked === undefined ? "" : strings.session.messageBlocked(blocked);
   hint.textContent = reason;
-  hint.hidden = blocked === undefined;
+  const unsupported = blocked === "host_unsupported";
+  input.hidden = unsupported;
+  hint.hidden = blocked === undefined || unsupported;
   input.title = reason;
 
   const queued = session.queued_messages ?? [];
+  // Keep queued messages cancellable if a session loses its supported host.
+  box.hidden = unsupported && queued.length === 0;
   const badges = li.querySelector<HTMLElement>(".row-badges")!;
   let badge = badges.querySelector<HTMLElement>(".badge-queue");
   if (queued.length === 0) {

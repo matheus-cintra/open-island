@@ -60,7 +60,7 @@ No Mac, instale Rust, Bun e as ferramentas do Xcode. Execute em `app`:
 
 ```sh
 bun install --frozen-lockfile
-bun run tauri build --target aarch64-apple-darwin --bundles dmg
+bun run tauri build --target aarch64-apple-darwin --bundles app,dmg
 # Em Intel, use --target x86_64-apple-darwin.
 python3 ../scripts/test-processes.py cargo test --workspace
 bun run test
@@ -94,6 +94,13 @@ TypeScript/Vite e bundles DEB/RPM concluídos. O daemon extraído do DEB corresp
 sidecar compilado. Os cinco WAVs foram conferidos como PCM mono de 16 bits a 44.1 kHz.
 O executor de testes não detectou grupos de processos sobreviventes.
 
-Não houve compilação/execução AppKit nem geração de DMGs nesta máquina Linux. A matriz
-macOS do CI foi adicionada, mas não foi executada nesta sessão. Os checks macOS acima
-continuam pendentes.
+Em 11/09/2026, os [builds nativos no GitHub Actions](https://github.com/matheus-cintra/open-island/actions/runs/34606329574)
+geraram DMGs Apple Silicon e Intel. Ambos passaram na verificação de arquitetura do
+aplicativo/daemon, assinatura ad hoc, presença dos cinco WAVs e versão mínima 12.0.
+Os checksums dos downloads foram conferidos localmente. Os 48 testes Rust da interface
+passaram no Apple Silicon. Após corrigir colisões de nomes temporários nos testes,
+os [448 testes de core, daemon e integrações](https://github.com/matheus-cintra/open-island/actions/runs/34607537988)
+passaram nas duas arquiteturas, sem grupos de processos sobreviventes.
+
+A validação visual/interativa do checklist continua pendente; os DMGs permanecem
+experimentais e sem notarização.

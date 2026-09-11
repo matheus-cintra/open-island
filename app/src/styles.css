@@ -1504,3 +1504,8 @@ body::before {
 body {
   padding-top: var(--camera-top, 0px);
 }
+
+/* The compact notch extension is a slim status strip; keep its text inset. */
+.has-notch .view-compact {
+  padding: 0 14px;
+}
