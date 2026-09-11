@@ -122,3 +122,20 @@ void oi_request_focus(void) {
 int oi_active_fullscreen(void) {
     return (NSApp.currentSystemPresentationOptions & NSApplicationPresentationFullScreen) != 0;
 }
+
+int oi_application_path(const char *bundle, char *out, int capacity) {
+    __block int found = 0;
+    void (^lookup)(void) = ^{
+        @autoreleasepool {
+            NSURL *url = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:[NSString stringWithUTF8String:bundle]];
+            const char *path = url.fileSystemRepresentation;
+            if (path && capacity > 0 && strlen(path) < (size_t)capacity) {
+                strlcpy(out, path, capacity);
+                found = 1;
+            }
+        }
+    };
+    if (NSThread.isMainThread) lookup();
+    else dispatch_sync(dispatch_get_main_queue(), lookup);
+    return found;
+}

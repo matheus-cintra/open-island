@@ -14,6 +14,7 @@ export const linuxCapabilities: PlatformCapabilities = {
 };
 export function supportsRow(capabilities: PlatformCapabilities, path: string): boolean {
   switch (path) {
+    case "integrations.macos_terminal": return capabilities.os === "macos";
     case "integration.hyprland": return capabilities.hyprland;
     case "sound.follow_dnd":
     case "filters.quiet.focus_mode": return capabilities.automatic_dnd;

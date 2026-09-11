@@ -201,6 +201,7 @@ impl Default for FiltersConfig {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IntegrationsConfig {
+    pub macos_terminal: String,
     pub auto_configure: bool,
     pub known_agents: Vec<String>,
 }
@@ -208,6 +209,7 @@ pub struct IntegrationsConfig {
 impl Default for IntegrationsConfig {
     fn default() -> Self {
         Self {
+            macos_terminal: "terminal".into(),
             auto_configure: true,
             known_agents: Vec::new(),
         }
@@ -534,6 +536,7 @@ impl Config {
                 "completion_card_height": self.display.completion_card_height,
             },
             "integrations": {
+                "macos_terminal": &self.integrations.macos_terminal,
                 "auto_configure": self.integrations.auto_configure,
                 "known_agents": &self.integrations.known_agents,
             },
@@ -826,6 +829,12 @@ fn pixels(section: Option<&Value>, key: &str, min: u32, max: u32, fallback: u32)
 
 fn integrations_from(value: Option<&Value>, defaults: IntegrationsConfig) -> IntegrationsConfig {
     IntegrationsConfig {
+        macos_terminal: value
+            .and_then(|value| value.get("macos_terminal"))
+            .and_then(Value::as_str)
+            .filter(|name| matches!(*name, "terminal" | "iterm2" | "warp" | "wezterm" | "kitty"))
+            .unwrap_or(&defaults.macos_terminal)
+            .to_owned(),
         auto_configure: boolean(value, "auto_configure", defaults.auto_configure),
         known_agents: known_agents(value, defaults.known_agents),
     }

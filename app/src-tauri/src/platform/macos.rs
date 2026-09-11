@@ -43,6 +43,11 @@ static SNAPSHOT: Mutex<Snapshot> = Mutex::new(Snapshot {
 });
 static SIZE: Mutex<(f64, f64)> = Mutex::new((232.0, 46.0));
 extern "C" {
+    fn oi_application_path(
+        bundle: *const std::ffi::c_char,
+        path: *mut std::ffi::c_char,
+        capacity: i32,
+    ) -> i32;
     fn oi_active_fullscreen() -> i32;
     fn oi_focus_authorization() -> i32;
     fn oi_focus_silenced() -> i32;
@@ -297,4 +302,17 @@ pub fn request_focus_permission(window: &tauri::WebviewWindow) -> Result<(), Str
     window
         .run_on_main_thread(|| unsafe { oi_request_focus() })
         .map_err(|error| error.to_string())
+}
+
+pub fn application_path(bundle: &str) -> Option<std::path::PathBuf> {
+    let bundle = std::ffi::CString::new(bundle).ok()?;
+    let mut path = [0 as std::ffi::c_char; 8192];
+    if unsafe { oi_application_path(bundle.as_ptr(), path.as_mut_ptr(), path.len() as i32) } == 0 {
+        return None;
+    }
+    Some(std::path::PathBuf::from(
+        unsafe { std::ffi::CStr::from_ptr(path.as_ptr()) }
+            .to_string_lossy()
+            .as_ref(),
+    ))
 }

@@ -88,8 +88,23 @@ pub fn agents_available() -> Vec<String> {
 }
 
 #[tauri::command]
-pub fn open_session(agent: String, folder: String) -> Result<(), String> {
-    launch::open(&folder, &agent)
+pub fn open_session(
+    agent: String,
+    folder: String,
+    client: State<'_, DaemonClient>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let payload = client.get_config()?;
+        let config =
+            open_island_core::config::Config::from_json_str(&payload["config"].to_string());
+        launch::open_macos(&folder, &agent, &config.integrations.macos_terminal)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = client;
+        launch::open(&folder, &agent)
+    }
 }
 
 #[tauri::command]

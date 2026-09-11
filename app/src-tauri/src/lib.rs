@@ -5,6 +5,8 @@ mod commands;
 mod compositor;
 mod geometry;
 mod launch;
+#[cfg(any(test, target_os = "macos"))]
+mod launch_macos;
 #[cfg(target_os = "linux")]
 mod layershell;
 mod platform;
