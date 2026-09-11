@@ -47,3 +47,22 @@ macOS 12+, Apple Silicon/Intel, português e integração com o notch.
 - Bloqueio: `CGSessionCopyCurrentDictionary` consulta a sessão do próprio processo; `kCGSessionOnConsoleKey` cobre troca de usuário. O campo `CGSSessionScreenIsLocked` não é documentado pela Apple; fica isolado em uma consulta defensiva, com tipos inesperados/sessão inexistente tratados como desconhecidos. O WindowServer omite a chave quando desbloqueado. Validar bloqueio antes/depois de iniciar o daemon em um Mac físico.
 
 - Warp: a [especificação oficial de Warp Control](https://github.com/warpdotdev/warp/blob/master/specs/warp-control-cli/PRODUCT.md) exclui execução/submissão de comandos e prompts. `input.insert` e `input.replace` apenas preparam texto. O suporte da ilha exige entrega ao processo certo; portanto, não se usa essa interface para simular envio. tmux/Zellij/Kitty/WezTerm continuam sendo os canais suportados.
+
+## Validação automatizada do conjunto completo
+
+Build `2e980b62d2d5cb4ce0c0e228cbe3298e7c34f2d9`,
+[execução 34625129963](https://github.com/matheus-cintra/open-island/actions/runs/34625129963):
+Apple Silicon e Intel concluídos com sucesso. Os dois jobs compilaram os bundles,
+verificaram assinatura ad hoc/arquitetura/daemon/sons e executaram o workspace Rust.
+O teste nativo com o arquivo real de atualização validou a assinatura, recusou uma
+alteração de bytes e comprovou a troca do pacote e do PID do daemon nas duas arquiteturas.
+Checksums dos DMGs, tarballs e assinaturas foram conferidos novamente após o download.
+
+Frontend local: 157 testes aprovados; build Vite aprovado. Workspace Rust local aprovado,
+sem processos de teste remanescentes. A comparação dos arquivos confirmou que o código
+entregue corresponde ao workspace; a única diferença era formatação de um helper de testes.
+
+Ainda falta a confirmação física: notch/hover/teclado, ícones, monitores/Retina,
+Spaces/tela cheia, suspensão, Foco/bloqueio, Automação/Warp e login. O roteiro foi
+entregue junto aos DMGs e o resultado foi solicitado ao usuário. O rótulo experimental
+permanece até essa confirmação.
