@@ -5,7 +5,7 @@ use std::path::Path;
 pub fn quote_shell(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\"'\"'"))
 }
-pub fn applescript(folder: &str, executable: &str, iterm: bool) -> String {
+fn terminal_command(folder: &str, executable: &str, iterm: bool) -> String {
     let command = format!("cd {} && {}", quote_shell(folder), quote_shell(executable));
     // Profile commands are executables, while Terminal do-script accepts shell input.
     let command = if iterm {
@@ -13,7 +13,10 @@ pub fn applescript(folder: &str, executable: &str, iterm: bool) -> String {
     } else {
         command
     };
-    let literal = command
+    command
+}
+pub fn applescript(folder: &str, executable: &str, iterm: bool) -> String {
+    let literal = terminal_command(folder, executable, iterm)
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
@@ -162,6 +165,51 @@ mod tests {
             1
         );
         assert_eq!(warp_uri("a b&x.yaml"), "warp://launch/a%20b%26x.yaml");
+    }
+    #[test]
+    fn profile_shell_runs_the_agent_in_the_literal_selected_directory() {
+        use std::{
+            fs,
+            os::unix::fs::PermissionsExt,
+            process::{Command, Stdio},
+        };
+        struct Directory(std::path::PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Directory(
+            std::env::temp_dir().join(format!("open-island-launch-{}", std::process::id())),
+        );
+        fs::create_dir_all(&root.0).unwrap();
+        let folder = root.0.join("folder ' \" $(false) ç");
+        fs::create_dir_all(&folder).unwrap();
+        let executable = root.0.join("agent ' \" $(false)");
+        fs::write(&executable, "#!/bin/sh\npwd -P > result\n").unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        for iterm in [false, true] {
+            let status = Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    &terminal_command(
+                        folder.to_str().unwrap(),
+                        executable.to_str().unwrap(),
+                        iterm,
+                    ),
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success());
+            assert_eq!(
+                fs::read_to_string(folder.join("result")).unwrap().trim(),
+                fs::canonicalize(&folder).unwrap().to_str().unwrap()
+            );
+            fs::remove_file(folder.join("result")).unwrap();
+        }
     }
     #[test]
     fn iterm_creates_a_new_window_instead_of_writing_to_the_current_session() {
