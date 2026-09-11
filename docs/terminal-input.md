@@ -46,5 +46,15 @@ aplicativo. Os canais de envio anteriores continuam disponíveis.
 Testes usam PTYs reais: duas sessões simultâneas, recusa de destino cruzado,
 Unicode/multilinha, teclado, redimensionamento, fechamento e descoberta/envio pelo
 daemon. A instalação é testada quanto a idempotência, remoção, preservação do perfil
-de login e funções próprias. A validação nativa e a confirmação em terminais reais
-no Mac permanecem necessárias antes de considerar a integração estabilizada.
+de login e funções próprias. A confirmação em terminais reais no Mac permanece
+necessária antes de considerar a integração estabilizada.
+
+Em 11/09/2026, os cinco testes com PTYs reais passaram em Apple Silicon e Intel
+na [execução nativa 34633880538](https://github.com/matheus-cintra/open-island/actions/runs/34633880538),
+commit `feae1fa`. Incluem envio pelo daemon, isolamento entre sessões, teclado,
+redimensionamento, execução pelas funções de Bash/Zsh e limpeza após hangup.
+O teste recupera também a capacidade de entrada de sessões conhecidas apenas por
+hooks, quando o macOS apresenta um interpretador como executável do processo.
+O teste consome a saída da PTY enquanto aguarda o shell encerrar, assim como um
+terminal real. A suíte Linux passou, além dos 157 testes do frontend e do build da
+interface. A confirmação visual e interativa no Warp do usuário ainda é necessária.
