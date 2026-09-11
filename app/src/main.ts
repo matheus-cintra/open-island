@@ -241,7 +241,7 @@ function applyUiScale(scale: number, compactHeight?: number): void {
     ? Math.max(physicalNotchHeight + COMPACT_OVERHANG, fixed ? islandHeight : 0)
     : base + Math.max(floor, notchHeight);
   const width = hasPhysicalNotch
-    ? Math.ceil(physicalNotchWidth + (BASE_COMPACT.w + 24) * next)
+    ? Math.ceil(physicalNotchWidth + (compactClean ? 112 : 208) * next)
     : Math.max(MIN_COMPACT_W, Math.round(BASE_COMPACT.w * next) + notchWidth);
   document.documentElement.style.setProperty("--camera-top", `${physicalNotchHeight / next}px`);
   document.documentElement.style.setProperty("--camera-width", `${physicalNotchWidth / next}px`);

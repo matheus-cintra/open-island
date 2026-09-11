@@ -1,0 +1,52 @@
+/* macOS typography and density; the Linux stylesheet remains unchanged. */
+:root[data-platform="macos"] {
+  --settings-font: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: var(--settings-font);
+  font-size: 13px;
+  line-height: 1.35;
+  color-scheme: dark;
+}
+:root[data-platform="macos"] .sidebar-item { font: 500 13px/1.2 var(--settings-font); }
+:root[data-platform="macos"] .pane-title { font: 600 17px/1.2 var(--settings-font); }
+:root[data-platform="macos"] .section-desc { font: 400 11px/1.45 var(--settings-font); }
+:root[data-platform="macos"] .section-title { font: 600 13px/1.3 var(--settings-font); }
+:root[data-platform="macos"] .tile-card-name { font: 600 12px/1.3 var(--settings-font); }
+:root[data-platform="macos"] .tile-card-hint { font: 400 11px/1.35 var(--settings-font); }
+:root[data-platform="macos"] .row-label { font: 400 13px/1.3 var(--settings-font); }
+:root[data-platform="macos"] .row-hint { font: 400 11px/1.4 var(--settings-font); }
+:root[data-platform="macos"] .pip { font: 500 11px/1.4 var(--settings-font); }
+:root[data-platform="macos"] .section-footer { font: 400 11px/1.45 var(--settings-font); }
+:root[data-platform="macos"] .select { font: 400 13px/1.6 var(--settings-font); }
+:root[data-platform="macos"] .toast { font: 400 12px/1.4 var(--settings-font); }
+:root[data-platform="macos"] .rule-preset { font: 500 11px/1.4 var(--settings-font); }
+:root[data-platform="macos"] .rules-empty { font: 400 11px/1.4 var(--settings-font); }
+:root[data-platform="macos"] .rule-add { font: 500 12px/1.4 var(--settings-font); }
+:root[data-platform="macos"] .row-value { font: 400 12px/1.4 var(--settings-font); }
+:root[data-platform="macos"] .row-button { font: 500 12px/1.4 var(--settings-font); }
+
+:root[data-platform="macos"] .settings { grid-template-columns: 176px minmax(0, 1fr); gap: 12px; }
+:root[data-platform="macos"] .sidebar-item { min-height: 32px; gap: 8px; }
+:root[data-platform="macos"] .tile { width: 22px; height: 22px; border-radius: 6px; }
+:root[data-platform="macos"] .pane-header { height: 46px; padding: 0 24px; }
+:root[data-platform="macos"] .pane-header .tile { width: 22px; height: 22px; }
+:root[data-platform="macos"] .pane-header .tile svg { width: 14px; height: 14px; }
+:root[data-platform="macos"] .scroller {
+  padding: 64px 24px 24px;
+  mask-image: linear-gradient(to bottom, transparent 0 42px, #000 64px, #000 calc(100% - 24px), transparent 100%);
+}
+:root[data-platform="macos"] .pane { gap: 22px; }
+:root[data-platform="macos"] .row,
+:root[data-platform="macos"] .row-slider { padding: 10px 14px; }
+:root[data-platform="macos"] .row { min-height: 40px; gap: 14px; }
+:root[data-platform="macos"] .switch { width: 32px; height: 20px; }
+:root[data-platform="macos"] .switch::after { width: 16px; height: 16px; }
+:root[data-platform="macos"] .switch:checked::after { translate: 12px 0; }
+:root[data-platform="macos"] .slider::-webkit-slider-thumb { width: 16px; height: 16px; }
+:root[data-platform="macos"] .shortcut-row { flex-wrap: wrap; }
+:root[data-platform="macos"] .shortcut-row .row-copy { flex-basis: 180px; }
+:root[data-platform="macos"] .shortcut-controls { margin-left: auto; max-width: 100%; }
+:root[data-platform="macos"] .shortcut-input {
+  width: 176px; min-width: 0; max-width: 100%;
+  font: 400 12px/1.4 var(--settings-font); text-align: left;
+}
+:root[data-platform="macos"] .row-button { appearance: none; background: var(--control); }

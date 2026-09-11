@@ -191,7 +191,7 @@ export function renderPane(): void {
     body.append(wrapper);
   }
 
-  if (capabilities.experimental && (pane.id === "general" || pane.id === "about")) {
+  if (capabilities.experimental && pane.id === "about") {
     body.prepend(buildNote("macOS experimental — validação em um Mac real pendente. O foco ativa o aplicativo; a janela ou aba exata depende da integração do terminal.", "warning"));
   }
   if (!capabilities.automatic_dnd && (pane.id === "sound" || pane.id === "filters")) {
@@ -199,30 +199,57 @@ export function renderPane(): void {
   }
   if (capabilities.global_shortcut && pane.id === "general") {
     const section = document.createElement("section");
-    section.className = "section card";
+    section.className = "section";
+    const heading = document.createElement("h2");
+    heading.className = "section-title";
+    heading.textContent = "Atalho global";
+    const card = document.createElement("div");
+    card.className = "card";
+    const row = document.createElement("form");
+    row.className = "row shortcut-row";
+    const copy = document.createElement("div");
+    copy.className = "row-copy";
     const label = document.createElement("label");
-    label.textContent = "Atalho global (vazio para desativar)";
+    label.className = "row-label";
+    label.htmlFor = "global-shortcut";
+    label.textContent = "Mostrar ou ocultar a ilha";
+    const hint = document.createElement("span");
+    hint.className = "row-hint";
+    hint.textContent = "Deixe vazio para desativar.";
+    copy.append(label, hint);
+    const controls = document.createElement("div");
+    controls.className = "row-control shortcut-controls";
     const input = document.createElement("input");
+    input.id = "global-shortcut";
     input.type = "text";
+    input.className = "field shortcut-input";
     input.value = shortcutStatus.shortcut;
     input.placeholder = "Command+Shift+I";
     input.setAttribute("aria-label", "Atalho global");
     const button = document.createElement("button");
-    button.textContent = "Salvar atalho";
+    button.type = "submit";
+    button.className = "row-button";
+    button.textContent = "Salvar";
     const status = document.createElement("p");
+    status.className = "section-footer shortcut-status";
     status.setAttribute("role", "status");
     status.textContent = shortcutStatus.error ?? "";
-    button.addEventListener("click", () => {
+    status.hidden = !shortcutStatus.error;
+    row.addEventListener("submit", (event) => {
+      event.preventDefault();
       button.disabled = true;
       void invoke<typeof shortcutStatus>("set_shortcut", { shortcut: input.value }).then((reply) => {
         shortcutStatus = reply;
         status.textContent = reply.error ?? "Atalho salvo.";
-      }).catch((error: unknown) => { status.textContent = String(error); })
+        status.hidden = false;
+      }).catch((error: unknown) => { status.textContent = String(error); status.hidden = false; })
         .finally(() => { button.disabled = false; });
     });
-    label.append(input);
-    section.append(label, button, status);
-    body.prepend(section);
+    controls.append(input, button);
+    row.append(copy, controls);
+    card.append(row);
+    section.append(heading, card, status);
+    body.insertBefore(section, body.children[1] ?? null);
   }
   if (capabilities.manual_update && pane.id === "about") {
     body.append(buildNote("A atualização abre o DMG da sua arquitetura. Substitua o aplicativo manualmente em Aplicativos.", "warning"));
@@ -293,6 +320,7 @@ function rememberAgent(name: IntegrationName): void {
 async function load(): Promise<void> {
   try {
     capabilities = (await invoke<PlatformCapabilities>("platform_capabilities").catch(() => linuxCapabilities)) ?? linuxCapabilities;
+    document.documentElement.dataset.platform = capabilities.os;
     if (capabilities.global_shortcut) shortcutStatus = await invoke<typeof shortcutStatus>("get_shortcut");
     const [, status, sounds, metrics, soundDir, screens, version, sessions, update] =
       await Promise.all([

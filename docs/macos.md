@@ -120,3 +120,23 @@ Foram verificadas em Chromium as posições reais dos elementos ao expandir/reco
 com notch, escala de 150%, modo limpo e sem notch. O campo de mensagem fica oculto
 em hosts sem suporte; mensagens enfileiradas continuam disponíveis para cancelamento.
 A confirmação visual no Mac físico continua pendente.
+
+O [build Apple Silicon da integração](https://github.com/matheus-cintra/open-island/actions/runs/34612912278)
+concluiu com sucesso, incluindo verificação do bundle e testes Rust no macOS.
+Os 151 testes do frontend passaram localmente; o checksum do DMG baixado foi conferido.
+
+### Densidade dos ajustes no macOS
+
+Após a confirmação do autor de que a integração com o notch funciona, as áreas laterais
+foram reduzidas: 112 pontos no modo limpo e 208 no detalhado, somados à largura da câmera.
+A geometria continua respeitando a escala e a exclusão física do notch.
+
+As 42 imagens da pasta de referências foram revisadas. A folha de estilos exclusiva do
+macOS usa a fonte do sistema, títulos de 17 px, rótulos de 13 px e descrições de 11 px.
+O formulário de atalho segue os controles dos demais ajustes; o aviso experimental fica
+na aba Sobre. Os estilos Linux permanecem sem alterações.
+
+Verificação local: 152 testes do frontend, build TypeScript/Vite e inspeção renderizada
+em Chromium das sete abas, sem transbordamento horizontal. Foram exercitados os estados
+de erro e sucesso do atalho, além dos layouts de ilha limpo/detalhado, escala de 150% e
+tela sem notch. Essa inspeção não substitui a confirmação visual no WebKit do Mac físico.

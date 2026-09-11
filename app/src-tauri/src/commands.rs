@@ -246,6 +246,8 @@ pub fn monitor_report() -> Vec<String> {
 // Hyprland drops xdg-activation unless misc:focus_on_activate is on, so set_focus alone
 // never moves a window off another workspace; unmapping makes it be placed again.
 pub fn reveal_settings(window: &tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    window.set_title("Ajustes do Open Island").map_err(|error| error.to_string())?;
     #[cfg(target_os = "linux")]
     if window.is_visible().unwrap_or(false) {
         window.hide().map_err(|error| error.to_string())?;
