@@ -322,6 +322,9 @@ fn run_inner(args: Vec<OsString>) -> Result<i32, Box<dyn std::error::Error>> {
         }
         if fds[2].revents & libc::POLLIN != 0 {
             if let Ok((mut connection, _)) = listener.accept() {
+                // BSD/macOS can inherit O_NONBLOCK from the listener. A client
+                // may connect before writing its frame; honor the read timeout.
+                connection.set_nonblocking(false)?;
                 connection.set_read_timeout(Some(Duration::from_millis(500)))?;
                 connection.set_write_timeout(Some(Duration::from_millis(500)))?;
                 let error = match wire::read_frame::<Request>(&connection) {

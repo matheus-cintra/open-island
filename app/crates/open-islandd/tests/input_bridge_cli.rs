@@ -360,6 +360,29 @@ fn a_background_helper_in_the_same_process_group_cannot_receive_the_parent_input
 }
 
 #[test]
+fn a_connection_can_arrive_before_its_message_without_losing_the_request() {
+    use std::os::unix::net::UnixStream;
+    let mut session = session();
+    let (socket, pid) = address(&session);
+    let mut connection = UnixStream::connect(socket).unwrap();
+    connection
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    thread::sleep(Duration::from_millis(150));
+    input_bridge::write_frame(
+        &mut connection,
+        &input_bridge::Request {
+            pid,
+            text: "chegou depois da conexão".into(),
+        },
+    )
+    .unwrap();
+    let response: input_bridge::Response = input_bridge::read_frame(connection).unwrap();
+    assert!(response.error.is_none(), "{response:?}");
+    session.finish();
+}
+
+#[test]
 fn daemon_discovers_the_bridge_and_delivers_through_the_existing_message_protocol() {
     use std::{
         io::{BufRead, BufReader, Write},
