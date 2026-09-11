@@ -4,6 +4,7 @@ extern "C" {
     fn oi_process(pid: i32, parent: *mut u32, name: *mut i8, capacity: i32) -> i32;
     fn oi_cwd(pid: i32, out: *mut i8, capacity: i32) -> i32;
     fn oi_procargs(pid: i32, out: *mut i8, length: *mut usize) -> i32;
+    fn oi_stdin_device(pid: i32, device: *mut u64) -> i32;
     fn oi_displays_asleep() -> i32;
     fn oi_session_state(on_console: *mut i32, locked: *mut i32);
     fn oi_activate(pid: i32) -> i32;
@@ -63,6 +64,10 @@ pub fn command(pid: u32) -> Option<Vec<u8>> {
 }
 pub fn environment(pid: u32) -> Vec<u8> {
     args(pid).map(|(_, env)| env).unwrap_or_default()
+}
+pub fn stdin_device(pid: u32) -> Option<u64> {
+    let mut device = 0;
+    (unsafe { oi_stdin_device(pid as i32, &mut device) } != 0).then_some(device)
 }
 pub fn activate(pid: u32) -> Result<(), String> {
     super::activate_ancestor(

@@ -131,6 +131,9 @@ fn session() -> Session {
     session_with_shell(None)
 }
 fn session_with_shell(shell: Option<&str>) -> Session {
+    session_fixture(shell, false)
+}
+fn session_fixture(shell: Option<&str>, background: bool) -> Session {
     let directory = tempfile::tempdir().unwrap();
     let info = directory.path().join("info");
     let received = directory.path().join("received");
@@ -171,19 +174,41 @@ fn session_with_shell(shell: Option<&str>) -> Session {
         command
     };
     command.cwd(directory.path());
+    if background {
+        command.env("OPEN_ISLAND_TEST_BACKGROUND", "1");
+    }
     command.args([
         "-c",
         r#"
 import os, sys, tty, json, time
 tty.setraw(0)
 os.write(1, b'\x1b[?2004h')
+background = 0
+if os.environ.get('OPEN_ISLAND_TEST_BACKGROUND') == '1':
+    ready_r, ready_w = os.pipe()
+    background = os.fork()
+    if background == 0:
+        os.close(ready_r)
+        fd = os.open('/dev/null', os.O_RDONLY)
+        os.dup2(fd, 0)
+        os.close(fd)
+        os.write(ready_w, b'1')
+        os.close(ready_w)
+        time.sleep(60)
+        os._exit(0)
+    os.close(ready_w)
+    os.read(ready_r, 1)
+    os.close(ready_r)
 with open(sys.argv[1], 'w') as f:
-    json.dump({'pid': os.getpid(), 'socket': os.environ['OPEN_ISLAND_INPUT_SOCKET'], 'cwd': os.getcwd()}, f)
+    json.dump({'pid': os.getpid(), 'socket': os.environ['OPEN_ISLAND_INPUT_SOCKET'], 'cwd': os.getcwd(), 'background': background}, f)
 data = b''
 while not data.endswith(b'\r'):
     data += os.read(0, 8192)
 with open(sys.argv[2], 'w') as f:
     json.dump({'text': data.decode(), 'size': list(os.get_terminal_size(0))}, f)
+if background:
+    os.kill(background, 9)
+    os.waitpid(background, 0)
 time.sleep(0.2)
 "#,
     ]);
@@ -316,6 +341,45 @@ fn hanging_up_the_bridge_reaps_the_agent_and_removes_its_socket() {
     }
     assert!(!open_island_core::process::exists(pid));
     assert!(!socket.exists());
+}
+
+#[test]
+fn a_background_helper_in_the_same_process_group_cannot_receive_the_parent_input() {
+    let mut session = session_fixture(None, true);
+    let (socket, pid) = address(&session);
+    let info: serde_json::Value = serde_json::from_str(&wait_file(&session.info)).unwrap();
+    let background = info["background"].as_u64().unwrap() as u32;
+    assert_eq!(unsafe { libc::getpgid(pid as i32) }, unsafe {
+        libc::getpgid(background as i32)
+    });
+    assert!(input_bridge::send(&socket, background, "não deve chegar ao pai").is_err());
+    assert!(!session.received.exists());
+    input_bridge::send(&socket, pid, "mensagem ao agente correto").unwrap();
+    session.finish();
+    assert!(!open_island_core::process::exists(background));
+}
+
+#[test]
+fn a_connection_can_arrive_before_its_message_without_losing_the_request() {
+    use std::os::unix::net::UnixStream;
+    let mut session = session();
+    let (socket, pid) = address(&session);
+    let mut connection = UnixStream::connect(socket).unwrap();
+    connection
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    thread::sleep(Duration::from_millis(150));
+    input_bridge::write_frame(
+        &mut connection,
+        &input_bridge::Request {
+            pid,
+            text: "chegou depois da conexão".into(),
+        },
+    )
+    .unwrap();
+    let response: input_bridge::Response = input_bridge::read_frame(connection).unwrap();
+    assert!(response.error.is_none(), "{response:?}");
+    session.finish();
 }
 
 #[test]

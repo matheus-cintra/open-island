@@ -2,6 +2,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #include <libproc.h>
 #include <sys/sysctl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 int oi_pids(int *out, int bytes) { return proc_listallpids(out, bytes); }
@@ -31,6 +32,13 @@ int oi_cwd(int pid, char *out, int capacity) {
 int oi_procargs(int pid, char *out, size_t *length) {
     int mib[] = {CTL_KERN, KERN_PROCARGS2, pid};
     return sysctl(mib, 3, out, length, NULL, 0) == 0;
+}
+int oi_stdin_device(int pid, uint64_t *device) {
+    struct vnode_fdinfo info = {0};
+    if (proc_pidfdinfo(pid, STDIN_FILENO, PROC_PIDFDVNODEINFO, &info, sizeof(info)) != sizeof(info)) return 0;
+    if (!S_ISCHR(info.pvi.vi_stat.vst_mode)) return 0;
+    *device = info.pvi.vi_stat.vst_rdev;
+    return 1;
 }
 int oi_activate(int pid) {
     @autoreleasepool {
