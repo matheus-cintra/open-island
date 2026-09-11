@@ -111,6 +111,11 @@ fn a_pinned_provider_ignores_the_session_at_the_top() {
 fn the_cache_lands_under_the_state_directory_and_not_beside_the_config() {
     let path = cache_path().expect("a cache path");
     let text = path.to_string_lossy();
-    assert!(text.ends_with("open-island/usage.json"), "{text}");
+    let suffix = if cfg!(target_os = "macos") && std::env::var_os("XDG_STATE_HOME").is_none() {
+        "Open Island/state/usage.json"
+    } else {
+        "open-island/usage.json"
+    };
+    assert!(text.ends_with(suffix), "{text}");
     assert!(!text.contains(".config/"), "{text}");
 }
