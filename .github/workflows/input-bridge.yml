@@ -23,7 +23,7 @@ jobs:
         with:
           workspaces: app
           cache-on-failure: true
-      - run: python3 ../scripts/test-processes.py cargo test -p open-islandd --test input_bridge_cli -- --nocapture
+      - run: python3 ../scripts/test-processes.py cargo test -p open-island-core -p open-islandd -- --nocapture
         working-directory: app
       - uses: actions/upload-artifact@v4
         if: always()
