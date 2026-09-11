@@ -16,6 +16,9 @@ jobs:
           - runner: macos-14
             arch: aarch64
             macho: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+            macho: x86_64
     env:
       MACOSX_DEPLOYMENT_TARGET: '12.0'
     steps:
