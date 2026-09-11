@@ -20,6 +20,8 @@ jobs:
             arch: x86_64
             macho: x86_64
     env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
       MACOSX_DEPLOYMENT_TARGET: '12.0'
     steps:
       - uses: actions/checkout@v7
@@ -33,8 +35,10 @@ jobs:
       - run: |
           mkdir -p artifacts
           cp app/target/release/bundle/dmg/*.dmg artifacts/open-island-macos-${{ matrix.arch }}.dmg
+          cp app/target/release/bundle/macos/*.app.tar.gz artifacts/open-island-macos-${{ matrix.arch }}.app.tar.gz
+          cp app/target/release/bundle/macos/*.app.tar.gz.sig artifacts/open-island-macos-${{ matrix.arch }}.app.tar.gz.sig
           cd artifacts
-          shasum -a 256 *.dmg > SHA256SUMS-${{ matrix.arch }}
+          shasum -a 256 *.dmg *.app.tar.gz *.sig > SHA256SUMS-${{ matrix.arch }}
       - uses: actions/upload-artifact@v4
         with:
           name: dmg-${{ matrix.arch }}

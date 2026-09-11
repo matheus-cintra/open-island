@@ -112,6 +112,8 @@ jobs:
             target: x86_64-apple-darwin
             macho: x86_64
     env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
       MACOSX_DEPLOYMENT_TARGET: "12.0"
       CARGO_BUILD_TARGET: ${{ matrix.target }}
     steps:
@@ -131,6 +133,8 @@ jobs:
       - run: |
           mkdir -p release/assets
           cp app/target/${{ matrix.target }}/release/bundle/dmg/*.dmg "release/assets/open-island-macos-${{ matrix.arch }}.dmg"
+          cp app/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz "release/assets/open-island-macos-${{ matrix.arch }}.app.tar.gz"
+          cp app/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig "release/assets/open-island-macos-${{ matrix.arch }}.app.tar.gz.sig"
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}-assets
@@ -141,11 +145,14 @@ jobs:
     needs: [build, macos]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           pattern: '*-assets'
           merge-multiple: true
           path: release/assets
+      - name: Assemble signed macOS updater index
+        run: python3 scripts/updater-manifest.py "$GITHUB_REF_NAME" release/assets "$GITHUB_REPOSITORY"
       - name: Consolidate checksums
         working-directory: release/assets
         run: |

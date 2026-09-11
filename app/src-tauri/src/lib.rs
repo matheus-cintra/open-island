@@ -17,6 +17,8 @@ mod settings;
 mod shortcut;
 mod terminal;
 mod update;
+#[cfg(any(test, target_os = "macos"))]
+mod update_bundle;
 
 use client::DaemonClient;
 use commands::reveal_settings;
@@ -36,7 +38,8 @@ pub fn run() {
                 let _ = commands::open_settings(app.clone());
             }
         }))
-        .plugin(shortcut::plugin());
+        .plugin(shortcut::plugin())
+        .plugin(tauri_plugin_updater::Builder::new().build());
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
