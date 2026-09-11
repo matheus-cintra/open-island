@@ -32,7 +32,7 @@ export function focusPermissionSection(status: FocusStatus): HTMLElement {
         ? "O acesso ao Foco está restrito neste Mac. O modo silencioso e os horários continuam disponíveis."
         : status.authorization !== 0
           ? "Não foi possível consultar a permissão de Foco. Reabra os ajustes para tentar novamente."
-          : "Autorize a consulta para usar os controles de Não Perturbe. Nenhum arquivo privado do sistema é lido.";
+          : "Autorize o compartilhamento do estado de Foco para usar os controles de Não Perturbe.";
   copy.append(label, hint);
   row.append(copy);
   if (status.authorization === 0) {

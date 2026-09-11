@@ -117,3 +117,8 @@ int oi_focus_silenced(void) {
 void oi_request_focus(void) {
     [INFocusStatusCenter.defaultCenter requestAuthorizationWithCompletionHandler:^(INFocusStatusAuthorizationStatus status) {}];
 }
+
+// Public system presentation state reflects the active app, not our nonactivating panel.
+int oi_active_fullscreen(void) {
+    return (NSApp.currentSystemPresentationOptions & NSApplicationPresentationFullScreen) != 0;
+}

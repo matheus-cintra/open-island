@@ -1,7 +1,8 @@
 use serde_json::Value;
 use std::{
     env, fs,
-    io::{self, BufRead, BufReader},
+    io::{self, BufRead, BufReader, Read},
+    net::Shutdown,
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
@@ -70,8 +71,15 @@ fn connect(path: &Path) -> (UnixStream, BufReader<UnixStream>) {
 }
 
 fn wait_for_bind(path: &Path) {
-    let (stream, _) = connect(path);
-    drop(stream);
+    let (stream, mut reader) = connect(path);
+    // A dropped probe can still be registered as a subscriber when toggle runs.
+    // Half-close and wait for the server's EOF, which follows subscriber removal.
+    stream
+        .shutdown(Shutdown::Write)
+        .expect("close probe write side");
+    reader
+        .read_to_end(&mut Vec::new())
+        .expect("daemon acknowledged probe disconnect");
 }
 
 fn toggle(path: &Path) -> Output {

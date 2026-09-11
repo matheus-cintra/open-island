@@ -29,6 +29,7 @@ struct Snapshot {
     pointer: (i32, i32),
     pid: u32,
     focus: FocusStatus,
+    fullscreen: bool,
 }
 static SNAPSHOT: Mutex<Snapshot> = Mutex::new(Snapshot {
     screens: Vec::new(),
@@ -38,9 +39,11 @@ static SNAPSHOT: Mutex<Snapshot> = Mutex::new(Snapshot {
         authorization: 0,
         silenced: None,
     },
+    fullscreen: false,
 });
 static SIZE: Mutex<(f64, f64)> = Mutex::new((232.0, 46.0));
 extern "C" {
+    fn oi_active_fullscreen() -> i32;
     fn oi_focus_authorization() -> i32;
     fn oi_focus_silenced() -> i32;
     fn oi_request_focus();
@@ -96,6 +99,7 @@ fn refresh(window: &tauri::WebviewWindow) {
             pointer: (x as i32, y as i32),
             pid,
             focus,
+            fullscreen: unsafe { oi_active_fullscreen() != 0 },
         };
         changed
     };
@@ -208,7 +212,7 @@ impl Compositor for MacCompositor {
         Some(SNAPSHOT.lock().ok()?.pointer)
     }
     fn any_fullscreen(&self) -> Option<bool> {
-        None
+        Some(SNAPSHOT.lock().ok()?.fullscreen)
     }
     fn focused_pid(&self) -> Option<u32> {
         Some(SNAPSHOT.lock().ok()?.pid)

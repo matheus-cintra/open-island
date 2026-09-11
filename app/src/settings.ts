@@ -168,6 +168,9 @@ export function renderPane(): void {
         effectiveRow.label = "Telas desligadas";
         effectiveRow.hint = "Silencia enquanto todas as telas estiverem em repouso. Bloquear a sessão com a tela acesa não ativa esta condição.";
       }
+      if (capabilities.os === "macos" && row.path === "island.hide_in_fullscreen") {
+        effectiveRow.hint = "Oculta enquanto o aplicativo ativo estiver no modo de tela cheia do macOS. Janelas apenas maximizadas não ativam esta opção.";
+      }
       const built = buildRow(effectiveRow);
       if (row.visibleWhen !== undefined)
         dependants.push({ element: built, path: row.visibleWhen, mode: "hide" });
@@ -386,8 +389,10 @@ async function load(): Promise<void> {
 }
 
 void listen<FocusStatus>("macos-focus-status", (event) => {
+  const changed = focusStatus.authorization !== event.payload.authorization
+    || (focusStatus.silenced === null) !== (event.payload.silenced === null);
   focusStatus = event.payload;
-  if (activePane === "sound" || activePane === "filters") renderPane();
+  if (changed && (activePane === "sound" || activePane === "filters")) renderPane();
 });
 
 void listen("config-changed", () => {

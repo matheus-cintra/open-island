@@ -274,7 +274,7 @@ pub fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
 pub fn platform_capabilities() -> Value {
     json!({"os": std::env::consts::OS, "experimental": cfg!(target_os = "macos"),
         "hyprland": cfg!(target_os = "linux"), "automatic_dnd": true,
-        "screen_off": true, "fullscreen_detection": cfg!(target_os = "linux"),
+        "screen_off": true, "fullscreen_detection": true,
         "global_shortcut": cfg!(target_os = "macos"), "manual_update": cfg!(target_os = "macos")})
 }
 
