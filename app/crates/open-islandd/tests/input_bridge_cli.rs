@@ -37,6 +37,9 @@ fn wait_file(path: &Path) -> String {
     }
 }
 fn session() -> Session {
+    session_with_shell(None)
+}
+fn session_with_shell(shell: Option<&str>) -> Session {
     let directory = tempfile::tempdir().unwrap();
     let info = directory.path().join("info");
     let received = directory.path().join("received");
@@ -54,10 +57,29 @@ fn session() -> Session {
             pixel_height: 0,
         })
         .unwrap();
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_open-islandd"));
+    let mut command = if let Some(shell) = shell {
+        open_islandd::input_install::configure(
+            directory.path(),
+            Path::new(env!("CARGO_BIN_EXE_open-islandd")),
+            true,
+            false,
+        )
+        .unwrap();
+        let mut command = CommandBuilder::new(shell);
+        command.args(["-fic", ". \"$1\"; shift; claude \"$@\"", "test"]);
+        command.arg(directory.path().join(".config/open-island/input.sh"));
+        let mut paths = vec![directory.path().to_path_buf()];
+        paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
+        command.env("PATH", std::env::join_paths(paths).unwrap());
+        command.env("HOME", directory.path());
+        command
+    } else {
+        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_open-islandd"));
+        command.args(["run", "--"]);
+        command.arg(&agent);
+        command
+    };
     command.cwd(directory.path());
-    command.args(["run", "--"]);
-    command.arg(&agent);
     command.args([
         "-c",
         r#"
@@ -163,6 +185,25 @@ fn keyboard_and_resize_survive_the_bridge() {
     assert_eq!(result["text"], "keyboard\r");
     assert_eq!(result["size"], serde_json::json!([40, 10]));
     assert!(session.child.wait().unwrap().success());
+}
+
+#[test]
+fn interactive_shell_integration_wraps_commands_and_accepts_messages() {
+    for shell in ["bash", "zsh"] {
+        let Some(executable) = open_island_core::paths::executable(shell) else {
+            continue;
+        };
+        let mut session = session_with_shell(Some(executable.to_str().unwrap()));
+        let (socket, pid) = address(&session);
+        input_bridge::send(&socket, pid, "pelo comando do shell").unwrap();
+        let received: serde_json::Value =
+            serde_json::from_str(&wait_file(&session.received)).unwrap();
+        assert_eq!(
+            received["text"],
+            "\x1b[200~pelo comando do shell\x1b[201~\r"
+        );
+        assert!(session.child.wait().unwrap().success());
+    }
 }
 
 #[test]
