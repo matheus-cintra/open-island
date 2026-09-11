@@ -19,8 +19,6 @@ export function supportsRow(capabilities: PlatformCapabilities, path: string): b
     case "filters.quiet.focus_mode": return capabilities.automatic_dnd;
     case "filters.quiet.screen_off": return capabilities.screen_off;
     case "island.hide_in_fullscreen": return capabilities.fullscreen_detection;
-    case "display.notch_width_offset":
-    case "display.notch_height_offset": return capabilities.os !== "macos";
     default: return true;
   }
 }

@@ -238,13 +238,14 @@ function applyUiScale(scale: number, compactHeight?: number): void {
   // Dimensions now describe the whole panel, including the camera strip.
   // Compact content lives in two wings beside the camera, never beneath it.
   const height = hasPhysicalNotch
-    ? Math.max(physicalNotchHeight, fixed ? islandHeight : 0)
+    ? Math.max(MIN_COMPACT_H, (fixed ? islandHeight : physicalNotchHeight) + notchHeight)
     : base + Math.max(floor, notchHeight);
   const width = hasPhysicalNotch
-    ? Math.ceil(physicalNotchWidth + (compactClean ? 112 : 208) * next)
+    ? Math.ceil(physicalNotchWidth + Math.max(100 * next, (compactClean ? 112 : 208) * next + notchWidth))
     : Math.max(MIN_COMPACT_W, Math.round(BASE_COMPACT.w * next) + notchWidth);
   document.documentElement.style.setProperty("--camera-top", `${physicalNotchHeight / next}px`);
   document.documentElement.style.setProperty("--camera-width", `${physicalNotchWidth / next}px`);
+  document.documentElement.style.setProperty("--compact-height", `${height / next}px`);
   if (next === uiScale && height === COMPACT.h && width === COMPACT.w) return;
   uiScale = next;
   COMPACT = { w: width, h: height };
@@ -1286,6 +1287,9 @@ function applyStaticStrings(): void {
 
 async function boot(): Promise<void> {
   applyStaticStrings();
+  void invoke<{ os: string }>("platform_capabilities").then((platform) => {
+    document.body.classList.toggle("platform-macos", platform?.os === "macos");
+  }).catch(() => {});
   await setIslandSize(COMPACT.w, COMPACT.h);
   setView("compact");
   resetIdle();

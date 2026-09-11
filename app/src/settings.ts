@@ -156,7 +156,9 @@ export function renderPane(): void {
       if (row.visible?.() === false || !supportsRow(capabilities, row.path)) continue;
       const effectiveRow = capabilities.os === "macos" && row.path === "integration.autostart"
         ? { ...row, hint: "Inicia a ilha e o daemon ao entrar na sua conta do Mac." }
-        : row;
+        : capabilities.os === "macos" && row.path === "display.island_height"
+          ? { ...row, hint: "0 usa a altura automática. Valores menores que 16 usam 16 pontos; 40 define a altura em 40 pontos." }
+          : row;
       const built = buildRow(effectiveRow);
       if (row.visibleWhen !== undefined)
         dependants.push({ element: built, path: row.visibleWhen, mode: "hide" });
@@ -181,7 +183,9 @@ export function renderPane(): void {
     if (section.footer !== undefined) {
       const footer = document.createElement("p");
       footer.className = "section-footer";
-      footer.textContent = section.footer;
+      footer.textContent = capabilities.os === "macos" && section.rows.some((row) => row.path === "display.notch_width_offset")
+        ? "Ajuste a largura e a altura da ilha recolhida em pontos da tela. Os ajustes relativos partem de 0; a área da câmera continua reservada entre os conteúdos."
+        : section.footer;
       wrapper.append(footer);
     }
     wrapper.style.setProperty("--index", String(body.childElementCount));

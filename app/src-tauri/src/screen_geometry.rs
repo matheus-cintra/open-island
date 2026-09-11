@@ -11,7 +11,7 @@ pub fn place(
     y: f64,
     screen_width: f64,
     notch_width: f64,
-    safe_top: f64,
+    _safe_top: f64,
     width: f64,
     height: f64,
 ) -> Placement {
@@ -20,8 +20,8 @@ pub fn place(
         x: x + (screen_width - width) / 2.0,
         y,
         width,
-        // The frontend reserves the camera within the panel, not above it.
-        height: height.max(safe_top),
+        // The frontend controls manual height; the camera remains excluded horizontally.
+        height,
     }
 }
 #[cfg(test)]
@@ -53,6 +53,13 @@ mod tests {
                 width: 232.0,
                 height: 46.0
             }
+        );
+    }
+    #[test]
+    fn manual_height_can_be_smaller_than_the_camera_strip() {
+        assert_eq!(
+            place(0.0, 0.0, 1512.0, 220.0, 40.0, 332.0, 28.0).height,
+            28.0
         );
     }
     #[test]

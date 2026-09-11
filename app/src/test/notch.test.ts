@@ -5,8 +5,9 @@ import { tauriMock } from "./tauri";
 let safeTop = 32;
 let scale = 1;
 let clean = false;
+let tuning = {};
 const tauri = tauriMock(({ command }) => {
-  if (command === "get_config") return { config: { display: { compact_layout: clean ? "clean" : "full" } } };
+  if (command === "get_config") return { config: { display: { compact_layout: clean ? "clean" : "full", ...tuning } } };
   if (command === "island_metrics") return {
     // Reproduce the value sent by the original native macOS backend.
     scale, compact_height: 46, safe_top: safeTop, notch_width: safeTop ? 220 : 0,
@@ -45,6 +46,20 @@ test("clean mode only reserves narrow wings for the sprite and count", async () 
   await settle();
   expect(sizes().pop()?.args).toEqual({ width: 332, height: 32 });
   clean = false;
+});
+
+test("notch tuning changes width and manual height below the safe strip", async () => {
+  tuning = { notch_width_offset: -12, notch_height_offset: -2, island_height: 28 };
+  tauri.emit("island-screen-changed", {});
+  await settle();
+  expect(sizes().pop()?.args).toEqual({ width: 416, height: 26 });
+  expect(document.documentElement.style.getPropertyValue("--compact-height")).toBe("26px");
+  expect(document.documentElement.style.getPropertyValue("--camera-top")).toBe("32px");
+  tuning = { island_height: 40 };
+  tauri.emit("island-screen-changed", {});
+  await settle();
+  expect(sizes().pop()?.args).toEqual({ width: 428, height: 40 });
+  tuning = {};
 });
 
 test("moving to a screen without a notch restores the usual compact geometry", async () => {
