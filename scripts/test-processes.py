@@ -9,8 +9,13 @@ import time
 
 log = Path(os.environ.get("OPEN_ISLAND_TEST_LOG", "/tmp/open-island-tests.log"))
 command = sys.argv[1:] or ["cargo", "test", "--workspace"]
+test_env = os.environ.copy()
+# macOS's default /var/folders/... path can exceed sockaddr_un.sun_path once a
+# fixture adds its unique name. Production uses a similarly short private path.
+if sys.platform == "darwin":
+    test_env["TMPDIR"] = "/tmp"
 with log.open("wb") as output:
-    child = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+    child = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT, start_new_session=True, env=test_env)
     try:
         code = child.wait(timeout=600)
     except subprocess.TimeoutExpired:
