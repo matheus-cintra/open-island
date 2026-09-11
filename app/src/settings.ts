@@ -482,7 +482,7 @@ const MATCH_LABELS: Record<MatchType, string> = {
   equals: copy.filters.matchEquals,
 };
 
-function asRule(value: JsonValue): SilenceRule | null {
+export function asRule(value: JsonValue): SilenceRule | null {
   if (!isJsonObject(value)) return null;
   const { field, match_type, pattern, name, built_in, enabled } = value;
   if (field !== "cwd" && field !== "prompt") return null;
@@ -500,7 +500,7 @@ function asRule(value: JsonValue): SilenceRule | null {
   };
 }
 
-function asJson(rule: SilenceRule): JsonObject {
+export function asJson(rule: SilenceRule): JsonObject {
   return {
     field: rule.field,
     match_type: rule.match_type,
@@ -511,7 +511,7 @@ function asJson(rule: SilenceRule): JsonObject {
   };
 }
 
-function storedRules(): SilenceRule[] {
+export function storedRules(): SilenceRule[] {
   const stored = readPath(config, "filters.rules");
   if (!Array.isArray(stored)) return [];
   const rules: SilenceRule[] = [];
@@ -522,7 +522,7 @@ function storedRules(): SilenceRule[] {
   return rules;
 }
 
-function saveRules(rules: SilenceRule[]): void {
+export function saveRules(rules: SilenceRule[]): void {
   setValue("filters.rules", rules.map(asJson));
   renderPane();
 }
@@ -605,7 +605,7 @@ function buildRuleEntry(rule: SilenceRule, index: number): HTMLElement {
   return entry;
 }
 
-function storedLaunchers(): LauncherRule[] {
+export function storedLaunchers(): LauncherRule[] {
   const stored = readPath(config, "filters.launchers");
   if (!Array.isArray(stored)) return [];
   const launchers: LauncherRule[] = [];
@@ -623,7 +623,7 @@ function storedLaunchers(): LauncherRule[] {
   return launchers;
 }
 
-function saveLaunchers(launchers: LauncherRule[]): void {
+export function saveLaunchers(launchers: LauncherRule[]): void {
   setValue(
     "filters.launchers",
     launchers.map((launcher) => ({
