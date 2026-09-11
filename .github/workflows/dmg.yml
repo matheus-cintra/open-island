@@ -2,7 +2,11 @@ name: Build experimental DMGs
 on:
   push:
     branches: ['build/macos-*']
+    paths-ignore: ['docs/**', 'README.md']
   workflow_dispatch:
+concurrency:
+  group: dmg-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -46,9 +50,17 @@ jobs:
           if-no-files-found: error
       - run: python3 ../scripts/test-processes.py cargo test --workspace
         working-directory: app
+      - name: Test signed update and real daemon restart
+        working-directory: app
+        run: |
+          set -- target/release/bundle/macos/*.app.tar.gz
+          test "$#" -eq 1
+          export OPEN_ISLAND_UPDATER_ARCHIVE="$PWD/$1"
+          export OPEN_ISLAND_TEST_LOG=/tmp/open-island-updater-tests.log
+          python3 ../scripts/test-processes.py cargo test -p open-island --lib update_macos::tests:: -- --ignored --test-threads=1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: tests-${{ matrix.arch }}
-          path: /tmp/open-island-tests.log
+          path: /tmp/open-island*tests.log
           if-no-files-found: ignore

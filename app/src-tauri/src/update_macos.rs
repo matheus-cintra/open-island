@@ -84,21 +84,43 @@ fn stop_daemon() -> Result<(), String> {
 }
 
 fn start_daemon(bundle: &Path, version: &str) -> Result<(), String> {
-    let mut child = Command::new(bundle.join("Contents/MacOS/open-islandd"))
-        .arg("--socket")
-        .arg(open_island_core::paths::socket())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    thread::spawn(move || {
-        let _ = child.wait();
-    });
+    struct Starting(Option<std::process::Child>);
+    impl Drop for Starting {
+        fn drop(&mut self) {
+            if let Some(child) = self.0.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+    let mut starting = Starting(None);
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
         if request("ping").is_ok_and(|v| v["daemon"] == "open-islandd" && v["version"] == version) {
+            if let Some(mut child) = starting.0.take() {
+                thread::spawn(move || {
+                    let _ = child.wait();
+                });
+            }
             return Ok(());
+        }
+        if let Some(child) = starting.0.as_mut() {
+            if child.try_wait().map_err(|e| e.to_string())?.is_some() {
+                starting.0 = None;
+            }
+        }
+        if starting.0.is_none() {
+            // A former daemon or launchd can briefly hold the socket lock during restart.
+            starting.0 = Some(
+                Command::new(bundle.join("Contents/MacOS/open-islandd"))
+                    .arg("--socket")
+                    .arg(open_island_core::paths::socket())
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .map_err(|e| e.to_string())?,
+            );
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -177,6 +199,10 @@ fn install(bytes: Vec<u8>, version: String) -> Result<(), String> {
         .find(|p| p.extension().is_some_and(|e| e == "app"))
         .ok_or("Instale Open Island em Aplicativos antes de atualizar.")?
         .to_path_buf();
+    install_at(bytes, version, installed)
+}
+
+fn install_at(bytes: Vec<u8>, version: String, installed: PathBuf) -> Result<(), String> {
     let parent = installed.parent().ok_or("Local do aplicativo inválido.")?;
     let staging = tempfile::Builder::new().prefix(".open-island-update-").tempdir_in(parent)
         .map_err(|e| format!("Sem acesso para atualizar este aplicativo. Mova-o para ~/Applications ou instale pelo DMG. {e}"))?;
@@ -250,3 +276,7 @@ pub async fn run(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())??;
     app.restart();
 }
+
+#[cfg(test)]
+#[path = "update_macos_tests.rs"]
+mod tests;

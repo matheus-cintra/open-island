@@ -130,6 +130,14 @@ jobs:
         working-directory: app
       - run: bun run test
         working-directory: app
+      - name: Test signed update and real daemon restart
+        working-directory: app
+        run: |
+          set -- target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+          test "$#" -eq 1
+          export OPEN_ISLAND_UPDATER_ARCHIVE="$PWD/$1"
+          export OPEN_ISLAND_TEST_LOG=/tmp/open-island-updater-tests.log
+          python3 ../scripts/test-processes.py cargo test -p open-island --lib update_macos::tests:: -- --ignored --test-threads=1
       - run: |
           mkdir -p release/assets
           cp app/target/${{ matrix.target }}/release/bundle/dmg/*.dmg "release/assets/open-island-macos-${{ matrix.arch }}.dmg"

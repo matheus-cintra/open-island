@@ -2515,10 +2515,12 @@ dependencies = [
 name = "open-island"
 version = "0.5.0"
 dependencies = [
+ "base64 0.22.1",
  "cc",
  "flate2",
  "gtk",
  "libc",
+ "minisign-verify",
  "open-island-core",
  "serde",
  "serde_json",
