@@ -23,6 +23,7 @@ impl Drop for Session {
         let _ = self.child.kill();
         let deadline = Instant::now() + Duration::from_millis(500);
         while Instant::now() < deadline {
+            self.drain_output();
             if self.child.try_wait().ok().flatten().is_some() {
                 return;
             }
@@ -38,33 +39,48 @@ impl Drop for Session {
                 libc::kill(pid as i32, libc::SIGKILL);
             }
         }
+        self.drain_output();
         let _ = self.child.wait();
     }
 }
 impl Session {
     fn finish(&mut self) {
         let deadline = Instant::now() + Duration::from_secs(10);
+        let mut output = String::new();
         loop {
+            // Darwin can wait for even a small pending TTY output buffer before
+            // completing process exit. A real terminal continuously drains it.
+            output.push_str(&self.drain_output());
             if let Some(status) = self.child.try_wait().unwrap() {
                 assert!(status.success(), "session exit: {status:?}");
                 return;
             }
             assert!(
                 Instant::now() < deadline,
-                "session did not exit, terminal output: {}",
+                "session did not exit, terminal output: {output} {}",
                 self.output()
             );
             thread::sleep(Duration::from_millis(20));
         }
     }
-    fn output(&self) -> String {
+    fn drain_output(&self) -> String {
         let fd = self.master.as_raw_fd().unwrap();
         let mut bytes = [0u8; 8192];
         unsafe {
             libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK);
         }
-        let count = unsafe { libc::read(fd, bytes.as_mut_ptr().cast(), bytes.len()) };
-        let mut output = String::from_utf8_lossy(&bytes[..count.max(0) as usize]).into_owned();
+        let mut output = String::new();
+        while output.len() < 65536 {
+            let count = unsafe { libc::read(fd, bytes.as_mut_ptr().cast(), bytes.len()) };
+            if count <= 0 {
+                break;
+            }
+            output.push_str(&String::from_utf8_lossy(&bytes[..count as usize]));
+        }
+        output
+    }
+    fn output(&self) -> String {
+        let mut output = self.drain_output();
         let root = self.child.process_id().unwrap_or(0);
         let mut ids = vec![root];
         for pid in open_island_core::process::pids() {
@@ -282,6 +298,24 @@ fn interactive_shell_integration_wraps_commands_and_accepts_messages() {
         eprintln!("input shell fixture delivered: {shell}");
         session.finish();
     }
+}
+
+#[test]
+fn hanging_up_the_bridge_reaps_the_agent_and_removes_its_socket() {
+    let mut session = session();
+    let (socket, pid) = address(&session);
+    session.child.kill().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        session.drain_output();
+        if session.child.try_wait().unwrap().is_some() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "bridge did not stop");
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!open_island_core::process::exists(pid));
+    assert!(!socket.exists());
 }
 
 #[test]

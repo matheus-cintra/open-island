@@ -12,15 +12,26 @@ use std::{
     time::{Duration, Instant},
 };
 
-struct ChildGuard(Box<dyn portable_pty::Child + Send + Sync>);
+struct ChildGuard(Box<dyn portable_pty::Child + Send + Sync>, i32);
 impl Drop for ChildGuard {
     fn drop(&mut self) {
         if self.0.try_wait().ok().flatten().is_some() {
             return;
         }
         let _ = self.0.kill();
+        let flags = unsafe { libc::fcntl(self.1, libc::F_GETFL) };
+        let nonblocking = flags >= 0
+            && unsafe { libc::fcntl(self.1, libc::F_SETFL, flags | libc::O_NONBLOCK) } == 0;
         let deadline = Instant::now() + Duration::from_millis(300);
         while Instant::now() < deadline {
+            if nonblocking {
+                // On Darwin, pending output can delay even process exit. The
+                // normal loop drains it; cancellation must do so as well.
+                let mut bytes = [0u8; 8192];
+                unsafe {
+                    libc::read(self.1, bytes.as_mut_ptr().cast(), bytes.len());
+                }
+            }
             if self.0.try_wait().ok().flatten().is_some() {
                 return;
             }
@@ -30,6 +41,9 @@ impl Drop for ChildGuard {
             unsafe {
                 libc::kill(pid as i32, libc::SIGKILL);
             }
+        }
+        unsafe {
+            libc::tcflush(self.1, libc::TCIOFLUSH);
         }
         let _ = self.0.wait();
     }
@@ -203,7 +217,7 @@ fn run_inner(args: Vec<OsString>) -> Result<i32, Box<dyn std::error::Error>> {
     let mut command = CommandBuilder::from_argv(args);
     command.cwd(std::env::current_dir()?);
     command.env(wire::ENV, &path);
-    let mut child = ChildGuard(pair.slave.spawn_command(command)?);
+    let mut child = ChildGuard(pair.slave.spawn_command(command)?, fd);
     let root = child.0.process_id().ok_or("PID indisponível")?;
     drop(pair.slave);
     let _terminal = TerminalGuard::raw()?;
