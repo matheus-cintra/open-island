@@ -12,7 +12,7 @@ macOS 12+, Apple Silicon/Intel, português e integração com o notch.
 | Ocultar durante tela cheia | Em implementação: currentSystemPresentationOptions do aplicativo ativo | Tela cheia real, maximizada, troca de Spaces, várias telas e permissão recusada |
 | Abrir sessão no terminal preferido, incluindo Warp | Implementado: preferência persistente para Terminal, iTerm2, Warp, WezTerm e Kitty; validação nativa pendente | Escolha persistente, terminal ausente, caminhos especiais, recusa de Automação |
 | Instalar atualização pelo app | Em validação: botão conectado ao download assinado, validação do bundle, troca atômica e reinício do daemon | Artefato autenticado, instalação atômica, rollback, permissões, relançamento e daemon atualizado |
-| Envio de texto no Warp | Investigar integração pública; sem simular sucesso | Identificação da sessão de destino e confirmação de entrega sem atingir outra aba |
+| Envio de texto no Warp | Investigado: controle público prepara texto, mas não oferece submissão ao agente; envio via host compatível permanece disponível | Limitação explícita; não anunciar texto preparado como mensagem entregue |
 | Linux e integração AppKit/notch | Preservar | Regressões automatizadas e validação visual no Mac |
 | Distribuição | DMGs por arquitetura, assinatura ad hoc, sem notarização | Bundle/daemon/sons, checksums, build e testes nativos |
 
@@ -45,3 +45,5 @@ macOS 12+, Apple Silicon/Intel, português e integração com o notch.
 - Transação do pacote: testes locais cobrem commit, restauração após falha/panic, recusa de symlink e preservação do backup se a restauração falhar. Download autenticado, validação do bundle e reinício/verificação do daemon foram conectados; teste nativo de ponta a ponta ainda pendente.
 
 - Bloqueio: `CGSessionCopyCurrentDictionary` consulta a sessão do próprio processo; `kCGSessionOnConsoleKey` cobre troca de usuário. O campo `CGSSessionScreenIsLocked` não é documentado pela Apple; fica isolado em uma consulta defensiva, com tipos inesperados/sessão inexistente tratados como desconhecidos. O WindowServer omite a chave quando desbloqueado. Validar bloqueio antes/depois de iniciar o daemon em um Mac físico.
+
+- Warp: a [especificação oficial de Warp Control](https://github.com/warpdotdev/warp/blob/master/specs/warp-control-cli/PRODUCT.md) exclui execução/submissão de comandos e prompts. `input.insert` e `input.replace` apenas preparam texto. O suporte da ilha exige entrega ao processo certo; portanto, não se usa essa interface para simular envio. tmux/Zellij/Kitty/WezTerm continuam sendo os canais suportados.

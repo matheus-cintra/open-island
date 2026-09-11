@@ -10,7 +10,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
 static INSTALLING: AtomicBool = AtomicBool::new(false);
@@ -142,6 +142,8 @@ fn validate(bundle: &Path, version: &str) -> Result<(), String> {
     let plist = bundle.join("Contents/Info.plist");
     for (key, expected) in [
         ("CFBundleIdentifier", "app.open-island"),
+        ("CFBundleExecutable", "open-island"),
+        ("LSMinimumSystemVersion", "12.0"),
         ("CFBundleShortVersionString", version),
     ] {
         if output(
@@ -187,18 +189,12 @@ fn validate(bundle: &Path, version: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn install(bytes: Vec<u8>, version: String) -> Result<(), String> {
+fn install(bytes: Vec<u8>, version: String, installed: PathBuf) -> Result<(), String> {
     if std::env::var_os("OPEN_ISLANDD").is_some() {
         return Err(
             "Remova o override OPEN_ISLANDD para atualizar o daemon junto com o aplicativo.".into(),
         );
     }
-    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
-    let installed = executable
-        .ancestors()
-        .find(|p| p.extension().is_some_and(|e| e == "app"))
-        .ok_or("Instale Open Island em Aplicativos antes de atualizar.")?
-        .to_path_buf();
     install_at(bytes, version, installed)
 }
 
@@ -231,7 +227,7 @@ fn install_at(bytes: Vec<u8>, version: String, installed: PathBuf) -> Result<(),
         .ok_or("Versão do daemon inválida.")?
         .to_owned();
     let mut transaction =
-        BundleTransaction::begin(&installed, staging, candidate).map_err(|e| e.to_string())?;
+        BundleTransaction::begin(&installed, staging, candidate).map_err(|e| format!("A troca segura do pacote falhou: {e}. O aplicativo anterior foi preservado; instale pelo DMG."))?;
     let result = stop_daemon().and_then(|_| start_daemon(&installed, &version));
     if let Err(error) = result {
         // Restore the bundle before restoring its daemon; never report a partial update as success.
@@ -253,6 +249,15 @@ pub async fn run(app: tauri::AppHandle) -> Result<(), String> {
         return Err("Já existe uma atualização em andamento.".into());
     }
     let _installation = Installation;
+    // Tauri caches this path before startup and rejects symlinked macOS paths.
+    // Use the same location for replacement and relaunch, even if the bundle moves later.
+    let executable = tauri::process::current_binary(&app.env())
+        .map_err(|e| format!("Não foi possível determinar um local seguro para reiniciar: {e}"))?;
+    let installed = executable
+        .ancestors()
+        .find(|p| p.extension().is_some_and(|e| e == "app"))
+        .ok_or("Instale Open Island em Aplicativos antes de atualizar.")?
+        .to_path_buf();
     let _ = app.emit("update-progress", "Verificando atualização…");
     let updater = app
         .updater_builder()
@@ -271,7 +276,7 @@ pub async fn run(app: tauri::AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("Download ou assinatura inválida: {e}"))?;
     let _ = app.emit("update-progress", "Instalando e reiniciando o daemon…");
-    tauri::async_runtime::spawn_blocking(move || install(bytes, update.version))
+    tauri::async_runtime::spawn_blocking(move || install(bytes, update.version, installed))
         .await
         .map_err(|e| e.to_string())??;
     app.restart();

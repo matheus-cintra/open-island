@@ -50,6 +50,10 @@ esvazie o campo para desativá-lo. Falhas de registro e conflitos aparecem nesse
   bloqueio com a tela acesa e troca de usuário usam a sessão do WindowServer. O campo
   de bloqueio não é documentado pela Apple e esta detecção é experimental. A detecção de tela cheia considera
   o aplicativo ativo. Esses recursos ainda exigem validação física no Mac.
+- No Warp, o foco ativa o aplicativo e novas sessões usam configurações de lançamento.
+  O envio direto de mensagens à sessão não está disponível: a interface pública de
+  controle do Warp prepara texto, mas não o submete. Uma sessão dentro de tmux ou
+  Zellij pode usar o canal desses hosts.
 - WAVs originais acompanham o app e são reproduzidos pelo player nativo `afplay`.
 
 ## Dados e login
