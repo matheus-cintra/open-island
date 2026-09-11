@@ -30,3 +30,12 @@ pub fn environment(pid: u32) -> Vec<u8> {
 pub fn cwd(pid: u32) -> Option<PathBuf> {
     fs::read_link(format!("/proc/{pid}/cwd")).ok()
 }
+
+pub fn stdin_device(pid: u32) -> Option<u64> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let metadata = fs::metadata(format!("/proc/{pid}/fd/0")).ok()?;
+    metadata
+        .file_type()
+        .is_char_device()
+        .then(|| metadata.rdev())
+}

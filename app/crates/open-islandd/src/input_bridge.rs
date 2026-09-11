@@ -167,7 +167,7 @@ fn write_pty(fd: i32, bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-fn deliver(request: Request, root: u32, fd: i32, paste: bool) -> Result<(), String> {
+fn deliver(request: Request, root: u32, fd: i32, device: u64, paste: bool) -> Result<(), String> {
     wire::validate_text(&request.text)?;
     if request.pid <= 1 || request.pid > i32::MAX as u32 || !descendant(request.pid, root) {
         return Err("A sessão não pertence a esta conexão de entrada.".into());
@@ -176,6 +176,9 @@ fn deliver(request: Request, root: u32, fd: i32, paste: bool) -> Result<(), Stri
     let target = unsafe { libc::getpgid(request.pid as i32) };
     if foreground <= 1 || target != foreground {
         return Err("O agente não está em primeiro plano neste terminal.".into());
+    }
+    if open_island_core::process::stdin_device(request.pid) != Some(device) {
+        return Err("O processo selecionado não lê a entrada deste terminal.".into());
     }
     if !paste && request.text.contains(['\n', '\t']) {
         return Err("O agente ainda não habilitou colagem de texto. Aguarde o prompt antes de enviar várias linhas.".into());
@@ -190,7 +193,10 @@ fn deliver(request: Request, root: u32, fd: i32, paste: bool) -> Result<(), Stri
         std::thread::sleep(Duration::from_millis(50));
     }
     // Recheck after paste so an exiting agent cannot hand Enter to another process group.
-    if unsafe { libc::tcgetpgrp(fd) } != target || !open_island_core::process::exists(request.pid) {
+    if unsafe { libc::tcgetpgrp(fd) } != target
+        || !open_island_core::process::exists(request.pid)
+        || open_island_core::process::stdin_device(request.pid) != Some(device)
+    {
         return Err("A sessão encerrou durante a colagem. O Enter não foi enviado.".into());
     }
     write_pty(fd, b"\r").map_err(|e| e.to_string())
@@ -214,6 +220,13 @@ fn run_inner(args: Vec<OsString>) -> Result<i32, Box<dyn std::error::Error>> {
     listener.set_nonblocking(true)?;
     let pair = native_pty_system().openpty(size())?;
     let fd = pair.master.as_raw_fd().ok_or("PTY indisponível")?;
+    use std::os::unix::fs::MetadataExt;
+    let device = std::fs::metadata(
+        pair.master
+            .tty_name()
+            .ok_or("Dispositivo da PTY indisponível")?,
+    )?
+    .rdev();
     let mut command = CommandBuilder::from_argv(args);
     command.cwd(std::env::current_dir()?);
     command.env(wire::ENV, &path);
@@ -312,7 +325,7 @@ fn run_inner(args: Vec<OsString>) -> Result<i32, Box<dyn std::error::Error>> {
                 connection.set_read_timeout(Some(Duration::from_millis(500)))?;
                 connection.set_write_timeout(Some(Duration::from_millis(500)))?;
                 let error = match wire::read_frame::<Request>(&connection) {
-                    Ok(request) => deliver(request, root, fd, paste.enabled).err(),
+                    Ok(request) => deliver(request, root, fd, device, paste.enabled).err(),
                     Err(error) => Some(error.to_string()),
                 };
                 let _ = wire::write_frame(&mut connection, &Response { error });
