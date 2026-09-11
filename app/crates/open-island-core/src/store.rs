@@ -658,7 +658,25 @@ impl SessionStore {
     }
 
     pub fn snapshot(&mut self, processes: &[Session]) -> Vec<Session> {
-        self.snapshot_at(processes, Instant::now())
+        let mut sessions = self.snapshot_at(processes, Instant::now());
+        for session in &mut sessions {
+            // Interpreters may expose a different argv0 on macOS. Hooks still
+            // identify their PID, so recover terminal/input metadata for those
+            // live sessions instead of requiring generic process discovery.
+            if session.send_channel.is_none() && session.send_blocked.is_none() {
+                if let Some(host) = crate::discovery::terminal_for_session(session) {
+                    if host.kind != "unknown" {
+                        session.terminal = host.kind.clone();
+                    }
+                    session.raise_pid = Some(host.raise_pid);
+                    match crate::send::capability(&host) {
+                        Ok(channel) => session.send_channel = Some(channel.to_owned()),
+                        Err(blocked) => session.send_blocked = Some(blocked.code().to_owned()),
+                    }
+                }
+            }
+        }
+        sessions
     }
 
     pub fn snapshot_at(&mut self, processes: &[Session], now: Instant) -> Vec<Session> {

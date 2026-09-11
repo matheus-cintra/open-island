@@ -19,6 +19,7 @@ impl Drop for Session {
         if self.child.try_wait().ok().flatten().is_some() {
             return;
         }
+        let foreground = self.master.process_group_leader();
         let _ = self.child.kill();
         let deadline = Instant::now() + Duration::from_millis(500);
         while Instant::now() < deadline {
@@ -26,6 +27,11 @@ impl Drop for Session {
                 return;
             }
             thread::sleep(Duration::from_millis(10));
+        }
+        if let Some(group) = foreground.filter(|group| *group > 1) {
+            unsafe {
+                libc::kill(-group, libc::SIGKILL);
+            }
         }
         if let Some(pid) = self.child.process_id() {
             unsafe {
@@ -58,7 +64,35 @@ impl Session {
             libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK);
         }
         let count = unsafe { libc::read(fd, bytes.as_mut_ptr().cast(), bytes.len()) };
-        String::from_utf8_lossy(&bytes[..count.max(0) as usize]).into_owned()
+        let mut output = String::from_utf8_lossy(&bytes[..count.max(0) as usize]).into_owned();
+        let root = self.child.process_id().unwrap_or(0);
+        let mut ids = vec![root];
+        for pid in open_island_core::process::pids() {
+            let mut current = pid;
+            for _ in 0..32 {
+                let Some((parent, _)) = open_island_core::process::parent_and_comm(current) else {
+                    break;
+                };
+                if parent == root {
+                    ids.push(pid);
+                    break;
+                }
+                if parent <= 1 || parent == current {
+                    break;
+                }
+                current = parent;
+            }
+        }
+        let ids = ids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+        if let Ok(state) = std::process::Command::new("/bin/ps")
+            .args(["-o", "pid,ppid,pgid,tpgid,stat,comm", "-p", &ids])
+            .stdin(std::process::Stdio::null())
+            .output()
+        {
+            output.push_str(&String::from_utf8_lossy(&state.stdout));
+            output.push_str(&String::from_utf8_lossy(&state.stderr));
+        }
+        output
     }
 }
 fn wait_file(path: &Path) -> String {
