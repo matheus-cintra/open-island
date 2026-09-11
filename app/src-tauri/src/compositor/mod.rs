@@ -98,6 +98,14 @@ mod tests {
     use super::{ui_scale_from, Compositor, MonitorInfo, UI_SCALE_MAX, UI_SCALE_MIN};
 
     #[test]
+    fn logical_display_width_does_not_apply_retina_backing_scale_twice() {
+        assert_eq!(ui_scale_from(1512, 344, 1.0), 1.16);
+        assert_eq!(ui_scale_from(1920, 600, 1.0), 1.0);
+        assert_eq!(ui_scale_from(1920, 300, 1.0), 1.69);
+        assert_eq!(ui_scale_from(1512, 0, 1.0), 1.0);
+    }
+
+    #[test]
     fn ui_scale_tracks_dpi_not_resolution() {
         let cases = [
             ("1080p 24in", 1920u32, 531u32, 1.0, 1.00),

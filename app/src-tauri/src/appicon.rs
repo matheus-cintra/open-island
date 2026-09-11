@@ -6,12 +6,31 @@ use crate::compositor::{self, Compositor};
 const MAX_DEPTH: usize = 5;
 const MAX_BYTES: u64 = 512 * 1024;
 
+#[cfg(not(target_os = "macos"))]
 pub fn for_pid(pid: u32) -> Option<String> {
     let class = window_class(pid)?;
     let entry = desktop_entry(&class)?;
     let name = icon_name(&entry)?;
     let path = icon_path(&name)?;
     data_uri(&path)
+}
+
+#[cfg(target_os = "macos")]
+pub fn for_pid(pid: u32) -> Option<String> {
+    let mut current = pid;
+    let mut visited = std::collections::HashSet::new();
+    for _ in 0..64 {
+        if current <= 1 || current > i32::MAX as u32 || !visited.insert(current) {
+            break;
+        }
+        match crate::platform::application_icon(current) {
+            Ok(bytes) => return Some(format!("data:image/png;base64,{}", base64(&bytes))),
+            Err(true) => break, // Found the application, but it has no usable icon.
+            Err(false) => {}
+        }
+        current = open_island_core::process::parent_and_comm(current)?.0;
+    }
+    None
 }
 
 fn window_class(pid: u32) -> Option<String> {

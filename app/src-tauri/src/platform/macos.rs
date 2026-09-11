@@ -16,6 +16,7 @@ struct Screen {
     scale: f64,
     safe_top: f64,
     notch_width: f64,
+    physical_width_mm: f64,
 }
 #[derive(Default)]
 struct Snapshot {
@@ -30,6 +31,7 @@ static SNAPSHOT: Mutex<Snapshot> = Mutex::new(Snapshot {
 });
 static SIZE: Mutex<(f64, f64)> = Mutex::new((232.0, 46.0));
 extern "C" {
+    fn oi_application_icon(pid: u32, bytes: *mut u8, capacity: i32) -> i32;
     fn oi_take_layout_invalidated() -> i32;
     fn oi_panel_init(handle: *mut c_void);
     fn oi_panel_keyboard(handle: *mut c_void, active: i32);
@@ -157,7 +159,7 @@ impl Compositor for MacCompositor {
                 x: s.x as i32,
                 y: s.y as i32,
                 width: s.width as u32,
-                physical_width_mm: 0,
+                physical_width_mm: s.physical_width_mm as u32,
                 scale: s.scale,
                 reserved_top: s.safe_top as u32,
                 focused: i == 0,
@@ -181,8 +183,13 @@ impl Compositor for MacCompositor {
         // bar height to impose on the frontend's compact content.
         None
     }
-    fn ui_scale(&self, _: Option<&str>) -> f64 {
-        1.0
+    fn ui_scale(&self, name: Option<&str>) -> f64 {
+        let Some(screen) = self.monitor_named(name) else {
+            return 1.0;
+        };
+        // NSScreen width is already logical points. Dividing by backing scale
+        // again would make Retina monitors incorrectly shrink to the minimum.
+        crate::compositor::ui_scale_from(screen.width, screen.physical_width_mm, 1.0)
     }
 }
 
@@ -225,4 +232,15 @@ pub fn setup_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         })
         .build(app)?;
     Ok(())
+}
+
+/// The error distinguishes an existing GUI app from a non-GUI ancestor.
+pub fn application_icon(pid: u32) -> Result<Vec<u8>, bool> {
+    let mut bytes = vec![0; 64 * 1024];
+    let length = unsafe { oi_application_icon(pid, bytes.as_mut_ptr(), bytes.len() as i32) };
+    if length <= 0 {
+        return Err(length == 0);
+    }
+    bytes.truncate(length as usize);
+    Ok(bytes)
 }
