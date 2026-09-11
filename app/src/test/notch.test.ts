@@ -6,7 +6,8 @@ let safeTop = 32;
 const tauri = tauriMock(({ command }) => {
   if (command === "get_config") return { config: {} };
   if (command === "island_metrics") return {
-    scale: 1, compact_height: null, safe_top: safeTop, notch_width: safeTop ? 220 : 0,
+    // Reproduce the value sent by the original native macOS backend.
+    scale: 1, compact_height: 46, safe_top: safeTop, notch_width: safeTop ? 220 : 0,
   };
   if (command === "list_sessions") return [];
   if (command === "get_usage") return { providers: [] };

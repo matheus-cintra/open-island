@@ -225,7 +225,9 @@ export function showCard(card: HTMLElement, visible: boolean, onHidden?: () => v
 function applyUiScale(scale: number, compactHeight?: number): void {
   const next = Number.isFinite(scale) && scale > 0 ? scale : 1;
   const fixed = islandHeight > 0;
-  const fromCompositor = !fixed && compactHeight !== undefined && compactHeight > 0;
+  // A notch has its own content height. A compositor bar measurement (including
+  // older macOS backends reporting 46) must not override that safe-area layout.
+  const fromCompositor = !hasPhysicalNotch && !fixed && compactHeight !== undefined && compactHeight > 0;
   const base = fixed
     ? islandHeight
     : fromCompositor

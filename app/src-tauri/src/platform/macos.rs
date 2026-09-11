@@ -177,7 +177,9 @@ impl Compositor for MacCompositor {
         None
     }
     fn compact_height(&self, _: Option<&str>) -> Option<u32> {
-        Some(46)
+        // AppKit reports the camera strip separately. There is no compositor
+        // bar height to impose on the frontend's compact content.
+        None
     }
     fn ui_scale(&self, _: Option<&str>) -> f64 {
         1.0

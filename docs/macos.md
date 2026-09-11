@@ -104,3 +104,15 @@ passaram nas duas arquiteturas, sem grupos de processos sobreviventes.
 
 A validação visual/interativa do checklist continua pendente; os DMGs permanecem
 experimentais e sem notarização.
+
+### Ajustes após as primeiras capturas no Mac
+
+A faixa recolhida abaixo da câmera passou de 46 para 30 pontos na escala padrão.
+Os cantos côncavos foram retirados nas telas com notch, e o painel expandido usa
+cantos arredondados. O campo de mensagem fica oculto quando o host não oferece
+envio; mensagens já enfileiradas continuam disponíveis para cancelamento.
+
+Validação local: 150 testes do frontend, três testes de geometria e build
+TypeScript/Vite aprovados. O frontend foi conferido em Chromium com medidas de
+notch e Retina simuladas. [Build dos DMGs ajustados](https://github.com/matheus-cintra/open-island/actions/runs/34608578758).
+A validação do novo visual no Mac físico continua pendente.
