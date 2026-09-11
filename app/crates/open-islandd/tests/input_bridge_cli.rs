@@ -177,7 +177,7 @@ fn daemon_discovers_the_bridge_and_delivers_through_the_existing_message_protoco
     let home = tempfile::tempdir().unwrap();
     let socket = home.path().join("daemon.sock");
     let config = home.path().join("config.json");
-    fs::write(&config, r#"{"updates":{"check_enabled":false},"integrations":{"auto_configure":false},"sound":{"muted":true}}"#).unwrap();
+    fs::write(&config, r#"{"updates":{"check_enabled":false},"integrations":{"auto_configure":false},"sound":{"enabled":false}}"#).unwrap();
     struct Daemon(std::process::Child);
     impl Drop for Daemon {
         fn drop(&mut self) {
