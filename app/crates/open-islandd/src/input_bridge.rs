@@ -201,6 +201,7 @@ fn run_inner(args: Vec<OsString>) -> Result<i32, Box<dyn std::error::Error>> {
     let pair = native_pty_system().openpty(size())?;
     let fd = pair.master.as_raw_fd().ok_or("PTY indisponível")?;
     let mut command = CommandBuilder::from_argv(args);
+    command.cwd(std::env::current_dir()?);
     command.env(wire::ENV, &path);
     let mut child = ChildGuard(pair.slave.spawn_command(command)?);
     let root = child.0.process_id().ok_or("PID indisponível")?;

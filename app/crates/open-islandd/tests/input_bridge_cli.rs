@@ -55,6 +55,7 @@ fn session() -> Session {
         })
         .unwrap();
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_open-islandd"));
+    command.cwd(directory.path());
     command.args(["run", "--"]);
     command.arg(&agent);
     command.args([
@@ -64,7 +65,7 @@ import os, sys, tty, json, time
 tty.setraw(0)
 os.write(1, b'\x1b[?2004h')
 with open(sys.argv[1], 'w') as f:
-    json.dump({'pid': os.getpid(), 'socket': os.environ['OPEN_ISLAND_INPUT_SOCKET']}, f)
+    json.dump({'pid': os.getpid(), 'socket': os.environ['OPEN_ISLAND_INPUT_SOCKET'], 'cwd': os.getcwd()}, f)
 data = b''
 while not data.endswith(b'\r'):
     data += os.read(0, 8192)
@@ -103,6 +104,10 @@ fn address(session: &Session) -> (PathBuf, u32) {
         thread::sleep(Duration::from_millis(20));
     }
     let info: serde_json::Value = serde_json::from_str(&wait_file(&session.info)).unwrap();
+    assert_eq!(
+        PathBuf::from(info["cwd"].as_str().unwrap()),
+        fs::canonicalize(session._directory.path()).unwrap()
+    );
     (
         PathBuf::from(info["socket"].as_str().unwrap()),
         info["pid"].as_u64().unwrap() as u32,
