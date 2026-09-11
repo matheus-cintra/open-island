@@ -12,7 +12,7 @@ macOS 12+, Apple Silicon/Intel, português e integração com o notch.
 | Ocultar durante tela cheia | Em implementação: currentSystemPresentationOptions do aplicativo ativo | Tela cheia real, maximizada, troca de Spaces, várias telas e permissão recusada |
 | Abrir sessão no terminal preferido, incluindo Warp | Implementado: preferência persistente para Terminal, iTerm2, Warp, WezTerm e Kitty; validação nativa pendente | Escolha persistente, terminal ausente, caminhos especiais, recusa de Automação |
 | Instalar atualização pelo app | Em validação: botão conectado ao download assinado, validação do bundle, troca atômica e reinício do daemon | Artefato autenticado, instalação atômica, rollback, permissões, relançamento e daemon atualizado |
-| Envio de texto no Warp e outros terminais | Implementado com ponte PTY por sessão: botão + e integração opcional de Bash/Zsh/Fish | Cinco testes nativos passaram em Apple Silicon/Intel; validar no Warp real e reabrir sessões antigas |
+| Envio de texto no Warp e outros terminais | Implementado com ponte PTY por sessão: botão + e integração opcional de Bash/Zsh/Fish | Sete testes nativos e regressões do core/daemon passaram em Apple Silicon/Intel; validar no Warp real e reabrir sessões antigas |
 | Linux e integração AppKit/notch | Preservar | Regressões automatizadas e validação visual no Mac |
 | Distribuição | DMGs por arquitetura, assinatura ad hoc, sem notarização | Bundle/daemon/sons, checksums, build e testes nativos |
 
