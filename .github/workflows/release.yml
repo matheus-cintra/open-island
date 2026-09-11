@@ -121,7 +121,7 @@ jobs:
       - run: node scripts/set-version.mjs "${GITHUB_REF_NAME#v}"
       - run: bun install --frozen-lockfile
         working-directory: app
-      - run: bun run tauri build --target ${{ matrix.target }} --bundles dmg
+      - run: bun run tauri build --target ${{ matrix.target }} --bundles app,dmg
         working-directory: app
       - run: sh scripts/verify-macos-bundle.sh "app/target/${{ matrix.target }}/release/bundle/macos/Open Island.app" "${{ matrix.macho }}"
       - run: python3 ../scripts/test-processes.py cargo test --workspace

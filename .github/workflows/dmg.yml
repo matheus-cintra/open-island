@@ -27,7 +27,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: bun install --frozen-lockfile
         working-directory: app
-      - run: bun run tauri build --bundles dmg
+      - run: bun run tauri build --bundles app,dmg
         working-directory: app
       - run: sh scripts/verify-macos-bundle.sh 'app/target/release/bundle/macos/Open Island.app' '${{ matrix.macho }}'
       - run: python3 ../scripts/test-processes.py cargo test --workspace

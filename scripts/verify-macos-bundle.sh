@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -eux
 app_bundle=$1
 expected_arch=$2
 for binary in open-island open-islandd; do
