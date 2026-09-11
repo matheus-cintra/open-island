@@ -91,6 +91,7 @@ pub(crate) fn kind_for_comm(comm: &str) -> Option<&'static str> {
         "ghostty" | "Ghostty" => Some("ghostty"),
         "Terminal" => Some("terminal"),
         "iTerm2" => Some("iterm2"),
+        "Warp" | "warp-terminal" => Some("warp"),
         _ => None,
     }
 }
@@ -276,6 +277,17 @@ mod tests {
             cwd: "/tmp/project".to_owned(),
             env: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn warp_gui_ancestor_is_the_focus_target_not_the_agent() {
+        let agent = process(30, 20, "claude", Some("claude"));
+        let shell = process(20, 10, "zsh", None);
+        let warp = process(10, 1, "Warp", None);
+        let info = classify(&agent, &[agent.clone(), shell, warp]);
+        assert_eq!(info.kind, "warp");
+        assert_eq!(info.raise_pid, 10);
+        assert_eq!(kind_for_comm("stable"), None);
     }
 
     #[test]

@@ -10,6 +10,12 @@ int oi_process(int pid, unsigned *parent, char *name, int capacity) {
     *parent = info.pbi_ppid;
     char path[PROC_PIDPATHINFO_MAXSIZE] = {0};
     if (proc_pidpath(pid, path, sizeof(path)) > 0) {
+        // Warp's GUI executable is named `stable`, not `Warp`. Only normalize
+        // the executable inside its app bundle, never arbitrary `stable` processes.
+        if (strstr(path, "/Warp.app/Contents/MacOS/") != NULL) {
+            strlcpy(name, "Warp", capacity);
+            return 1;
+        }
         const char *base = strrchr(path, '/');
         strlcpy(name, base ? base + 1 : path, capacity);
     } else strlcpy(name, info.pbi_comm, capacity);
