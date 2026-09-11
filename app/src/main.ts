@@ -1139,9 +1139,24 @@ headerSettingsEl.addEventListener("click", () => {
   void invoke("open_settings").catch(() => {});
 });
 
+void listen<string>("update-progress", (event) => {
+  if (!headerUpdateEl.disabled) return;
+  headerUpdateEl.title = event.payload;
+  headerUpdateEl.setAttribute("aria-label", event.payload);
+});
+
 headerUpdateEl.addEventListener("click", () => {
+  if (headerUpdateEl.disabled) return;
+  headerUpdateEl.disabled = true;
+  headerUpdateEl.setAttribute("aria-busy", "true");
   void invoke("run_update", { prompt: strings.header.updatePrompt }).catch((error: unknown) => {
-    showError(strings.header.updateFailed(String(error)));
+    showError(document.body.classList.contains("platform-macos")
+      ? `Falha ao atualizar: ${String(error)}`
+      : strings.header.updateFailed(String(error)));
+  }).finally(() => {
+    headerUpdateEl.disabled = false;
+    headerUpdateEl.removeAttribute("aria-busy");
+    paintUpdate();
   });
 });
 

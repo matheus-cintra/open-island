@@ -2516,11 +2516,13 @@ name = "open-island"
 version = "0.5.0"
 dependencies = [
  "cc",
+ "flate2",
  "gtk",
  "libc",
  "open-island-core",
  "serde",
  "serde_json",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

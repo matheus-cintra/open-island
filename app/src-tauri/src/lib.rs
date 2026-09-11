@@ -19,6 +19,8 @@ mod terminal;
 mod update;
 #[cfg(any(test, target_os = "macos"))]
 mod update_bundle;
+#[cfg(target_os = "macos")]
+mod update_macos;
 
 use client::DaemonClient;
 use commands::reveal_settings;

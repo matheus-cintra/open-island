@@ -22,21 +22,3 @@ mod tests {
     }
 }
 
-#[cfg(target_os = "macos")]
-pub fn run(_: &str) -> Result<(), String> {
-    let arch = if cfg!(target_arch = "aarch64") {
-        "aarch64"
-    } else {
-        "x86_64"
-    };
-    let url = format!("https://github.com/matheus-cintra/open-island/releases/latest/download/open-island-macos-{arch}.dmg");
-    let result = std::process::Command::new("/usr/bin/open")
-        .arg(url)
-        .status()
-        .map_err(|e| e.to_string())?;
-    if result.success() {
-        Ok(())
-    } else {
-        Err("Não foi possível abrir o download do DMG.".into())
-    }
-}

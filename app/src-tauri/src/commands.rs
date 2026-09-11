@@ -128,8 +128,17 @@ pub fn check_update(client: State<'_, DaemonClient>) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub fn run_update(prompt: String) -> Result<(), String> {
-    update::run(&prompt)
+pub async fn run_update(app: tauri::AppHandle, prompt: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = prompt;
+        crate::update_macos::run(app).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        update::run(&prompt)
+    }
 }
 
 #[tauri::command]
@@ -290,7 +299,7 @@ pub fn platform_capabilities() -> Value {
     json!({"os": std::env::consts::OS, "experimental": cfg!(target_os = "macos"),
         "hyprland": cfg!(target_os = "linux"), "automatic_dnd": true,
         "screen_off": true, "fullscreen_detection": true,
-        "global_shortcut": cfg!(target_os = "macos"), "manual_update": cfg!(target_os = "macos")})
+        "global_shortcut": cfg!(target_os = "macos"), "manual_update": false})
 }
 
 #[tauri::command]
