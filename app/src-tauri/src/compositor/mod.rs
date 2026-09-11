@@ -1,3 +1,4 @@
+#[cfg(target_os = "linux")]
 pub mod hyprland;
 
 pub const UI_SCALE_MIN: f64 = 1.0;
@@ -82,7 +83,14 @@ pub trait Compositor {
 }
 
 pub fn current() -> impl Compositor {
-    hyprland::HyprlandBackend
+    #[cfg(target_os = "linux")]
+    {
+        hyprland::HyprlandBackend
+    }
+    #[cfg(target_os = "macos")]
+    {
+        crate::platform::macos::MacCompositor
+    }
 }
 
 #[cfg(test)]

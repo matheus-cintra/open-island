@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "bun test --isolate",
     "tauri": "tauri",
-    "prebundle": "cargo build --release -p open-islandd && node scripts/stage-sidecar.mjs"
+    "prebundle": "node scripts/stage-sidecar.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

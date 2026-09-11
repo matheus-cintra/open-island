@@ -10,6 +10,7 @@ fn an_absent_or_empty_document_is_the_shipped_default() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn every_default_sound_points_at_the_installed_theme() {
     let events = SoundEvents::default();
     assert_eq!(

@@ -78,13 +78,32 @@ fn available_keeps_the_shipped_order_and_only_what_resolves() {
 #[test]
 fn a_relative_or_missing_folder_is_refused_before_anything_spawns() {
     let relative = open("relative/dir", "claude").unwrap_err();
-    assert!(relative.contains("is not a directory"), "{relative}");
+    assert!(
+        (relative.contains("is not a directory") || relative.contains("pasta válida")),
+        "{relative}"
+    );
     let missing = open("/nonexistent-open-island", "claude").unwrap_err();
-    assert!(missing.contains("is not a directory"), "{missing}");
+    assert!(
+        (missing.contains("is not a directory") || missing.contains("pasta válida")),
+        "{missing}"
+    );
 }
 
 #[test]
 fn an_unknown_agent_is_refused_even_with_a_real_folder() {
     let error = open("/tmp", "rm -rf /").unwrap_err();
     assert!(error.contains("unknown agent"), "{error}");
+}
+
+#[test]
+fn terminal_applescript_keeps_shell_and_applescript_quoting_separate() {
+    let script = super::terminal_script(
+        "/tmp/a b'\"\\$(echo unsafe)\nç",
+        "/Users/a/.local/bin/claude",
+    );
+    assert!(script.starts_with("tell application \"Terminal\"\nactivate\ndo script \"cd '"));
+    assert!(script.contains("$(echo unsafe)"));
+    assert!(script.contains("\\nç"));
+    assert!(script.ends_with("'/Users/a/.local/bin/claude'\"\nend tell"));
+    assert_eq!(script.lines().count(), 4);
 }

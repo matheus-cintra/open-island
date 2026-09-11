@@ -1,7 +1,8 @@
 use open_island_core::config::write_atomic;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::ffi::OsString;
 use std::{
-    ffi::OsString,
     fs,
     path::{Path, PathBuf},
     time::Duration,
@@ -16,9 +17,10 @@ pub struct CachedCheck {
 }
 
 pub fn path() -> Option<PathBuf> {
-    path_from(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
+    open_island_core::paths::state_dir().map(|dir| dir.join("update.json"))
 }
 
+#[cfg(test)]
 fn path_from(xdg_state_home: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
     let base = xdg_state_home
         .map(PathBuf::from)

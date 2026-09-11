@@ -25,12 +25,7 @@ pub struct DaemonClient {
 }
 
 fn socket_path() -> PathBuf {
-    env::var_os("OPEN_ISLAND_SOCKET")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(env::var_os("XDG_RUNTIME_DIR").unwrap_or_else(|| "/tmp".into()))
-                .join("open-island.sock")
-        })
+    open_island_core::paths::socket()
 }
 
 pub fn daemon_candidates() -> Vec<PathBuf> {
@@ -59,6 +54,9 @@ fn connect(path: &PathBuf) -> Result<UnixStream, String> {
                 if Command::new(candidate)
                     .arg("--socket")
                     .arg(path)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
                     .spawn()
                     .is_ok()
                 {

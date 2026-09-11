@@ -113,6 +113,7 @@ impl WindowFocus for X11Backend {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 pub fn focus_pid(pid: u32) -> Result<(), String> {
     if std::env::var_os("WAYLAND_DISPLAY").is_some() {
         HyprlandBackend.focus_pid(pid).or_else(|hypr_error| {
@@ -143,4 +144,9 @@ mod tests {
             "warning: =[C]:-1: hl.focus: window not found\n"
         ));
     }
+}
+
+#[cfg(target_os = "macos")]
+pub fn focus_pid(pid: u32) -> Result<(), String> {
+    crate::process::activate(pid)
 }

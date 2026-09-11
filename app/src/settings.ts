@@ -1,3 +1,4 @@
+import { linuxCapabilities, supportsRow, type PlatformCapabilities } from "./platform-capabilities";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { strings } from "./strings";
@@ -50,6 +51,8 @@ export let themeSounds: string[] = [];
 export let autoScale: number | null = null;
 export let appVersion = "";
 export let availableUpdate: string | null = null;
+let capabilities = linuxCapabilities;
+let shortcutStatus: { shortcut: string; error: string | null } = { shortcut: "", error: null };
 let activePane: PaneId = "general";
 let dependants: { element: HTMLElement; path: string; mode: "dim" | "hide" }[] = [];
 
@@ -150,12 +153,16 @@ export function renderPane(): void {
     const card = document.createElement("div");
     card.className = "card";
     for (const row of section.rows) {
-      if (row.visible?.() === false) continue;
-      const built = buildRow(row);
+      if (row.visible?.() === false || !supportsRow(capabilities, row.path)) continue;
+      const effectiveRow = capabilities.os === "macos" && row.path === "integration.autostart"
+        ? { ...row, hint: "Inicia a ilha e o daemon ao entrar na sua conta do Mac." }
+        : row;
+      const built = buildRow(effectiveRow);
       if (row.visibleWhen !== undefined)
         dependants.push({ element: built, path: row.visibleWhen, mode: "hide" });
       card.append(built);
     }
+    if (card.childElementCount === 0 && !(section.notes?.length)) continue;
     for (const note of section.notes ?? [])
       card.append(buildNote(note, section.notesTone ?? "warning"));
     if (section.title !== undefined) {
@@ -184,6 +191,42 @@ export function renderPane(): void {
     body.append(wrapper);
   }
 
+  if (capabilities.experimental && (pane.id === "general" || pane.id === "about")) {
+    body.prepend(buildNote("macOS experimental — validação em um Mac real pendente. O foco ativa o aplicativo; a janela ou aba exata depende da integração do terminal.", "warning"));
+  }
+  if (!capabilities.automatic_dnd && (pane.id === "sound" || pane.id === "filters")) {
+    body.prepend(buildNote("A leitura automática de Não Perturbe e da tela desligada não está disponível no macOS. Use o modo silencioso ou o horário silencioso.", "warning"));
+  }
+  if (capabilities.global_shortcut && pane.id === "general") {
+    const section = document.createElement("section");
+    section.className = "section card";
+    const label = document.createElement("label");
+    label.textContent = "Atalho global (vazio para desativar)";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = shortcutStatus.shortcut;
+    input.placeholder = "Command+Shift+I";
+    input.setAttribute("aria-label", "Atalho global");
+    const button = document.createElement("button");
+    button.textContent = "Salvar atalho";
+    const status = document.createElement("p");
+    status.setAttribute("role", "status");
+    status.textContent = shortcutStatus.error ?? "";
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      void invoke<typeof shortcutStatus>("set_shortcut", { shortcut: input.value }).then((reply) => {
+        shortcutStatus = reply;
+        status.textContent = reply.error ?? "Atalho salvo.";
+      }).catch((error: unknown) => { status.textContent = String(error); })
+        .finally(() => { button.disabled = false; });
+    });
+    label.append(input);
+    section.append(label, button, status);
+    body.prepend(section);
+  }
+  if (capabilities.manual_update && pane.id === "about") {
+    body.append(buildNote("A atualização abre o DMG da sua arquitetura. Substitua o aplicativo manualmente em Aplicativos.", "warning"));
+  }
   contentEl.append(body);
   refreshDependencies();
 }
@@ -249,6 +292,8 @@ function rememberAgent(name: IntegrationName): void {
 
 async function load(): Promise<void> {
   try {
+    capabilities = (await invoke<PlatformCapabilities>("platform_capabilities").catch(() => linuxCapabilities)) ?? linuxCapabilities;
+    if (capabilities.global_shortcut) shortcutStatus = await invoke<typeof shortcutStatus>("get_shortcut");
     const [, status, sounds, metrics, soundDir, screens, version, sessions, update] =
       await Promise.all([
         loadConfig(),

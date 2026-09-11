@@ -1,17 +1,7 @@
-use std::fs;
-
 use crate::terminal::kind_for_comm;
 
 pub(crate) fn proc_parent_and_comm(pid: u32) -> Option<(u32, String)> {
-    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let comm_start = stat.find('(')?;
-    let comm_end = stat.rfind(')')?;
-    let fields = stat
-        .get(comm_end + 2..)?
-        .split_whitespace()
-        .collect::<Vec<_>>();
-    let ppid = fields.get(1)?.parse().ok()?;
-    Some((ppid, stat.get(comm_start + 1..comm_end)?.to_owned()))
+    crate::process::parent_and_comm(pid)
 }
 
 pub(crate) fn emulator_ancestor(
@@ -33,29 +23,15 @@ pub(crate) fn emulator_ancestor(
 }
 
 pub(crate) fn pids_with_comm_and_cmdline(comm: &str, needle: &str) -> Vec<u32> {
-    let Ok(entries) = fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+    crate::process::pids()
+        .into_iter()
         .filter(|pid| {
-            let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) else {
-                return false;
-            };
-            let Some(comm_start) = stat.find('(') else {
-                return false;
-            };
-            let Some(comm_end) = stat.rfind(')') else {
-                return false;
-            };
-            if stat.get(comm_start + 1..comm_end) != Some(comm) {
-                return false;
-            }
-            fs::read(format!("/proc/{pid}/cmdline"))
-                .ok()
-                .and_then(|bytes| String::from_utf8(bytes).ok())
-                .is_some_and(|cmdline| cmdline.replace('\0', " ").contains(needle))
+            crate::process::parent_and_comm(*pid).is_some_and(|(_, name)| name == comm)
+                && crate::process::command(*pid).is_some_and(|bytes| {
+                    String::from_utf8_lossy(&bytes)
+                        .replace('\0', " ")
+                        .contains(needle)
+                })
         })
         .collect()
 }

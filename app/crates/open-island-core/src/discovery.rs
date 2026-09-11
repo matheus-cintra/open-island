@@ -4,7 +4,6 @@ use crate::{
 };
 use std::{
     collections::{HashMap, HashSet},
-    fs,
     path::Path,
 };
 
@@ -113,13 +112,11 @@ pub fn scan() -> Vec<Session> {
 }
 
 pub fn terminal_for_session(session: &Session) -> Option<crate::terminal::TerminalInfo> {
-    read_snapshots()
-        .into_iter()
+    let snapshots = read_snapshots();
+    snapshots
+        .iter()
         .find(|snapshot| snapshot.pid == session.pid)
-        .map(|snapshot| {
-            let snapshots = read_snapshots();
-            classify(&snapshot, &snapshots)
-        })
+        .map(|snapshot| classify(snapshot, &snapshots))
 }
 
 pub fn classify_processes(
@@ -148,26 +145,19 @@ pub fn classify_processes(
 }
 
 fn read_snapshots() -> Vec<ProcessSnapshot> {
-    let Ok(entries) = fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let pid = entry.file_name().to_str()?.parse::<u32>().ok()?;
-            let dir = entry.path();
-            let (ppid, comm) = read_stat(&dir.join("stat"))?;
-            let command = fs::read(dir.join("cmdline")).ok()?;
-            let agent = agent_for_cmdline(&command);
-            let (cwd, env) = match agent {
-                Some(_) => (
-                    fs::read_link(dir.join("cwd"))
-                        .ok()?
-                        .to_string_lossy()
-                        .into_owned(),
-                    parse_environment(&fs::read(dir.join("environ")).unwrap_or_default()),
-                ),
-                None => (String::new(), HashMap::new()),
+    crate::process::pids()
+        .into_iter()
+        .filter_map(|pid| {
+            let (ppid, comm) = crate::process::parent_and_comm(pid)?;
+            let agent =
+                crate::process::command(pid).and_then(|command| agent_for_cmdline(&command));
+            let (cwd, env) = if agent.is_some() {
+                (
+                    crate::process::cwd(pid)?.to_string_lossy().into_owned(),
+                    parse_environment(&crate::process::environment(pid)),
+                )
+            } else {
+                (String::new(), HashMap::new())
             };
             Some(ProcessSnapshot {
                 pid,
@@ -179,14 +169,6 @@ fn read_snapshots() -> Vec<ProcessSnapshot> {
             })
         })
         .collect()
-}
-
-fn read_stat(path: &Path) -> Option<(u32, String)> {
-    let text = fs::read_to_string(path).ok()?;
-    let close = text.rfind(')')?;
-    let comm = text.get(text.find('(')? + 1..close)?.to_owned();
-    let fields: Vec<&str> = text.get(close + 2..)?.split_whitespace().collect();
-    Some((fields.get(1)?.parse().ok()?, comm))
 }
 
 pub(crate) fn parse_environment(bytes: &[u8]) -> HashMap<String, String> {
@@ -225,7 +207,7 @@ pub(crate) fn parse_environment(bytes: &[u8]) -> HashMap<String, String> {
 fn ancestor_pids(mut pid: u32) -> HashSet<u32> {
     let mut result = HashSet::new();
     for _ in 0..32 {
-        let Some((ppid, _)) = read_stat(Path::new(&format!("/proc/{pid}/stat"))) else {
+        let Some((ppid, _)) = crate::process::parent_and_comm(pid) else {
             break;
         };
         if ppid == 0 || !result.insert(ppid) {

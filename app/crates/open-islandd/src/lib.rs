@@ -13,3 +13,5 @@ pub mod server;
 pub mod sound;
 pub mod update;
 pub mod usage;
+
+pub mod launchagent;

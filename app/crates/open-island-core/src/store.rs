@@ -662,6 +662,15 @@ impl SessionStore {
     }
 
     pub fn snapshot_at(&mut self, processes: &[Session], now: Instant) -> Vec<Session> {
+        self.snapshot_with_liveness(processes, now, crate::process::exists)
+    }
+
+    fn snapshot_with_liveness(
+        &mut self,
+        processes: &[Session],
+        now: Instant,
+        alive: impl Fn(u32) -> bool,
+    ) -> Vec<Session> {
         let mut used = vec![false; processes.len()];
         let mut missing_hooks = Vec::new();
         let mut joined = Vec::new();
@@ -676,7 +685,15 @@ impl SessionStore {
                 })
             });
             let Some(index) = process_index else {
-                missing_hooks.push(hook_id.clone());
+                if alive(state.session.pid) {
+                    if !state.filtered && !self.stale(hook_id, state, now) {
+                        let mut session = state.session.clone();
+                        session.attention = Some(self.attention_of(hook_id, state, now));
+                        sessions.push(session);
+                    }
+                } else {
+                    missing_hooks.push(hook_id.clone());
+                }
                 continue;
             };
             used[index] = true;

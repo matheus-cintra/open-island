@@ -8,7 +8,7 @@ pub struct SystemRunner;
 
 impl CommandRunner for SystemRunner {
     fn run(&self, program: &str, args: &[&str]) -> Result<Output, String> {
-        Command::new(program)
+        Command::new(crate::paths::executable(program).unwrap_or_else(|| program.into()))
             .args(args)
             .output()
             .map_err(|error| format!("failed to run {program}: {error}"))

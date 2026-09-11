@@ -355,6 +355,7 @@ pub fn is_packaged_executable(executable: &Path) -> bool {
     executable.parent() == Some(Path::new(PACKAGED_BIN_DIR))
 }
 
+#[cfg(not(target_os = "macos"))]
 pub fn install_autostart(
     home: &Path,
     daemon_executable: &Path,
@@ -397,7 +398,7 @@ pub fn install_autostart(
     Ok(changed)
 }
 
-fn merge_managed_file(
+pub(crate) fn merge_managed_file(
     path: &Path,
     content: &str,
     marker: &str,
@@ -1288,6 +1289,7 @@ mod tests {
         paths
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_desktop_entry_names_an_icon_the_install_actually_writes() {
         let root = home();
@@ -1315,6 +1317,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn an_icon_that_is_not_ours_is_never_replaced_or_removed() {
         let root = home();
@@ -1337,6 +1340,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn installing_autostart_writes_three_managed_files_naming_their_executables() {
         let root = home();
@@ -1378,6 +1382,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_island_unit_orders_itself_after_the_daemon_unit() {
         let root = home();
@@ -1403,6 +1408,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn installing_autostart_a_second_time_reports_no_change() {
         let root = home();
@@ -1430,6 +1436,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn uninstalling_autostart_removes_exactly_the_three_files_it_wrote() {
         let root = home();
@@ -1455,6 +1462,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn uninstalling_autostart_refuses_a_unit_it_does_not_recognise() {
         let root = home();
@@ -1476,6 +1484,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_dry_run_autostart_install_reports_every_path_and_writes_nothing() {
         let root = home();
@@ -1507,6 +1516,7 @@ mod tests {
         )));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_packaged_install_writes_the_units_but_no_settings_desktop_entry() {
         let root = home();
@@ -1537,6 +1547,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_build_tree_install_still_writes_the_settings_desktop_entry() {
         let root = home();
@@ -1554,6 +1565,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_packaged_uninstall_still_removes_a_settings_entry_a_build_tree_install_left() {
         let root = home();
@@ -1608,4 +1620,15 @@ mod tests {
         );
         let _ = fs::remove_dir_all(root);
     }
+}
+
+#[cfg(target_os = "macos")]
+pub fn install_autostart(
+    home: &Path,
+    daemon: &Path,
+    island: &Path,
+    install: bool,
+    dry_run: bool,
+) -> Result<Vec<PathBuf>, String> {
+    crate::launchagent::install(home, daemon, island, install, dry_run)
 }

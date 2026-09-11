@@ -5,23 +5,43 @@ mod commands;
 mod compositor;
 mod geometry;
 mod launch;
+#[cfg(target_os = "linux")]
 mod layershell;
+mod platform;
 mod pointer;
+#[cfg(any(test, target_os = "macos"))]
+mod screen_geometry;
 mod settings;
+mod shortcut;
 mod terminal;
 mod update;
 
 use client::DaemonClient;
 use commands::reveal_settings;
-use geometry::{compact_size, remember_origin};
+use geometry::compact_size;
+#[cfg(target_os = "linux")]
+use geometry::remember_origin;
 use pointer::watch_pointer;
 use tauri::{Listener, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            if args.iter().any(|arg| arg == "--settings") {
+                let _ = commands::open_settings(app.clone());
+            }
+        }))
+        .plugin(shortcut::plugin());
+    builder
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            commands::platform_capabilities,
+            shortcut::get_shortcut,
+            shortcut::set_shortcut,
             commands::list_sessions,
             commands::jump,
             commands::resolve_approval,
@@ -55,6 +75,12 @@ pub fn run() {
             commands::quit_app
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                platform::setup_menu(app.handle())?;
+                shortcut::restore(app.handle());
+            }
             let client =
                 DaemonClient::start(app.handle().clone()).map_err(std::io::Error::other)?;
             app.manage(client);
@@ -80,15 +106,11 @@ pub fn run() {
             });
             if let Some(window) = app.get_webview_window("main") {
                 let (width, height) = compact_size();
-                match window.gtk_window() {
-                    Ok(gtk_window) => {
-                        if let Err(error) = layershell::init(&gtk_window) {
-                            eprintln!("open-island: island is not a layer surface: {error}");
-                        }
-                        layershell::resize(&gtk_window, width as i32, height as i32);
-                    }
-                    Err(error) => eprintln!("open-island: no gtk window: {error}"),
+                if let Err(error) = platform::init(&window) {
+                    eprintln!("open-island: {error}");
                 }
+                platform::resize(&window, width, height);
+                #[cfg(target_os = "linux")]
                 remember_origin(&window, width, height);
                 window.show()?;
                 let pointer_window = window.clone();

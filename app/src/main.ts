@@ -62,6 +62,7 @@ export { badgeSpec, createRow, fillBadges, fillRow } from "./row";
 
 export let compactClean = false;
 let notchWidth = 0;
+let physicalNotchWidth = 0;
 let notchHeight = 0;
 let islandHeight = 0;
 export let show: RowVisibility = {
@@ -231,7 +232,7 @@ function applyUiScale(scale: number, compactHeight?: number): void {
       : Math.round(BASE_COMPACT.h * next);
   const floor = fromCompositor ? -(COMPACT_OVERHANG - 1) : -(base - MIN_COMPACT_H);
   const height = base + Math.max(floor, notchHeight);
-  const width = Math.max(MIN_COMPACT_W, Math.round(BASE_COMPACT.w * next) + notchWidth);
+  const width = Math.max(MIN_COMPACT_W, physicalNotchWidth + 16, Math.round(BASE_COMPACT.w * next) + notchWidth);
   if (next === uiScale && height === COMPACT.h && width === COMPACT.w) return;
   uiScale = next;
   COMPACT = { w: width, h: height };
@@ -1088,16 +1089,19 @@ export function applyConfig(next: Record<string, unknown>): void {
 }
 
 async function resolveUiScale(override: unknown): Promise<void> {
-  let metrics: { scale: number; compact_height: number | null } = {
+  let metrics: { scale: number; compact_height: number | null; safe_top?: number; notch_width?: number } = {
     scale: 1,
     compact_height: null,
   };
   try {
-    metrics = await invoke<{ scale: number; compact_height: number | null }>("island_metrics");
+    metrics = await invoke<{ scale: number; compact_height: number | null; safe_top?: number; notch_width?: number }>("island_metrics");
   } catch {
     metrics = { scale: 1, compact_height: null };
   }
   const scale = typeof override === "number" && override > 0 ? override : metrics.scale;
+  physicalNotchWidth = metrics.notch_width ?? 0;
+  document.documentElement.style.setProperty("--camera-top", `${metrics.safe_top ?? 0}px`);
+  document.documentElement.style.setProperty("--camera-width", `${physicalNotchWidth}px`);
   applyUiScale(scale, metrics.compact_height ?? undefined);
 }
 
@@ -1272,3 +1276,5 @@ async function boot(): Promise<void> {
 }
 
 void boot();
+
+void listen("island-screen-changed", () => { void loadConfig(); });

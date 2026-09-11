@@ -65,11 +65,11 @@ fn spawn_daemon(path: &Path, idle_ms: u64) -> Daemon {
     }
 }
 
-/// A process the daemon's procfs discovery accepts as an agent: `discovery::scan` reads
-/// argv0 from `/proc/<pid>/cmdline`, so a `sleep` wearing the agent's name is enough to
+/// A process discovery accepts as an agent through its argv0 on Linux and macOS.
+/// A `sleep` wearing the agent's name is enough to
 /// give a hook session something to join.
 fn spawn_agent_process(agent: &str, cwd: &Path) -> Killed {
-    let child = Command::new("/usr/bin/sleep")
+    let child = Command::new("/bin/sleep")
         .arg0(agent)
         .arg("120")
         .current_dir(cwd)
@@ -356,10 +356,9 @@ fn spawn_when_not_busy(command: &mut Command) -> Child {
 
 impl Drop for FakeKitty {
     fn drop(&mut self) {
-        let group = self.child.id().to_string();
-        let _ = Command::new("/usr/bin/kill")
-            .args(["-KILL", "--", &format!("-{group}")])
-            .status();
+        unsafe {
+            libc::kill(-(self.child.id() as i32), libc::SIGKILL);
+        }
         let _ = self.child.wait();
         let _ = fs::remove_dir_all(&self.directory);
     }
@@ -381,7 +380,7 @@ fn spawn_agent_under_fake_kitty(
     let mut command = Command::new(&kitty);
     command
         .arg("-c")
-        .arg(format!("(exec -a {agent} /usr/bin/sleep 120)"))
+        .arg(format!("(exec -a {agent} /bin/sleep 120) & wait"))
         .current_dir(cwd)
         .env_remove("KITTY_LISTEN_ON")
         .stdout(Stdio::null())
@@ -397,10 +396,10 @@ fn spawn_agent_under_fake_kitty(
     let parent = guard.child.id();
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let children = fs::read_to_string(format!("/proc/{parent}/task/{parent}/children"))
-            .unwrap_or_default();
-        if let Some(pid) = children.split_whitespace().next() {
-            return (guard, pid.parse().expect("child pid"));
+        if let Some(pid) = open_island_core::process::pids().into_iter().find(|pid| {
+            open_island_core::process::parent_and_comm(*pid).is_some_and(|(ppid, _)| ppid == parent)
+        }) {
+            return (guard, pid);
         }
         assert!(
             Instant::now() < deadline,

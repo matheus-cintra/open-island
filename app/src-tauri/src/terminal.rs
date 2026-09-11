@@ -44,15 +44,7 @@ fn pick_terminal(
 }
 
 pub(crate) fn on_path(name: &str) -> Option<PathBuf> {
-    let candidate = Path::new(name);
-    if candidate.is_absolute() {
-        return candidate.is_file().then(|| candidate.to_path_buf());
-    }
-    env::var_os("PATH").and_then(|path| {
-        env::split_paths(&path)
-            .map(|directory| directory.join(name))
-            .find(|full| full.is_file())
-    })
+    open_island_core::paths::executable(name)
 }
 
 pub fn terminal_argv(program: &Path, script: &str, args: &[&str]) -> Vec<String> {

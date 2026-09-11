@@ -1,8 +1,9 @@
 use crate::filters::{built_in_rules, LauncherRule, MatchType, RuleField, SilenceRule};
 use crate::store::IDLE_AFTER;
 use serde_json::{json, Value};
+#[cfg(test)]
+use std::ffi::OsString;
 use std::{
-    ffi::OsString,
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
@@ -371,7 +372,11 @@ impl SoundEvents {
 }
 
 fn theme_sound(name: &str) -> Option<PathBuf> {
-    Some(PathBuf::from(format!("{SOUND_THEME_DIR}/{name}.oga")))
+    if cfg!(target_os = "macos") {
+        crate::paths::bundled_sounds().map(|dir| dir.join(format!("{name}.wav")))
+    } else {
+        Some(PathBuf::from(format!("{SOUND_THEME_DIR}/{name}.oga")))
+    }
 }
 
 impl Default for NotificationConfig {
@@ -563,13 +568,12 @@ impl Config {
 }
 
 pub fn path() -> Option<PathBuf> {
-    path_from(
-        std::env::var_os("OPEN_ISLAND_CONFIG"),
-        std::env::var_os("XDG_CONFIG_HOME"),
-        std::env::var_os("HOME"),
-    )
+    std::env::var_os("OPEN_ISLAND_CONFIG")
+        .map(PathBuf::from)
+        .or_else(|| crate::paths::config_dir().map(|dir| dir.join("config.json")))
 }
 
+#[cfg(test)]
 fn path_from(
     config_override: Option<OsString>,
     xdg_config_home: Option<OsString>,

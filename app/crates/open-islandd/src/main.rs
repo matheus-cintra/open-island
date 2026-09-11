@@ -137,6 +137,10 @@ fn main() {
                 std::process::exit(code);
             }
         }
+        #[cfg(target_os = "macos")]
+        Some("stop") => {
+            std::process::exit(open_islandd::cli::client::run_stop());
+        }
         Some("autostart") => {
             let code = run_autostart();
             if code != 0 {

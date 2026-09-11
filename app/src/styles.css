@@ -1488,3 +1488,19 @@ body {
     scale: 1;
   }
 }
+
+/* AppKit reserves the camera strip separately from the content dimensions. */
+body::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: var(--camera-width, 0px);
+  height: var(--camera-top, 0px);
+  background: #000;
+  pointer-events: none;
+}
+body {
+  padding-top: var(--camera-top, 0px);
+}

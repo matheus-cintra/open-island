@@ -80,7 +80,18 @@ fn the_player_is_invoked_with_the_volume_and_the_path_and_no_inherited_stdio() {
     let command = command(Path::new("/tmp/complete.oga"), 0.3);
     assert_eq!(command.get_program(), PLAYER);
     let args: Vec<_> = command.get_args().collect();
-    assert_eq!(args, ["--volume", "0.300", "/tmp/complete.oga"]);
+    assert_eq!(
+        args,
+        [
+            if cfg!(target_os = "macos") {
+                "-v"
+            } else {
+                "--volume"
+            },
+            "0.300",
+            "/tmp/complete.oga"
+        ]
+    );
 }
 
 #[test]

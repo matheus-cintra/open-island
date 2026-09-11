@@ -1,0 +1,73 @@
+use std::{ffi::CStr, path::PathBuf};
+extern "C" {
+    fn oi_pids(out: *mut i32, bytes: i32) -> i32;
+    fn oi_process(pid: i32, parent: *mut u32, name: *mut i8, capacity: i32) -> i32;
+    fn oi_cwd(pid: i32, out: *mut i8, capacity: i32) -> i32;
+    fn oi_procargs(pid: i32, out: *mut i8, length: *mut usize) -> i32;
+    fn oi_activate(pid: i32) -> i32;
+}
+pub fn pids() -> Vec<u32> {
+    let count = unsafe { oi_pids(std::ptr::null_mut(), 0) }.max(0) as usize;
+    let mut values = vec![0i32; count + 1024];
+    let read = unsafe { oi_pids(values.as_mut_ptr(), (values.len() * 4) as i32) }.max(0) as usize;
+    values
+        .into_iter()
+        .take(read)
+        .filter(|pid| *pid > 0)
+        .map(|pid| pid as u32)
+        .collect()
+}
+pub fn parent_and_comm(pid: u32) -> Option<(u32, String)> {
+    let mut parent = 0;
+    let mut name = [0i8; 1024];
+    (unsafe {
+        oi_process(
+            pid as i32,
+            &mut parent,
+            name.as_mut_ptr(),
+            name.len() as i32,
+        )
+    } != 0)
+        .then(|| {
+            (
+                parent,
+                unsafe { CStr::from_ptr(name.as_ptr()) }
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+        })
+}
+pub fn cwd(pid: u32) -> Option<PathBuf> {
+    let mut path = [0i8; 4096];
+    (unsafe { oi_cwd(pid as i32, path.as_mut_ptr(), path.len() as i32) } != 0).then(|| {
+        PathBuf::from(
+            unsafe { CStr::from_ptr(path.as_ptr()) }
+                .to_string_lossy()
+                .as_ref(),
+        )
+    })
+}
+fn args(pid: u32) -> Option<(Vec<u8>, Vec<u8>)> {
+    let mut bytes = vec![0; 1024 * 1024];
+    let mut length = bytes.len();
+    if unsafe { oi_procargs(pid as i32, bytes.as_mut_ptr().cast(), &mut length) } == 0 {
+        return None;
+    }
+    bytes.truncate(length);
+    super::super::process_args::parse(&bytes)
+}
+pub fn command(pid: u32) -> Option<Vec<u8>> {
+    args(pid).map(|(command, _)| command)
+}
+pub fn environment(pid: u32) -> Vec<u8> {
+    args(pid).map(|(_, env)| env).unwrap_or_default()
+}
+pub fn activate(pid: u32) -> Result<(), String> {
+    if unsafe { oi_activate(pid as i32) } != 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "Não foi possível ativar o aplicativo do processo {pid}."
+        ))
+    }
+}

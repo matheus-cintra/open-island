@@ -53,8 +53,12 @@ pub fn run_autostart() -> i32 {
     let Some((home, daemon, island)) = autostart_paths() else {
         return 1;
     };
+    #[cfg(not(target_os = "macos"))]
     if !install && !dry_run {
-        run_systemd_steps(false);
+        if let Err(error) = apply_services(&home, false) {
+            eprintln!("{error}");
+            return 1;
+        }
     }
     match installer::install_autostart(&home, &daemon, &island, install, dry_run) {
         Ok(paths) => {
@@ -68,9 +72,20 @@ pub fn run_autostart() -> i32 {
             if !dry_run {
                 refresh_icon_cache(&home);
             }
-            if install && !dry_run {
-                run_systemd_steps(true);
+            #[cfg(target_os = "macos")]
+            if !install && !dry_run {
+                if let Err(error) = apply_services(&home, false) {
+                    eprintln!("{error}");
+                    return 1;
+                }
             }
+            if install && !dry_run {
+                if let Err(error) = apply_services(&home, true) {
+                    eprintln!("{error}");
+                    return 1;
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
             for note in installer::autostart_notes(install) {
                 println!("note {note}");
             }
@@ -85,6 +100,7 @@ pub fn run_autostart() -> i32 {
 
 // The three files existing is not the same as systemd being told to start them: the units
 // were present and disabled after a reboot, and the pane still reported Ativo.
+#[cfg(not(target_os = "macos"))]
 pub fn units_enabled() -> bool {
     ["open-islandd.service", "open-island.service"]
         .iter()
@@ -97,6 +113,7 @@ pub fn units_enabled() -> bool {
 }
 
 /// GTK trusts `icon-theme.cache` over the directory it sits in; without this the icon is invisible.
+#[cfg(not(target_os = "macos"))]
 pub fn refresh_icon_cache(home: &Path) {
     let theme = home.join(".local/share/icons/hicolor");
     let Some(directory) = theme.to_str() else {
@@ -194,3 +211,22 @@ pub fn report_autostart_status() -> i32 {
 #[cfg(test)]
 #[path = "autostart_tests.rs"]
 mod tests;
+
+fn apply_services(home: &Path, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::launchagent::apply(home, enabled)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = home;
+        run_systemd_steps(enabled);
+        Ok(())
+    }
+}
+#[cfg(target_os = "macos")]
+pub fn units_enabled() -> bool {
+    crate::launchagent::loaded()
+}
+#[cfg(target_os = "macos")]
+pub fn refresh_icon_cache(_: &Path) {}
