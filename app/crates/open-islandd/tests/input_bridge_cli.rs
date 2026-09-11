@@ -16,8 +16,49 @@ struct Session {
 }
 impl Drop for Session {
     fn drop(&mut self) {
+        if self.child.try_wait().ok().flatten().is_some() {
+            return;
+        }
         let _ = self.child.kill();
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while Instant::now() < deadline {
+            if self.child.try_wait().ok().flatten().is_some() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        if let Some(pid) = self.child.process_id() {
+            unsafe {
+                libc::kill(pid as i32, libc::SIGKILL);
+            }
+        }
         let _ = self.child.wait();
+    }
+}
+impl Session {
+    fn finish(&mut self) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                assert!(status.success(), "session exit: {status:?}");
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "session did not exit, terminal output: {}",
+                self.output()
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+    fn output(&self) -> String {
+        let fd = self.master.as_raw_fd().unwrap();
+        let mut bytes = [0u8; 8192];
+        unsafe {
+            libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK);
+        }
+        let count = unsafe { libc::read(fd, bytes.as_mut_ptr().cast(), bytes.len()) };
+        String::from_utf8_lossy(&bytes[..count.max(0) as usize]).into_owned()
     }
 }
 fn wait_file(path: &Path) -> String {
@@ -157,8 +198,8 @@ fn two_real_ptys_receive_only_their_own_unicode_messages_and_reject_cross_sessio
         "\x1b[200~olá\nsegunda linha\t'$(literal)'\x1b[201~\r"
     );
     assert_eq!(result_b["text"], "\x1b[200~outro agente\x1b[201~\r");
-    assert!(first.child.wait().unwrap().success());
-    assert!(second.child.wait().unwrap().success());
+    first.finish();
+    second.finish();
     assert!(!socket_a.exists());
     assert!(!socket_b.exists());
     assert!(input_bridge::send(&socket_a, pid_a, "closed").is_err());
@@ -184,17 +225,19 @@ fn keyboard_and_resize_survive_the_bridge() {
     let result: serde_json::Value = serde_json::from_str(&wait_file(&session.received)).unwrap();
     assert_eq!(result["text"], "keyboard\r");
     assert_eq!(result["size"], serde_json::json!([40, 10]));
-    assert!(session.child.wait().unwrap().success());
+    session.finish();
 }
 
 #[test]
 fn interactive_shell_integration_wraps_commands_and_accepts_messages() {
     for shell in ["bash", "zsh"] {
+        eprintln!("input shell fixture: {shell}");
         let Some(executable) = open_island_core::paths::executable(shell) else {
             continue;
         };
         let mut session = session_with_shell(Some(executable.to_str().unwrap()));
         let (socket, pid) = address(&session);
+        eprintln!("input shell fixture ready: {shell}");
         input_bridge::send(&socket, pid, "pelo comando do shell").unwrap();
         let received: serde_json::Value =
             serde_json::from_str(&wait_file(&session.received)).unwrap();
@@ -202,7 +245,8 @@ fn interactive_shell_integration_wraps_commands_and_accepts_messages() {
             received["text"],
             "\x1b[200~pelo comando do shell\x1b[201~\r"
         );
-        assert!(session.child.wait().unwrap().success());
+        eprintln!("input shell fixture delivered: {shell}");
+        session.finish();
     }
 }
 
@@ -298,5 +342,5 @@ fn daemon_discovers_the_bridge_and_delivers_through_the_existing_message_protoco
     assert_eq!(reply["delivered"], true);
     let received: serde_json::Value = serde_json::from_str(&wait_file(&agent.received)).unwrap();
     assert_eq!(received["text"], "\x1b[200~mensagem da ilha\x1b[201~\r");
-    assert!(agent.child.wait().unwrap().success());
+    agent.finish();
 }
