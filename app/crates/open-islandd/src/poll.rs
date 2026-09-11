@@ -208,6 +208,7 @@ pub fn send_message(ctx: &DaemonContext, session_id: &str, text: &str) -> Result
     if text.trim().is_empty() {
         return Err("empty message".to_owned());
     }
+    open_island_core::input_bridge::validate_text(&text)?;
     let processes = discovery::scan();
     let (message, due) = {
         let mut state = ctx
@@ -260,6 +261,13 @@ pub fn send_message(ctx: &DaemonContext, session_id: &str, text: &str) -> Result
 pub fn deliver_message(session: &Session, message: &QueuedMessage) -> Result<(), String> {
     let host = discovery::terminal_for_session(session)
         .ok_or_else(|| format!("session '{}' is no longer running", session.id))?;
+    if let Some(socket) = host.env.get(open_island_core::input_bridge::ENV) {
+        return open_island_core::input_bridge::send(
+            std::path::Path::new(socket),
+            host.agent_pid,
+            &message.text,
+        );
+    }
     let runner = SystemRunner;
     let plan =
         JumpPlanner::new(open_island_core::resolvers::default_resolvers()).plan(&host, &runner);

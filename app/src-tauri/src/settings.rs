@@ -53,6 +53,10 @@ pub fn theme_sounds() -> Vec<String> {
 pub fn integration_status() -> Result<Value, String> {
     let mut report = serde_json::Map::new();
     report.insert(
+        "input".to_owned(),
+        always_detected(is_installed(&["input", "status"])?),
+    );
+    report.insert(
         "autostart".to_owned(),
         always_detected(is_installed(&["autostart", "status"])?),
     );
@@ -74,6 +78,7 @@ pub fn integration_status() -> Result<Value, String> {
 pub fn set_integration(name: &str, enabled: bool) -> Result<Value, String> {
     let action = if enabled { "install" } else { "uninstall" };
     match name {
+        "input" => run_daemon(&["input", action])?,
         "autostart" => run_daemon(&["autostart", action])?,
         "hyprland" => run_daemon(&["hotkey", action])?,
         agent => {
@@ -92,7 +97,7 @@ pub fn remove_auto_configuration() -> Result<Vec<String>, String> {
         config::save(&path, &config)?;
     }
     let mut removed = Vec::new();
-    let mut actions = vec![&["hooks", "uninstall"][..]];
+    let mut actions = vec![&["hooks", "uninstall"][..], &["input", "uninstall"][..]];
     if cfg!(target_os = "linux") {
         actions.push(&["hotkey", "uninstall"]);
     }

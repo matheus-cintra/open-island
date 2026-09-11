@@ -34,7 +34,16 @@ pub fn open(folder: &str, agent: &str) -> Result<(), String> {
     }
     let program =
         terminal::pick().ok_or_else(|| "no terminal emulator found on PATH".to_owned())?;
-    terminal::spawn_detached(session_argv(&program, folder, agent))
+    let bridge = crate::client::daemon_candidates()
+        .into_iter()
+        .find(|path| path.is_file())
+        .or_else(|| terminal::on_path("open-islandd"))
+        .ok_or("O componente de entrada não foi encontrado. Reinstale o aplicativo.")?;
+    terminal::spawn_detached(terminal::terminal_argv(
+        &program,
+        "cd \"$1\" && exec \"$2\" run -- \"$3\"",
+        &[&folder.to_string_lossy(), &bridge.to_string_lossy(), agent],
+    ))
 }
 
 #[cfg(test)]

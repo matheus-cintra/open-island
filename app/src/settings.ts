@@ -42,6 +42,7 @@ markerEl.className = "sidebar-marker";
 export let observedLaunchers: string[] = [];
 export const UNKNOWN_INTEGRATION: IntegrationState = { detected: false, installed: false };
 export let integrations: IntegrationStatus = {
+  input: UNKNOWN_INTEGRATION,
   autostart: UNKNOWN_INTEGRATION,
   hyprland: UNKNOWN_INTEGRATION,
   claude: UNKNOWN_INTEGRATION,

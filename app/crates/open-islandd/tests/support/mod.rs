@@ -22,10 +22,7 @@ pub fn config_without_release_check() -> PathBuf {
         return path;
     }
     fs::create_dir_all(&directory).expect("isolated config dir");
-    let staging = directory.join(format!(
-        ".config-{}.tmp",
-        unique_id()
-    ));
+    let staging = directory.join(format!(".config-{}.tmp", unique_id()));
     fs::write(&staging, r#"{"updates": {"check_enabled": false}}"#).expect("isolated config");
     fs::rename(&staging, &path).expect("isolated config");
     path

@@ -3,6 +3,7 @@ pub mod config;
 pub mod discovery;
 pub mod filters;
 pub mod focus;
+pub mod input_bridge;
 pub mod jump;
 pub mod naming;
 pub mod protocol;

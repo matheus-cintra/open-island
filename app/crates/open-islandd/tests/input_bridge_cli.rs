@@ -1,0 +1,256 @@
+use open_island_core::input_bridge;
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    thread,
+    time::{Duration, Instant},
+};
+
+struct Session {
+    child: Box<dyn portable_pty::Child + Send + Sync>,
+    master: Box<dyn portable_pty::MasterPty + Send>,
+    _directory: tempfile::TempDir,
+    info: PathBuf,
+    received: PathBuf,
+}
+impl Drop for Session {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+fn wait_file(path: &Path) -> String {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(value) = fs::read_to_string(path) {
+            if !value.is_empty() {
+                return value;
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timeout waiting for {}",
+            path.display()
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+fn session() -> Session {
+    let directory = tempfile::tempdir().unwrap();
+    let info = directory.path().join("info");
+    let received = directory.path().join("received");
+    let agent = directory.path().join("claude");
+    std::os::unix::fs::symlink(
+        open_island_core::paths::executable("python3").unwrap(),
+        &agent,
+    )
+    .unwrap();
+    let pair = native_pty_system()
+        .openpty(PtySize {
+            rows: 30,
+            cols: 100,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_open-islandd"));
+    command.args(["run", "--"]);
+    command.arg(&agent);
+    command.args([
+        "-c",
+        r#"
+import os, sys, tty, json, time
+tty.setraw(0)
+os.write(1, b'\x1b[?2004h')
+with open(sys.argv[1], 'w') as f:
+    json.dump({'pid': os.getpid(), 'socket': os.environ['OPEN_ISLAND_INPUT_SOCKET']}, f)
+data = b''
+while not data.endswith(b'\r'):
+    data += os.read(0, 8192)
+with open(sys.argv[2], 'w') as f:
+    json.dump({'text': data.decode(), 'size': list(os.get_terminal_size(0))}, f)
+time.sleep(0.2)
+"#,
+    ]);
+    command.arg(&info);
+    command.arg(&received);
+    let child = pair.slave.spawn_command(command).unwrap();
+    drop(pair.slave);
+    Session {
+        child,
+        master: pair.master,
+        _directory: directory,
+        info,
+        received,
+    }
+}
+fn address(session: &Session) -> (PathBuf, u32) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !session.info.exists() {
+        if Instant::now() >= deadline {
+            let fd = session.master.as_raw_fd().unwrap();
+            let mut bytes = [0u8; 8192];
+            unsafe {
+                libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK);
+            }
+            let n = unsafe { libc::read(fd, bytes.as_mut_ptr().cast(), bytes.len()) };
+            panic!(
+                "bridge did not start: {}",
+                String::from_utf8_lossy(&bytes[..n.max(0) as usize])
+            );
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    let info: serde_json::Value = serde_json::from_str(&wait_file(&session.info)).unwrap();
+    (
+        PathBuf::from(info["socket"].as_str().unwrap()),
+        info["pid"].as_u64().unwrap() as u32,
+    )
+}
+
+#[test]
+fn two_real_ptys_receive_only_their_own_unicode_messages_and_reject_cross_session_input() {
+    let mut first = session();
+    let mut second = session();
+    let (socket_a, pid_a) = address(&first);
+    let (socket_b, pid_b) = address(&second);
+    assert!(input_bridge::send(&socket_a, pid_b, "wrong session")
+        .unwrap_err()
+        .contains("não pertence"));
+    assert!(input_bridge::send(&socket_a, pid_a, "\x1b[201~").is_err());
+    assert!(!first.received.exists());
+    assert!(!second.received.exists());
+    input_bridge::send(&socket_a, pid_a, "olá\nsegunda linha\t'$(literal)'").unwrap();
+    input_bridge::send(&socket_b, pid_b, "outro agente").unwrap();
+    let result_a: serde_json::Value = serde_json::from_str(&wait_file(&first.received)).unwrap();
+    let result_b: serde_json::Value = serde_json::from_str(&wait_file(&second.received)).unwrap();
+    assert_eq!(
+        result_a["text"],
+        "\x1b[200~olá\nsegunda linha\t'$(literal)'\x1b[201~\r"
+    );
+    assert_eq!(result_b["text"], "\x1b[200~outro agente\x1b[201~\r");
+    assert!(first.child.wait().unwrap().success());
+    assert!(second.child.wait().unwrap().success());
+    assert!(!socket_a.exists());
+    assert!(!socket_b.exists());
+    assert!(input_bridge::send(&socket_a, pid_a, "closed").is_err());
+}
+
+#[test]
+fn keyboard_and_resize_survive_the_bridge() {
+    use std::io::Write;
+    let mut session = session();
+    let _ = address(&session);
+    session
+        .master
+        .resize(PtySize {
+            rows: 10,
+            cols: 40,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    thread::sleep(Duration::from_millis(150));
+    let mut keyboard = session.master.take_writer().unwrap();
+    keyboard.write_all(b"keyboard\r").unwrap();
+    let result: serde_json::Value = serde_json::from_str(&wait_file(&session.received)).unwrap();
+    assert_eq!(result["text"], "keyboard\r");
+    assert_eq!(result["size"], serde_json::json!([40, 10]));
+    assert!(session.child.wait().unwrap().success());
+}
+
+#[test]
+fn daemon_discovers_the_bridge_and_delivers_through_the_existing_message_protocol() {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::UnixStream,
+        process::{Command, Stdio},
+    };
+    let mut agent = session();
+    let (_, pid) = address(&agent);
+    let home = tempfile::tempdir().unwrap();
+    let socket = home.path().join("daemon.sock");
+    let config = home.path().join("config.json");
+    fs::write(&config, r#"{"updates":{"check_enabled":false},"integrations":{"auto_configure":false},"sound":{"muted":true}}"#).unwrap();
+    struct Daemon(std::process::Child);
+    impl Drop for Daemon {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let _daemon = Daemon(
+        Command::new(env!("CARGO_BIN_EXE_open-islandd"))
+            .args(["--socket", socket.to_str().unwrap()])
+            .env("HOME", home.path())
+            .env("XDG_CONFIG_HOME", home.path())
+            .env("XDG_STATE_HOME", home.path())
+            .env("OPEN_ISLAND_CONFIG", config)
+            .env("OPEN_ISLAND_IDLE_MS", "1")
+            .env("OPEN_ISLAND_POLL_MS", "25")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut stream = loop {
+        if let Ok(stream) = UnixStream::connect(&socket) {
+            break stream;
+        }
+        assert!(Instant::now() < deadline, "daemon did not bind");
+        thread::sleep(Duration::from_millis(20));
+    };
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut request = |method: &str, params: serde_json::Value| -> serde_json::Value {
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({"v":1,"id":1,"method":method,"params":params})
+        )
+        .unwrap();
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+            if response["id"] == 1 {
+                assert_eq!(response["ok"], true, "{response}");
+                return response["data"].clone();
+            }
+        }
+    };
+    request(
+        "hook_event",
+        serde_json::json!({"agent":"claude","session_id":"claude:bridge-test","event":"stop","pid":pid,"cwd":std::env::current_dir().unwrap()}),
+    );
+    let found = loop {
+        let sessions = request("list_sessions", serde_json::json!({}));
+        if let Some(found) = sessions
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|session| session["pid"] == pid && session["attention"] == "idle")
+        {
+            break found.clone();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "session not discovered: {sessions}"
+        );
+        thread::sleep(Duration::from_millis(25));
+    };
+    assert_eq!(found["send_channel"], "island");
+    let reply = request(
+        "send_message",
+        serde_json::json!({"id": found["id"], "text":"mensagem da ilha"}),
+    );
+    assert_eq!(reply["delivered"], true);
+    let received: serde_json::Value = serde_json::from_str(&wait_file(&agent.received)).unwrap();
+    assert_eq!(received["text"], "\x1b[200~mensagem da ilha\x1b[201~\r");
+    assert!(agent.child.wait().unwrap().success());
+}

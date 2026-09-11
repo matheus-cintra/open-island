@@ -112,7 +112,15 @@ pub fn scan() -> Vec<Session> {
 }
 
 pub fn terminal_for_session(session: &Session) -> Option<crate::terminal::TerminalInfo> {
-    let snapshots = read_snapshots();
+    let mut snapshots = read_snapshots();
+    // Hook-only agents can have an interpreter as argv0. Read the requested
+    // process environment even when generic discovery did not classify it.
+    if let Some(snapshot) = snapshots
+        .iter_mut()
+        .find(|snapshot| snapshot.pid == session.pid)
+    {
+        snapshot.env = parse_environment(&crate::process::environment(session.pid));
+    }
     snapshots
         .iter()
         .find(|snapshot| snapshot.pid == session.pid)
@@ -181,6 +189,7 @@ pub(crate) fn parse_environment(bytes: &[u8]) -> HashMap<String, String> {
             let key = std::str::from_utf8(key).ok()?;
             let value = std::str::from_utf8(value).ok()?;
             if key == "TERM_PROGRAM"
+                || key == crate::input_bridge::ENV
                 || key == "KITTY_WINDOW_ID"
                 || key == "KITTY_LISTEN_ON"
                 || key == "TMUX"

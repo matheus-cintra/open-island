@@ -6,7 +6,10 @@ pub fn quote_shell(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\"'\"'"))
 }
 fn terminal_command(folder: &str, executable: &str, iterm: bool) -> String {
-    let command = format!("cd {} && {}", quote_shell(folder), quote_shell(executable));
+    shell_command(folder, &quote_shell(executable), iterm)
+}
+fn shell_command(folder: &str, command: &str, iterm: bool) -> String {
+    let command = format!("cd {} && {}", quote_shell(folder), command);
     // Profile commands are executables, while Terminal do-script accepts shell input.
     let command = if iterm {
         format!("/bin/sh -lc {}", quote_shell(&command))
@@ -16,7 +19,10 @@ fn terminal_command(folder: &str, executable: &str, iterm: bool) -> String {
     command
 }
 pub fn applescript(folder: &str, executable: &str, iterm: bool) -> String {
-    let literal = terminal_command(folder, executable, iterm)
+    applescript_command(folder, &quote_shell(executable), iterm)
+}
+fn applescript_command(folder: &str, command: &str, iterm: bool) -> String {
+    let literal = shell_command(folder, command, iterm)
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
@@ -28,8 +34,11 @@ pub fn applescript(folder: &str, executable: &str, iterm: bool) -> String {
     }
 }
 pub fn warp_configuration(folder: &str, executable: &str) -> serde_json::Value {
+    warp_configuration_command(folder, &quote_shell(executable))
+}
+fn warp_configuration_command(folder: &str, command: &str) -> serde_json::Value {
     serde_json::json!({"name":"Open Island", "windows":[{"tabs":[{
-        "title":"Open Island", "layout":{"cwd":folder, "commands":[{"exec":quote_shell(executable)}]}
+        "title":"Open Island", "layout":{"cwd":folder, "commands":[{"exec":command}]}
     }]}]})
 }
 pub fn warp_uri(name: &str) -> String {
@@ -61,6 +70,15 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
     }
     let executable = crate::terminal::on_path(agent)
         .ok_or_else(|| format!("Instale {agent} para abrir uma sessão."))?;
+    let bridge = crate::client::daemon_candidates()
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or("O componente de entrada não foi encontrado. Reinstale o aplicativo.")?;
+    let command = format!(
+        "{} run -- {}",
+        quote_shell(&bridge.to_string_lossy()),
+        quote_shell(&executable.to_string_lossy())
+    );
     let (bundle, name) = match kind {
         "terminal" => ("com.apple.Terminal", "Terminal"),
         "iterm2" => ("com.googlecode.iterm2", "iTerm2"),
@@ -95,7 +113,7 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         // JSON is a YAML subset and quotes every user-supplied scalar.
         file.write_all(
-            serde_json::to_string(&warp_configuration(folder, &executable.to_string_lossy()))
+            serde_json::to_string(&warp_configuration_command(folder, &command))
                 .map_err(|e| e.to_string())?
                 .as_bytes(),
         )
@@ -120,9 +138,16 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
         } else {
             vec![]
         };
-        argv.extend(["/bin/sh", "-c", "cd \"$1\" && exec \"$2\"", "sh", folder]);
+        argv.extend([
+            "/bin/sh",
+            "-c",
+            "cd \"$1\" && exec \"$2\" run -- \"$3\"",
+            "sh",
+            folder,
+        ]);
         let mut child = Command::new(program)
             .args(argv)
+            .arg(bridge)
             .arg(executable)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -137,7 +162,7 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
     let output = Command::new("/usr/bin/osascript")
         .args([
             "-e",
-            &applescript(folder, &executable.to_string_lossy(), kind == "iterm2"),
+            &applescript_command(folder, &command, kind == "iterm2"),
         ])
         .output()
         .map_err(|e| e.to_string())?;

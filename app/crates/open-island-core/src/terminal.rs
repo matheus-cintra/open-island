@@ -107,7 +107,9 @@ pub fn launcher_of(snapshot: &ProcessSnapshot, processes: &[ProcessSnapshot]) ->
             return None;
         }
         let comm = parent.comm.as_str();
-        if !SHELL_COMMS.contains(&comm) && comm != snapshot.comm {
+        let input_bridge =
+            comm == "open-islandd" && snapshot.env.contains_key(crate::input_bridge::ENV);
+        if !SHELL_COMMS.contains(&comm) && comm != snapshot.comm && !input_bridge {
             return Some(comm.to_owned());
         }
         current = parent;
