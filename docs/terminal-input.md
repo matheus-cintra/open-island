@@ -7,7 +7,10 @@ janela, usar o clipboard ou autorizar Acessibilidade para esse canal.
 
 ## Como ativar
 
-- Sessões abertas pelo botão **+** da ilha já usam a ponte.
+- Sessões abertas pelo botão **+** da ilha já usam a ponte. No macOS, selecione
+  antes **Ajustes → Geral → Novas sessões → Abrir no terminal → Warp** (ou o
+  aplicativo desejado). O padrão é Terminal.app; o terminal em uso não é escolhido
+  automaticamente.
 - Para comandos digitados no terminal, habilite **Ajustes → Integrações → Mensagens
   pela ilha → Enviar mensagens aos agentes pelo terminal**. Abra uma nova aba depois.
   A integração instala funções em Bash, Zsh e Fish; funções e aliases próprios têm
@@ -61,3 +64,13 @@ hooks, quando o macOS apresenta um interpretador como executável do processo.
 O teste consome a saída da PTY enquanto aguarda o shell encerrar, assim como um
 terminal real. A suíte Linux passou, além dos 157 testes do frontend e do build da
 interface. A confirmação visual e interativa no Warp do usuário ainda é necessária.
+
+### Entrega final
+
+Os DMGs do commit `c8129af052f05606359f70ef332157cf7ae70ece` passaram no
+[CI completo 34635555896](https://github.com/matheus-cintra/open-island/actions/runs/34635555896)
+em Apple Silicon e Intel, incluindo os sete testes da ponte, o workspace Rust e
+a atualização assinada com reinício real do daemon. Os checksums dos dois DMGs
+foram conferidos após o download. O teste físico no Mac falhou: o usuário informou abertura no Terminal.app em vez
+do Warp e falha no envio. A aprovação automatizada não comprova a integração
+funcionando no ambiente do usuário; investigação pendente.

@@ -41,8 +41,8 @@ fn warp_configuration_command(folder: &str, command: &str) -> serde_json::Value 
         "title":"Open Island", "layout":{"cwd":folder, "commands":[{"exec":command}]}
     }]}]})
 }
-pub fn warp_uri(name: &str) -> String {
-    let encoded: String = name
+pub fn warp_uri(path: &str) -> String {
+    let encoded: String = path
         .bytes()
         .map(|byte| {
             if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
@@ -120,7 +120,7 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
         let status = Command::new("/usr/bin/open")
-            .args(["-b", bundle, &warp_uri(&file_name)])
+            .args(["-b", bundle, &warp_uri(&path.to_string_lossy())])
             .status()
             .map_err(|e| e.to_string());
         if !status.as_ref().is_ok_and(|s| s.success()) {
@@ -190,6 +190,15 @@ mod tests {
             1
         );
         assert_eq!(warp_uri("a b&x.yaml"), "warp://launch/a%20b%26x.yaml");
+    }
+    #[test]
+    fn warp_launch_uses_the_absolute_configuration_path_and_keeps_the_bridge_command() {
+        let path = "/Users/ma théus/.warp/launch_configurations/open-island-123.yaml";
+        assert_eq!(warp_uri(path), "warp://launch/%2FUsers%2Fma%20th%C3%A9us%2F.warp%2Flaunch_configurations%2Fopen-island-123.yaml");
+        let command = format!("{} run -- {}", quote_shell("/Applications/Open Island.app/Contents/MacOS/open-islandd"), quote_shell("/opt/homebrew/bin/claude"));
+        let config = warp_configuration_command("/Users/ma théus/project", &command);
+        assert_eq!(config["windows"].as_array().unwrap().len(), 1);
+        assert_eq!(config["windows"][0]["tabs"][0]["layout"]["commands"][0]["exec"], command);
     }
     #[test]
     fn profile_shell_runs_the_agent_in_the_literal_selected_directory() {

@@ -1,6 +1,7 @@
 import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { bindIslandKeyboard } from "./island-keyboard";
 import { strings } from "./strings";
 import {
   ApprovalDecision,
@@ -143,6 +144,12 @@ const PIXEL_PERIOD_Y = 291_240 * (DEBUG_SPEED ? 0.02 : 1);
 /* ------------------------------------------------------------------ */
 
 export let expanded = false;
+let macosPanel = false;
+const islandKeyboard = bindIslandKeyboard(
+  islandEl,
+  () => macosPanel && expanded,
+  (active) => invoke("island_keyboard", { active }),
+);
 let hovered = false;
 export let sessions: Session[] = [];
 let lastListKey = "";
@@ -401,7 +408,7 @@ export function expandedSize(): Size {
 
 function expand(): void {
   expanded = true;
-  void invoke("island_keyboard", { active: true }).catch(() => {});
+  if (!macosPanel) void invoke("island_keyboard", { active: true }).catch(() => {});
   // Swap SVG + content at tween START (expanding).
   islandEl.classList.add("expanded");
   setView("expanded");
@@ -412,7 +419,8 @@ function expand(): void {
 
 function collapse(): void {
   expanded = false;
-  void invoke("island_keyboard", { active: false }).catch(() => {});
+  if (macosPanel) islandKeyboard.release();
+  else void invoke("island_keyboard", { active: false }).catch(() => {});
   // Keep the expanded SVG during the shrink; swap at tween END.
   morphTo(COMPACT, noop, () => {
     islandEl.classList.remove("expanded");
@@ -1303,6 +1311,7 @@ function applyStaticStrings(): void {
 async function boot(): Promise<void> {
   applyStaticStrings();
   void invoke<{ os: string }>("platform_capabilities").then((platform) => {
+    macosPanel = platform?.os === "macos";
     document.body.classList.toggle("platform-macos", platform?.os === "macos");
   }).catch(() => {});
   await setIslandSize(COMPACT.w, COMPACT.h);
