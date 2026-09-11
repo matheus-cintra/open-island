@@ -51,3 +51,26 @@ int oi_displays_asleep(void) {
     }
     return 1;
 }
+
+// Read the caller's GUI session, including when the daemon starts after locking.
+// The lock key is an undocumented WindowServer field; keep this compatibility
+// probe isolated and distinguish missing sessions / malformed values from false.
+// No preferences files, Accessibility permission or screen capture are involved.
+void oi_session_state(int *on_console, int *locked) {
+    *on_console = -1;
+    *locked = -1;
+    CFDictionaryRef session = CGSessionCopyCurrentDictionary();
+    if (!session) return;
+    CFTypeRef console = CFDictionaryGetValue(session, kCGSessionOnConsoleKey);
+    if (console && CFGetTypeID(console) == CFBooleanGetTypeID()) {
+        *on_console = CFBooleanGetValue((CFBooleanRef)console) ? 1 : 0;
+    }
+    CFTypeRef lock = CFDictionaryGetValue(session, CFSTR("CGSSessionScreenIsLocked"));
+    if (lock && CFGetTypeID(lock) == CFBooleanGetTypeID()) {
+        *locked = CFBooleanGetValue((CFBooleanRef)lock) ? 1 : 0;
+    } else if (!lock && *on_console >= 0) {
+        // WindowServer omits this field for an unlocked session.
+        *locked = 0;
+    }
+    CFRelease(session);
+}

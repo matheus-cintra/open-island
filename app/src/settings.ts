@@ -165,8 +165,8 @@ export function renderPane(): void {
         effectiveRow.hint = "Respeita o estado de Foco compartilhado pelo macOS. Requer a autorização acima.";
       }
       if (capabilities.os === "macos" && row.path === "filters.quiet.screen_off") {
-        effectiveRow.label = "Telas desligadas";
-        effectiveRow.hint = "Silencia enquanto todas as telas estiverem em repouso. Bloquear a sessão com a tela acesa não ativa esta condição.";
+        effectiveRow.label = "Telas desligadas ou sessão bloqueada";
+        effectiveRow.hint = "Silencia com todas as telas em repouso, ao bloquear o Mac ou trocar de usuário. A detecção de bloqueio é experimental.";
       }
       if (capabilities.os === "macos" && row.path === "island.hide_in_fullscreen") {
         effectiveRow.hint = "Oculta enquanto o aplicativo ativo estiver no modo de tela cheia do macOS. Janelas apenas maximizadas não ativam esta opção.";

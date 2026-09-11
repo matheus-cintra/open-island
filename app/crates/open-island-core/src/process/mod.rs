@@ -8,6 +8,26 @@ pub use linux::*;
 #[cfg(target_os = "macos")]
 pub use macos::*;
 
+#[cfg(any(test, target_os = "macos"))]
+fn session_unavailable_from(on_console: Option<bool>, locked: Option<bool>) -> Option<bool> {
+    match (on_console, locked) {
+        (Some(false), _) | (_, Some(true)) => Some(true),
+        (Some(true), Some(false)) => Some(false),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn session_lock_and_user_switch_are_distinct_from_unknown_session_state() {
+    assert_eq!(session_unavailable_from(Some(true), Some(true)), Some(true));
+    assert_eq!(session_unavailable_from(Some(false), Some(false)), Some(true));
+    assert_eq!(session_unavailable_from(Some(true), Some(false)), Some(false));
+    assert_eq!(session_unavailable_from(None, None), None);
+    assert_eq!(session_unavailable_from(Some(true), None), None);
+    assert_eq!(session_unavailable_from(None, Some(true)), Some(true));
+}
+
 pub fn exists(pid: u32) -> bool {
     if pid <= 1 || pid > i32::MAX as u32 {
         return false;

@@ -5,6 +5,7 @@ extern "C" {
     fn oi_cwd(pid: i32, out: *mut i8, capacity: i32) -> i32;
     fn oi_procargs(pid: i32, out: *mut i8, length: *mut usize) -> i32;
     fn oi_displays_asleep() -> i32;
+    fn oi_session_state(on_console: *mut i32, locked: *mut i32);
     fn oi_activate(pid: i32) -> i32;
 }
 pub fn pids() -> Vec<u32> {
@@ -80,4 +81,17 @@ pub fn displays_asleep() -> Option<bool> {
         1 => Some(true),
         _ => None,
     }
+}
+
+pub fn session_unavailable() -> Option<bool> {
+    let (mut console, mut locked) = (-1, -1);
+    unsafe {
+        oi_session_state(&mut console, &mut locked);
+    }
+    let boolean = |value| match value {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    };
+    super::session_unavailable_from(boolean(console), boolean(locked))
 }

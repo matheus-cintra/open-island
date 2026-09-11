@@ -47,7 +47,8 @@ esvazie o campo para desativá-lo. Falhas de registro e conflitos aparecem nesse
   sessões. Terminal é o padrão. Terminal e iTerm2 podem exigir autorização de Automação.
 - Foco/Não Perturbe usa autorização explícita nas configurações de som. Estado indisponível
   não é tratado como Foco desligado. Telas em repouso são consultadas via CoreGraphics;
-  bloqueio com a tela acesa ainda não é detectado. A detecção de tela cheia considera
+  bloqueio com a tela acesa e troca de usuário usam a sessão do WindowServer. O campo
+  de bloqueio não é documentado pela Apple e esta detecção é experimental. A detecção de tela cheia considera
   o aplicativo ativo. Esses recursos ainda exigem validação física no Mac.
 - WAVs originais acompanham o app e são reproduzidos pelo player nativo `afplay`.
 
