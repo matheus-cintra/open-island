@@ -13,11 +13,15 @@ use std::{
 use crate::config_handle::ConfigHandle;
 use crate::notifications::shutdown::BoundedThread;
 
+#[cfg(target_os = "linux")]
 pub const PLAYER: &str = "pw-play";
+#[cfg(target_os = "macos")]
+pub const PLAYER: &str = "/usr/bin/afplay";
 pub const MAX_CONCURRENT: usize = 8;
 pub const QUEUE_DEPTH: usize = 8;
 pub const REAP_TICK: Duration = Duration::from_millis(500);
 
+#[cfg(target_os = "linux")]
 #[zbus::proxy(
     default_service = "org.erikreider.swaync",
     default_path = "/org/erikreider/swaync/cc",
@@ -95,7 +99,11 @@ pub fn admits(
 pub fn command(path: &Path, volume: f32) -> Command {
     let mut command = Command::new(PLAYER);
     command
-        .arg("--volume")
+        .arg(if cfg!(target_os = "macos") {
+            "-v"
+        } else {
+            "--volume"
+        })
         .arg(format!("{volume:.3}"))
         .arg(path)
         .stdin(Stdio::null())
@@ -206,12 +214,14 @@ fn run(config: &ConfigHandle, receiver: Receiver<PathBuf>, quiet_scene: &AtomicB
     }
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Default)]
 pub struct DndProbe {
     proxy: Option<ControlCenterProxy<'static>>,
     unavailable: bool,
 }
 
+#[cfg(target_os = "linux")]
 impl DndProbe {
     pub fn new() -> Self {
         Self::default()
@@ -237,6 +247,7 @@ impl DndProbe {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn connect() -> Option<ControlCenterProxy<'static>> {
     let connection = zbus::blocking::Connection::session().ok()?;
     ControlCenterProxy::builder(&connection).build().ok()
@@ -245,3 +256,15 @@ fn connect() -> Option<ControlCenterProxy<'static>> {
 #[cfg(test)]
 #[path = "sound_tests.rs"]
 mod tests;
+
+#[cfg(target_os = "macos")]
+pub struct DndProbe;
+#[cfg(target_os = "macos")]
+impl DndProbe {
+    pub fn new() -> Self {
+        Self
+    }
+    pub fn do_not_disturb(&mut self) -> bool {
+        crate::native_state::focus()
+    }
+}

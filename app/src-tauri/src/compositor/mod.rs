@@ -1,3 +1,4 @@
+#[cfg(target_os = "linux")]
 pub mod hyprland;
 
 pub const UI_SCALE_MIN: f64 = 1.0;
@@ -82,12 +83,27 @@ pub trait Compositor {
 }
 
 pub fn current() -> impl Compositor {
-    hyprland::HyprlandBackend
+    #[cfg(target_os = "linux")]
+    {
+        hyprland::HyprlandBackend
+    }
+    #[cfg(target_os = "macos")]
+    {
+        crate::platform::macos::MacCompositor
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{ui_scale_from, Compositor, MonitorInfo, UI_SCALE_MAX, UI_SCALE_MIN};
+
+    #[test]
+    fn logical_display_width_does_not_apply_retina_backing_scale_twice() {
+        assert_eq!(ui_scale_from(1512, 344, 1.0), 1.16);
+        assert_eq!(ui_scale_from(1920, 600, 1.0), 1.0);
+        assert_eq!(ui_scale_from(1920, 300, 1.0), 1.69);
+        assert_eq!(ui_scale_from(1512, 0, 1.0), 1.0);
+    }
 
     #[test]
     fn ui_scale_tracks_dpi_not_resolution() {

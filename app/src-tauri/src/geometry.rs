@@ -1,5 +1,5 @@
 use crate::compositor::{self, Compositor};
-use crate::layershell;
+use crate::platform;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -9,8 +9,8 @@ pub const COMPACT_HEIGHT: f64 = 46.0;
 
 #[derive(Clone, Copy)]
 pub struct IslandRect {
-    x: i32,
-    y: i32,
+    pub x: i32,
+    pub y: i32,
     pub width: i32,
     pub height: i32,
 }
@@ -67,14 +67,12 @@ pub fn position_island(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
     remember_origin(window, width, height);
     let target = window.clone();
-    let (width, height) = (width as i32, height as i32);
     window
         .run_on_main_thread(move || {
-            if let Ok(gtk_window) = target.gtk_window() {
-                layershell::resize(&gtk_window, width, height);
-            }
+            platform::resize(&target, width, height);
         })
         .map_err(|error| error.to_string())
 }

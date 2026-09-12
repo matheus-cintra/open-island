@@ -1,6 +1,7 @@
 import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { bindIslandKeyboard } from "./island-keyboard";
 import { strings } from "./strings";
 import {
   ApprovalDecision,
@@ -62,6 +63,9 @@ export { badgeSpec, createRow, fillBadges, fillRow } from "./row";
 
 export let compactClean = false;
 let notchWidth = 0;
+let physicalNotchWidth = 0;
+let hasPhysicalNotch = false;
+let physicalNotchHeight = 0;
 let notchHeight = 0;
 let islandHeight = 0;
 export let show: RowVisibility = {
@@ -140,6 +144,12 @@ const PIXEL_PERIOD_Y = 291_240 * (DEBUG_SPEED ? 0.02 : 1);
 /* ------------------------------------------------------------------ */
 
 export let expanded = false;
+let macosPanel = false;
+const islandKeyboard = bindIslandKeyboard(
+  islandEl,
+  () => macosPanel && expanded,
+  (active) => invoke("island_keyboard", { active }),
+);
 let hovered = false;
 export let sessions: Session[] = [];
 let lastListKey = "";
@@ -223,19 +233,30 @@ export function showCard(card: HTMLElement, visible: boolean, onHidden?: () => v
 function applyUiScale(scale: number, compactHeight?: number): void {
   const next = Number.isFinite(scale) && scale > 0 ? scale : 1;
   const fixed = islandHeight > 0;
-  const fromCompositor = !fixed && compactHeight !== undefined && compactHeight > 0;
+  // A notch has its own content height. A compositor bar measurement (including
+  // older macOS backends reporting 46) must not override that safe-area layout.
+  const fromCompositor = !hasPhysicalNotch && !fixed && compactHeight !== undefined && compactHeight > 0;
   const base = fixed
     ? islandHeight
     : fromCompositor
       ? compactHeight
       : Math.round(BASE_COMPACT.h * next);
   const floor = fromCompositor ? -(COMPACT_OVERHANG - 1) : -(base - MIN_COMPACT_H);
-  const height = base + Math.max(floor, notchHeight);
-  const width = Math.max(MIN_COMPACT_W, Math.round(BASE_COMPACT.w * next) + notchWidth);
+  // Dimensions now describe the whole panel, including the camera strip.
+  // Compact content lives in two wings beside the camera, never beneath it.
+  const height = hasPhysicalNotch
+    ? Math.max(MIN_COMPACT_H, (fixed ? islandHeight : physicalNotchHeight) + notchHeight)
+    : base + Math.max(floor, notchHeight);
+  const width = hasPhysicalNotch
+    ? Math.ceil(physicalNotchWidth + Math.max(100 * next, (compactClean ? 112 : 208) * next + notchWidth))
+    : Math.max(MIN_COMPACT_W, Math.round(BASE_COMPACT.w * next) + notchWidth);
+  document.documentElement.style.setProperty("--camera-top", `${physicalNotchHeight / next}px`);
+  document.documentElement.style.setProperty("--camera-width", `${physicalNotchWidth / next}px`);
+  document.documentElement.style.setProperty("--compact-height", `${height / next}px`);
   if (next === uiScale && height === COMPACT.h && width === COMPACT.w) return;
   uiScale = next;
   COMPACT = { w: width, h: height };
-  EXPANDED = { w: Math.round(BASE_EXPANDED.w * next), h: Math.round(BASE_EXPANDED.h * next) };
+  EXPANDED = { w: Math.max(Math.round(BASE_EXPANDED.w * next), hasPhysicalNotch ? Math.ceil(physicalNotchWidth + 320 * next) : 0), h: Math.round(BASE_EXPANDED.h * next) };
   islandEl.style.zoom = String(next);
   islandEl.style.setProperty("--badge-icon", `${Math.round(BADGE_ICON * next)}px`);
   if (expanded) {
@@ -387,7 +408,7 @@ export function expandedSize(): Size {
 
 function expand(): void {
   expanded = true;
-  void invoke("island_keyboard", { active: true }).catch(() => {});
+  if (!macosPanel) void invoke("island_keyboard", { active: true }).catch(() => {});
   // Swap SVG + content at tween START (expanding).
   islandEl.classList.add("expanded");
   setView("expanded");
@@ -398,7 +419,8 @@ function expand(): void {
 
 function collapse(): void {
   expanded = false;
-  void invoke("island_keyboard", { active: false }).catch(() => {});
+  if (macosPanel) islandKeyboard.release();
+  else void invoke("island_keyboard", { active: false }).catch(() => {});
   // Keep the expanded SVG during the shrink; swap at tween END.
   morphTo(COMPACT, noop, () => {
     islandEl.classList.remove("expanded");
@@ -1088,16 +1110,27 @@ export function applyConfig(next: Record<string, unknown>): void {
 }
 
 async function resolveUiScale(override: unknown): Promise<void> {
-  let metrics: { scale: number; compact_height: number | null } = {
+  let metrics: { scale: number; compact_height: number | null; safe_top?: number; notch_width?: number } = {
     scale: 1,
     compact_height: null,
   };
   try {
-    metrics = await invoke<{ scale: number; compact_height: number | null }>("island_metrics");
+    metrics = await invoke<{ scale: number; compact_height: number | null; safe_top?: number; notch_width?: number }>("island_metrics");
   } catch {
     metrics = { scale: 1, compact_height: null };
   }
   const scale = typeof override === "number" && override > 0 ? override : metrics.scale;
+  const previousNotch = hasPhysicalNotch;
+  physicalNotchHeight = metrics.safe_top ?? 0;
+  hasPhysicalNotch = physicalNotchHeight > 0;
+  physicalNotchWidth = metrics.notch_width ?? 0;
+  document.body.classList.toggle("has-notch", hasPhysicalNotch);
+  // A monitor switch can change the shape even when dimensions stay the same.
+  if (previousNotch !== hasPhysicalNotch) {
+    islandEl.style.backgroundImage = expanded
+      ? expandedShape(curSize.w, curSize.h)
+      : compactShape(curSize.w, curSize.h);
+  }
   applyUiScale(scale, metrics.compact_height ?? undefined);
 }
 
@@ -1114,9 +1147,24 @@ headerSettingsEl.addEventListener("click", () => {
   void invoke("open_settings").catch(() => {});
 });
 
+void listen<string>("update-progress", (event) => {
+  if (!headerUpdateEl.disabled) return;
+  headerUpdateEl.title = event.payload;
+  headerUpdateEl.setAttribute("aria-label", event.payload);
+});
+
 headerUpdateEl.addEventListener("click", () => {
+  if (headerUpdateEl.disabled) return;
+  headerUpdateEl.disabled = true;
+  headerUpdateEl.setAttribute("aria-busy", "true");
   void invoke("run_update", { prompt: strings.header.updatePrompt }).catch((error: unknown) => {
-    showError(strings.header.updateFailed(String(error)));
+    showError(document.body.classList.contains("platform-macos")
+      ? `Falha ao atualizar: ${String(error)}`
+      : strings.header.updateFailed(String(error)));
+  }).finally(() => {
+    headerUpdateEl.disabled = false;
+    headerUpdateEl.removeAttribute("aria-busy");
+    paintUpdate();
   });
 });
 
@@ -1262,6 +1310,10 @@ function applyStaticStrings(): void {
 
 async function boot(): Promise<void> {
   applyStaticStrings();
+  void invoke<{ os: string }>("platform_capabilities").then((platform) => {
+    macosPanel = platform?.os === "macos";
+    document.body.classList.toggle("platform-macos", platform?.os === "macos");
+  }).catch(() => {});
   await setIslandSize(COMPACT.w, COMPACT.h);
   setView("compact");
   resetIdle();
@@ -1272,3 +1324,5 @@ async function boot(): Promise<void> {
 }
 
 void boot();
+
+void listen("island-screen-changed", () => { void loadConfig(); });

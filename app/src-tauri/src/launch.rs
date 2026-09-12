@@ -2,7 +2,7 @@ use crate::terminal;
 use std::path::{Path, PathBuf};
 
 pub const AGENTS: [&str; 3] = ["claude", "codex", "opencode"];
-const SESSION_SCRIPT: &str = "cd \"$1\" && exec \"$2\"";
+const SESSION_SCRIPT: &str = "cd \"$1\" && exec \"$2\" run -- \"$3\"";
 
 pub fn known_agent(name: &str) -> Result<&'static str, String> {
     AGENTS
@@ -20,11 +20,13 @@ pub fn available(lookup: impl Fn(&str) -> Option<PathBuf>) -> Vec<String> {
         .collect()
 }
 
-pub fn session_argv(program: &Path, folder: &Path, agent: &str) -> Vec<String> {
+pub fn session_argv(program: &Path, folder: &Path, bridge: &Path, agent: &str) -> Vec<String> {
     let folder = folder.to_string_lossy();
-    terminal::terminal_argv(program, SESSION_SCRIPT, &[&folder, agent])
+    let bridge = bridge.to_string_lossy();
+    terminal::terminal_argv(program, SESSION_SCRIPT, &[&folder, &bridge, agent])
 }
 
+#[cfg(not(target_os = "macos"))]
 pub fn open(folder: &str, agent: &str) -> Result<(), String> {
     let agent = known_agent(agent)?;
     let folder = Path::new(folder);
@@ -33,9 +35,27 @@ pub fn open(folder: &str, agent: &str) -> Result<(), String> {
     }
     let program =
         terminal::pick().ok_or_else(|| "no terminal emulator found on PATH".to_owned())?;
-    terminal::spawn_detached(session_argv(&program, folder, agent))
+    let bridge = crate::client::daemon_candidates()
+        .into_iter()
+        .find(|path| path.is_file())
+        .or_else(|| terminal::on_path("open-islandd"))
+        .ok_or("O componente de entrada não foi encontrado. Reinstale o aplicativo.")?;
+    terminal::spawn_detached(session_argv(&program, folder, &bridge, agent))
 }
 
 #[cfg(test)]
 #[path = "launch_tests.rs"]
 mod tests;
+
+#[cfg(any(test, target_os = "macos"))]
+fn terminal_script(folder: &str, agent: &str) -> String {
+    crate::launch_macos::applescript(folder, agent, false)
+}
+#[cfg(target_os = "macos")]
+pub fn open(folder: &str, agent: &str) -> Result<(), String> {
+    open_macos(folder, agent, "terminal")
+}
+#[cfg(target_os = "macos")]
+pub fn open_macos(folder: &str, agent: &str, terminal: &str) -> Result<(), String> {
+    crate::launch_macos::open(folder, agent, terminal)
+}

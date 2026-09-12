@@ -38,14 +38,11 @@ pub fn socket_path() -> PathBuf {
             }
         }
     }
-    if let Some(path) = env::var_os("OPEN_ISLAND_SOCKET") {
-        return PathBuf::from(path);
-    }
-    PathBuf::from(env::var_os("XDG_RUNTIME_DIR").unwrap_or_else(|| "/tmp".into()))
-        .join("open-island.sock")
+    open_island_core::paths::socket()
 }
 
 pub fn bind_socket(path: &Path) -> io::Result<UnixListener> {
+    open_island_core::paths::prepare_socket(path)?;
     match UnixListener::bind(path) {
         Ok(listener) => {
             fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;

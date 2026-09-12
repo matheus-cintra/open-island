@@ -1,3 +1,5 @@
+import { focusPermissionSection, type FocusStatus } from "./settings-focus";
+import { linuxCapabilities, supportsRow, type PlatformCapabilities } from "./platform-capabilities";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { strings } from "./strings";
@@ -40,6 +42,7 @@ markerEl.className = "sidebar-marker";
 export let observedLaunchers: string[] = [];
 export const UNKNOWN_INTEGRATION: IntegrationState = { detected: false, installed: false };
 export let integrations: IntegrationStatus = {
+  input: UNKNOWN_INTEGRATION,
   autostart: UNKNOWN_INTEGRATION,
   hyprland: UNKNOWN_INTEGRATION,
   claude: UNKNOWN_INTEGRATION,
@@ -50,6 +53,9 @@ export let themeSounds: string[] = [];
 export let autoScale: number | null = null;
 export let appVersion = "";
 export let availableUpdate: string | null = null;
+let capabilities = linuxCapabilities;
+let focusStatus: FocusStatus = { authorization: 0, silenced: null };
+let shortcutStatus: { shortcut: string; error: string | null } = { shortcut: "", error: null };
 let activePane: PaneId = "general";
 let dependants: { element: HTMLElement; path: string; mode: "dim" | "hide" }[] = [];
 
@@ -150,12 +156,28 @@ export function renderPane(): void {
     const card = document.createElement("div");
     card.className = "card";
     for (const row of section.rows) {
-      if (row.visible?.() === false) continue;
-      const built = buildRow(row);
+      if (row.visible?.() === false || !supportsRow(capabilities, row.path)) continue;
+      const effectiveRow = capabilities.os === "macos" && row.path === "integration.autostart"
+        ? { ...row, hint: "Inicia a ilha e o daemon ao entrar na sua conta do Mac." }
+        : capabilities.os === "macos" && row.path === "display.island_height"
+          ? { ...row, hint: "0 usa a altura automática. Valores menores que 16 usam 16 pontos; 40 define a altura em 40 pontos." }
+          : { ...row };
+      if (capabilities.os === "macos" && ["sound.follow_dnd", "filters.quiet.focus_mode"].includes(row.path)) {
+        effectiveRow.hint = "Respeita o estado de Foco compartilhado pelo macOS. Requer a autorização acima.";
+      }
+      if (capabilities.os === "macos" && row.path === "filters.quiet.screen_off") {
+        effectiveRow.label = "Telas desligadas ou sessão bloqueada";
+        effectiveRow.hint = "Silencia com todas as telas em repouso, ao bloquear o Mac ou trocar de usuário. A detecção de bloqueio é experimental.";
+      }
+      if (capabilities.os === "macos" && row.path === "island.hide_in_fullscreen") {
+        effectiveRow.hint = "Oculta enquanto o aplicativo ativo estiver no modo de tela cheia do macOS. Janelas apenas maximizadas não ativam esta opção.";
+      }
+      const built = buildRow(effectiveRow);
       if (row.visibleWhen !== undefined)
         dependants.push({ element: built, path: row.visibleWhen, mode: "hide" });
       card.append(built);
     }
+    if (card.childElementCount === 0 && !(section.notes?.length)) continue;
     for (const note of section.notes ?? [])
       card.append(buildNote(note, section.notesTone ?? "warning"));
     if (section.title !== undefined) {
@@ -174,7 +196,9 @@ export function renderPane(): void {
     if (section.footer !== undefined) {
       const footer = document.createElement("p");
       footer.className = "section-footer";
-      footer.textContent = section.footer;
+      footer.textContent = capabilities.os === "macos" && section.rows.some((row) => row.path === "display.notch_width_offset")
+        ? "Ajuste a largura e a altura da ilha recolhida em pontos da tela. Os ajustes relativos partem de 0; a área da câmera continua reservada entre os conteúdos."
+        : section.footer;
       wrapper.append(footer);
     }
     wrapper.style.setProperty("--index", String(body.childElementCount));
@@ -184,6 +208,69 @@ export function renderPane(): void {
     body.append(wrapper);
   }
 
+  if (capabilities.experimental && pane.id === "about") {
+    body.prepend(buildNote("macOS experimental — validação em um Mac real pendente. O foco ativa o aplicativo; a janela ou aba exata depende da integração do terminal.", "warning"));
+  }
+  if (capabilities.os === "macos" && (pane.id === "sound" || pane.id === "filters")) {
+    body.prepend(focusPermissionSection(focusStatus));
+  }
+  if (capabilities.global_shortcut && pane.id === "general") {
+    const section = document.createElement("section");
+    section.className = "section";
+    const heading = document.createElement("h2");
+    heading.className = "section-title";
+    heading.textContent = "Atalho global";
+    const card = document.createElement("div");
+    card.className = "card";
+    const row = document.createElement("form");
+    row.className = "row shortcut-row";
+    const copy = document.createElement("div");
+    copy.className = "row-copy";
+    const label = document.createElement("label");
+    label.className = "row-label";
+    label.htmlFor = "global-shortcut";
+    label.textContent = "Mostrar ou ocultar a ilha";
+    const hint = document.createElement("span");
+    hint.className = "row-hint";
+    hint.textContent = "Deixe vazio para desativar.";
+    copy.append(label, hint);
+    const controls = document.createElement("div");
+    controls.className = "row-control shortcut-controls";
+    const input = document.createElement("input");
+    input.id = "global-shortcut";
+    input.type = "text";
+    input.className = "field shortcut-input";
+    input.value = shortcutStatus.shortcut;
+    input.placeholder = "Command+Shift+I";
+    input.setAttribute("aria-label", "Atalho global");
+    const button = document.createElement("button");
+    button.type = "submit";
+    button.className = "row-button";
+    button.textContent = "Salvar";
+    const status = document.createElement("p");
+    status.className = "section-footer shortcut-status";
+    status.setAttribute("role", "status");
+    status.textContent = shortcutStatus.error ?? "";
+    status.hidden = !shortcutStatus.error;
+    row.addEventListener("submit", (event) => {
+      event.preventDefault();
+      button.disabled = true;
+      void invoke<typeof shortcutStatus>("set_shortcut", { shortcut: input.value }).then((reply) => {
+        shortcutStatus = reply;
+        status.textContent = reply.error ?? "Atalho salvo.";
+        status.hidden = false;
+      }).catch((error: unknown) => { status.textContent = String(error); status.hidden = false; })
+        .finally(() => { button.disabled = false; });
+    });
+    controls.append(input, button);
+    row.append(copy, controls);
+    card.append(row);
+    section.append(heading, card, status);
+    body.insertBefore(section, body.children[1] ?? null);
+  }
+  if (capabilities.manual_update && pane.id === "about") {
+    body.append(buildNote("A atualização abre o DMG da sua arquitetura. Substitua o aplicativo manualmente em Aplicativos.", "warning"));
+  }
   contentEl.append(body);
   refreshDependencies();
 }
@@ -249,6 +336,10 @@ function rememberAgent(name: IntegrationName): void {
 
 async function load(): Promise<void> {
   try {
+    capabilities = (await invoke<PlatformCapabilities>("platform_capabilities").catch(() => linuxCapabilities)) ?? linuxCapabilities;
+    document.documentElement.dataset.platform = capabilities.os;
+    if (capabilities.os === "macos") focusStatus = await invoke<FocusStatus>("macos_focus_status").catch(() => ({ authorization: 4, silenced: null }));
+    if (capabilities.global_shortcut) shortcutStatus = await invoke<typeof shortcutStatus>("get_shortcut");
     const [, status, sounds, metrics, soundDir, screens, version, sessions, update] =
       await Promise.all([
         loadConfig(),
@@ -297,6 +388,13 @@ async function load(): Promise<void> {
   renderSidebar();
   renderPane();
 }
+
+void listen<FocusStatus>("macos-focus-status", (event) => {
+  const changed = focusStatus.authorization !== event.payload.authorization
+    || (focusStatus.silenced === null) !== (event.payload.silenced === null);
+  focusStatus = event.payload;
+  if (changed && (activePane === "sound" || activePane === "filters")) renderPane();
+});
 
 void listen("config-changed", () => {
   if (savePending) return;

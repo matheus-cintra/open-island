@@ -1,0 +1,72 @@
+import { expect, mock, test } from "bun:test";
+import { mountIsland } from "./dom";
+import { tauriMock } from "./tauri";
+
+let safeTop = 32;
+let scale = 1;
+let clean = false;
+let tuning = {};
+const tauri = tauriMock(({ command }) => {
+  if (command === "get_config") return { config: { display: { compact_layout: clean ? "clean" : "full", ...tuning } } };
+  if (command === "island_metrics") return {
+    // Reproduce the value sent by the original native macOS backend.
+    scale, compact_height: 46, safe_top: safeTop, notch_width: safeTop ? 220 : 0,
+  };
+  if (command === "list_sessions") return [];
+  if (command === "get_usage") return { providers: [] };
+  return {};
+});
+mock.module("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
+mock.module("@tauri-apps/api/event", () => ({ listen: tauri.listen }));
+mountIsland({ reducedMotion: true });
+await import("../main");
+const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+await settle();
+const sizes = () => tauri.calls.filter((call) => call.command === "set_island_size");
+
+test("a collapsed notch panel includes the camera between two wings", () => {
+  expect(document.body.classList.contains("has-notch")).toBe(true);
+  expect(document.documentElement.style.getPropertyValue("--camera-top")).toBe("32px");
+  expect(sizes().pop()?.args).toEqual({ width: 428, height: 32 });
+});
+
+test("UI scaling grows the wings while camera dimensions stay in physical points", async () => {
+  scale = 1.5;
+  tauri.emit("island-screen-changed", {});
+  await settle();
+  expect(sizes().pop()?.args).toEqual({ width: 532, height: 32 });
+  expect(Number.parseFloat(document.documentElement.style.getPropertyValue("--camera-width")) * scale).toBeCloseTo(220);
+  expect(Number.parseFloat(document.documentElement.style.getPropertyValue("--camera-top")) * scale).toBeCloseTo(32);
+  scale = 1;
+});
+
+test("clean mode only reserves narrow wings for the sprite and count", async () => {
+  clean = true;
+  tauri.emit("island-screen-changed", {});
+  await settle();
+  expect(sizes().pop()?.args).toEqual({ width: 332, height: 32 });
+  clean = false;
+});
+
+test("notch tuning changes width and manual height below the safe strip", async () => {
+  tuning = { notch_width_offset: -12, notch_height_offset: -2, island_height: 28 };
+  tauri.emit("island-screen-changed", {});
+  await settle();
+  expect(sizes().pop()?.args).toEqual({ width: 416, height: 26 });
+  expect(document.documentElement.style.getPropertyValue("--compact-height")).toBe("26px");
+  expect(document.documentElement.style.getPropertyValue("--camera-top")).toBe("32px");
+  tuning = { island_height: 40 };
+  tauri.emit("island-screen-changed", {});
+  await settle();
+  expect(sizes().pop()?.args).toEqual({ width: 428, height: 40 });
+  tuning = {};
+});
+
+test("moving to a screen without a notch restores the usual compact geometry", async () => {
+  safeTop = 0;
+  tauri.emit("island-screen-changed", {});
+  await settle();
+  expect(document.body.classList.contains("has-notch")).toBe(false);
+  expect(document.documentElement.style.getPropertyValue("--camera-top")).toBe("0px");
+  expect(sizes().pop()?.args).toEqual({ width: 232, height: 46 });
+});

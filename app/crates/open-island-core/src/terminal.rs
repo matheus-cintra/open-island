@@ -86,9 +86,12 @@ pub struct ProcessSnapshot {
 pub(crate) fn kind_for_comm(comm: &str) -> Option<&'static str> {
     match comm {
         "kitty" => Some("kitty"),
-        "alacritty" => Some("alacritty"),
+        "alacritty" | "Alacritty" => Some("alacritty"),
         "wezterm-gui" | "wezterm" => Some("wezterm"),
-        "ghostty" => Some("ghostty"),
+        "ghostty" | "Ghostty" => Some("ghostty"),
+        "Terminal" => Some("terminal"),
+        "iTerm2" => Some("iterm2"),
+        "Warp" | "warp-terminal" => Some("warp"),
         _ => None,
     }
 }
@@ -104,7 +107,9 @@ pub fn launcher_of(snapshot: &ProcessSnapshot, processes: &[ProcessSnapshot]) ->
             return None;
         }
         let comm = parent.comm.as_str();
-        if !SHELL_COMMS.contains(&comm) && comm != snapshot.comm {
+        let input_bridge =
+            comm == "open-islandd" && snapshot.env.contains_key(crate::input_bridge::ENV);
+        if !SHELL_COMMS.contains(&comm) && comm != snapshot.comm && !input_bridge {
             return Some(comm.to_owned());
         }
         current = parent;
@@ -114,9 +119,9 @@ pub fn launcher_of(snapshot: &ProcessSnapshot, processes: &[ProcessSnapshot]) ->
 
 fn editor_kind_for_comm(comm: &str) -> Option<EditorKind> {
     match comm {
-        "zed-editor" | "zed" => Some(EditorKind::Zed),
-        "code-oss" | "code" => Some(EditorKind::VsCode),
-        "cursor" => Some(EditorKind::Cursor),
+        "Zed" | "zed-editor" | "zed" => Some(EditorKind::Zed),
+        "Code" | "code-oss" | "code" => Some(EditorKind::VsCode),
+        "Cursor" | "cursor" => Some(EditorKind::Cursor),
         "windsurf" => Some(EditorKind::Windsurf),
         "codium" | "vscodium" => Some(EditorKind::Codium),
         _ => None,
@@ -132,6 +137,8 @@ fn env_terminal_kind(env: &HashMap<String, String>) -> Option<&'static str> {
         match program.to_ascii_lowercase().as_str() {
             "wezterm" => return Some("wezterm"),
             "ghostty" => return Some("ghostty"),
+            "apple_terminal" => return Some("terminal"),
+            "iterm.app" => return Some("iterm2"),
             _ => {}
         }
     }
@@ -272,6 +279,17 @@ mod tests {
             cwd: "/tmp/project".to_owned(),
             env: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn warp_gui_ancestor_is_the_focus_target_not_the_agent() {
+        let agent = process(30, 20, "claude", Some("claude"));
+        let shell = process(20, 10, "zsh", None);
+        let warp = process(10, 1, "Warp", None);
+        let info = classify(&agent, &[agent.clone(), shell, warp]);
+        assert_eq!(info.kind, "warp");
+        assert_eq!(info.raise_pid, 10);
+        assert_eq!(kind_for_comm("stable"), None);
     }
 
     #[test]
@@ -531,5 +549,41 @@ mod tests {
             info.editor.as_ref().map(|layer| layer.kind),
             Some(EditorKind::VsCode)
         );
+    }
+}
+
+#[cfg(test)]
+mod macos_hosts_tests {
+    use super::*;
+    #[test]
+    fn native_macos_terminals_and_editors_are_classified_by_ancestry() {
+        for (comm, kind) in [
+            ("Terminal", "terminal"),
+            ("iTerm2", "iterm2"),
+            ("Ghostty", "ghostty"),
+            ("Alacritty", "alacritty"),
+        ] {
+            let host = ProcessSnapshot {
+                pid: 20,
+                ppid: 1,
+                comm: comm.into(),
+                agent: None,
+                cwd: String::new(),
+                env: HashMap::new(),
+            };
+            let agent = ProcessSnapshot {
+                pid: 30,
+                ppid: 20,
+                comm: "claude".into(),
+                agent: Some("claude".into()),
+                cwd: "/Users/a/project".into(),
+                env: HashMap::new(),
+            };
+            let terminal = classify(&agent, &[agent.clone(), host]);
+            assert_eq!(terminal.kind, kind);
+            assert_eq!(terminal.raise_pid, 20);
+        }
+        assert_eq!(editor_kind_for_comm("Code"), Some(EditorKind::VsCode));
+        assert_eq!(editor_kind_for_comm("Cursor"), Some(EditorKind::Cursor));
     }
 }

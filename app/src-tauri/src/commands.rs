@@ -1,15 +1,13 @@
 use crate::client::DaemonClient;
 use crate::compositor::{self, Compositor};
 use crate::geometry::{forget_monitor_box, position_island, selected_monitor, SELECTED_MONITOR};
-use crate::{appicon, launch, layershell, settings, terminal, update};
-use gtk::prelude::{FileChooserExt, NativeDialogExt};
+use crate::{appicon, launch, platform, settings, terminal, update};
 use open_island_core::protocol::ApprovalDecision;
 use open_island_core::session::Session;
 use serde_json::{json, Value};
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::time::Duration;
 use tauri::{Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 
 pub const REVEAL_REMAP: Duration = Duration::from_millis(80);
 
@@ -55,9 +53,7 @@ pub fn island_keyboard(window: tauri::WebviewWindow, active: bool) -> Result<(),
     let target = window.clone();
     window
         .run_on_main_thread(move || {
-            if let Ok(gtk_window) = target.gtk_window() {
-                layershell::set_keyboard(&gtk_window, active);
-            }
+            platform::keyboard(&target, active);
         })
         .map_err(|error| error.to_string())
 }
@@ -71,31 +67,19 @@ pub fn pick_session_folder(
     cancel: String,
 ) -> Result<(), String> {
     let agent = launch::known_agent(&agent)?;
+    let _ = (accept, cancel);
     let target = window.clone();
     window
-        .run_on_main_thread(move || {
-            let dialog = gtk::FileChooserNative::new(
-                Some(&title),
-                None::<&gtk::Window>,
-                gtk::FileChooserAction::SelectFolder,
-                Some(&accept),
-                Some(&cancel),
-            );
-            if let Some(home) = std::env::var_os("HOME") {
-                dialog.set_current_folder(home);
-            }
-            let holder = Rc::new(RefCell::new(Some(dialog.clone())));
-            dialog.connect_response(move |dialog, response| {
-                let path = (response == gtk::ResponseType::Accept)
-                    .then(|| dialog.filename())
-                    .flatten()
-                    .map(|folder| folder.to_string_lossy().into_owned());
-                let _ = target.emit("session-folder", json!({ "agent": agent, "path": path }));
-                holder.borrow_mut().take();
-            });
-            dialog.show();
-        })
-        .map_err(|error| error.to_string())
+        .dialog()
+        .file()
+        .set_title(title)
+        .pick_folder(move |folder| {
+            let path = folder
+                .and_then(|path| path.into_path().ok())
+                .map(|path| path.to_string_lossy().into_owned());
+            let _ = target.emit("session-folder", json!({"agent": agent, "path": path}));
+        });
+    Ok(())
 }
 
 #[tauri::command]
@@ -104,8 +88,23 @@ pub fn agents_available() -> Vec<String> {
 }
 
 #[tauri::command]
-pub fn open_session(agent: String, folder: String) -> Result<(), String> {
-    launch::open(&folder, &agent)
+pub fn open_session(
+    agent: String,
+    folder: String,
+    client: State<'_, DaemonClient>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let payload = client.get_config()?;
+        let config =
+            open_island_core::config::Config::from_json_str(&payload["config"].to_string());
+        launch::open_macos(&folder, &agent, &config.integrations.macos_terminal)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = client;
+        launch::open(&folder, &agent)
+    }
 }
 
 #[tauri::command]
@@ -129,8 +128,17 @@ pub fn check_update(client: State<'_, DaemonClient>) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub fn run_update(prompt: String) -> Result<(), String> {
-    update::run(&prompt)
+pub async fn run_update(app: tauri::AppHandle, prompt: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = prompt;
+        crate::update_macos::run(app).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        update::run(&prompt)
+    }
 }
 
 #[tauri::command]
@@ -204,6 +212,8 @@ pub fn quit_app(app: tauri::AppHandle) -> Result<(), String> {
 pub struct IslandMetrics {
     scale: f64,
     compact_height: Option<u32>,
+    safe_top: f64,
+    notch_width: f64,
 }
 
 #[tauri::command]
@@ -218,6 +228,8 @@ pub fn island_metrics() -> IslandMetrics {
     let monitor = selected_monitor();
     let compositor = compositor::current();
     IslandMetrics {
+        safe_top: platform::safe_top(),
+        notch_width: platform::notch_width(),
         scale: compositor.ui_scale(monitor.as_deref()),
         compact_height: compositor.compact_height(monitor.as_deref()),
     }
@@ -244,33 +256,25 @@ pub fn set_island_monitor(app: tauri::AppHandle, name: Option<String>) -> Result
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "no island window".to_owned())?;
-    let rect = wanted.as_deref().and_then(|name| {
-        let monitor = compositor::current().monitor_named(Some(name))?;
-        Some((name.to_owned(), monitor.x, monitor.y))
-    });
     let target = window.clone();
     window
-        .run_on_main_thread(move || {
-            if let Ok(gtk_window) = target.gtk_window() {
-                let target = rect.as_ref().map(|(name, x, y)| layershell::MonitorTarget {
-                    name,
-                    x: *x,
-                    y: *y,
-                });
-                layershell::set_monitor(&gtk_window, target);
-            }
-        })
+        .run_on_main_thread(move || platform::monitor(&target, wanted.as_deref()))
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub fn monitor_report() -> Vec<String> {
-    layershell::monitor_report()
+    platform::monitor_report()
 }
 
 // Hyprland drops xdg-activation unless misc:focus_on_activate is on, so set_focus alone
 // never moves a window off another workspace; unmapping makes it be placed again.
 pub fn reveal_settings(window: &tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    window
+        .set_title("Ajustes do Open Island")
+        .map_err(|error| error.to_string())?;
+    #[cfg(target_os = "linux")]
     if window.is_visible().unwrap_or(false) {
         window.hide().map_err(|error| error.to_string())?;
         std::thread::sleep(REVEAL_REMAP);
@@ -288,4 +292,36 @@ pub fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
         .get_webview_window("settings")
         .ok_or_else(|| "no settings window".to_owned())?;
     reveal_settings(&window)
+}
+
+#[tauri::command]
+pub fn platform_capabilities() -> Value {
+    json!({"os": std::env::consts::OS, "experimental": cfg!(target_os = "macos"),
+        "hyprland": cfg!(target_os = "linux"), "automatic_dnd": true,
+        "screen_off": true, "fullscreen_detection": true,
+        "global_shortcut": cfg!(target_os = "macos"), "manual_update": false})
+}
+
+#[tauri::command]
+pub fn macos_focus_status() -> Value {
+    #[cfg(target_os = "macos")]
+    {
+        json!(platform::focus_status())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Value::Null
+    }
+}
+#[tauri::command]
+pub fn request_focus_permission(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        platform::request_focus_permission(&window)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        Err("Disponível somente no macOS.".into())
+    }
 }

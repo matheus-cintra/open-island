@@ -1,0 +1,262 @@
+//! Launch into a new terminal surface; never inject into the active user's tab.
+#[cfg(target_os = "macos")]
+use std::path::Path;
+
+pub fn quote_shell(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\"'\"'"))
+}
+fn terminal_command(folder: &str, executable: &str, iterm: bool) -> String {
+    shell_command(folder, &quote_shell(executable), iterm)
+}
+fn shell_command(folder: &str, command: &str, iterm: bool) -> String {
+    let command = format!("cd {} && {}", quote_shell(folder), command);
+    // Profile commands are executables, while Terminal do-script accepts shell input.
+    let command = if iterm {
+        format!("/bin/sh -lc {}", quote_shell(&command))
+    } else {
+        command
+    };
+    command
+}
+pub fn applescript(folder: &str, executable: &str, iterm: bool) -> String {
+    applescript_command(folder, &quote_shell(executable), iterm)
+}
+fn applescript_command(folder: &str, command: &str, iterm: bool) -> String {
+    let literal = shell_command(folder, command, iterm)
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
+    if iterm {
+        format!("tell application id \"com.googlecode.iterm2\"\nactivate\ncreate window with default profile command \"{literal}\"\nend tell")
+    } else {
+        format!("tell application \"Terminal\"\nactivate\ndo script \"{literal}\"\nend tell")
+    }
+}
+pub fn warp_configuration(folder: &str, executable: &str) -> serde_json::Value {
+    warp_configuration_command(folder, &quote_shell(executable))
+}
+fn warp_configuration_command(folder: &str, command: &str) -> serde_json::Value {
+    serde_json::json!({"name":"Open Island", "windows":[{"tabs":[{
+        "title":"Open Island", "layout":{"cwd":folder, "commands":[{"exec":command}]}
+    }]}]})
+}
+pub fn warp_uri(path: &str) -> String {
+    let encoded: String = path
+        .bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect();
+    format!("warp://launch/{encoded}")
+}
+
+#[cfg(target_os = "macos")]
+pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
+    use std::{
+        fs,
+        io::Write,
+        os::unix::fs::{DirBuilderExt, OpenOptionsExt},
+        process::{Command, Stdio},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+    let agent = crate::launch::known_agent(agent)?;
+    if !Path::new(folder).is_absolute() || !Path::new(folder).is_dir() {
+        return Err("Selecione uma pasta válida.".into());
+    }
+    let executable = crate::terminal::on_path(agent)
+        .ok_or_else(|| format!("Instale {agent} para abrir uma sessão."))?;
+    let bridge = crate::client::daemon_candidates()
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or("O componente de entrada não foi encontrado. Reinstale o aplicativo.")?;
+    let command = format!(
+        "{} run -- {}",
+        quote_shell(&bridge.to_string_lossy()),
+        quote_shell(&executable.to_string_lossy())
+    );
+    let (bundle, name) = match kind {
+        "terminal" => ("com.apple.Terminal", "Terminal"),
+        "iterm2" => ("com.googlecode.iterm2", "iTerm2"),
+        "warp" => ("dev.warp.Warp-Stable", "Warp"),
+        "wezterm" => ("com.github.wez.wezterm", "WezTerm"),
+        "kitty" => ("net.kovidgoyal.kitty", "Kitty"),
+        _ => return Err("Terminal não suportado. Escolha outro em Ajustes → Geral.".into()),
+    };
+    let application = crate::platform::application_path(bundle).ok_or_else(|| {
+        format!("{name} não está instalado. Instale-o ou escolha outro em Ajustes → Geral.")
+    })?;
+    if kind == "warp" {
+        let home = std::env::var_os("HOME").ok_or("Pasta pessoal indisponível.")?;
+        let directory = Path::new(&home).join(".warp/launch_configurations");
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&directory)
+            .map_err(|e| e.to_string())?;
+        // Keep each file independent so two rapid launches cannot replace each other's command.
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_nanos();
+        let file_name = format!("open-island-{}-{nonce}.yaml", std::process::id());
+        let path = directory.join(&file_name);
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .map_err(|e| e.to_string())?;
+        // JSON is a YAML subset and quotes every user-supplied scalar.
+        file.write_all(
+            serde_json::to_string(&warp_configuration_command(folder, &command))
+                .map_err(|e| e.to_string())?
+                .as_bytes(),
+        )
+        .map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        let status = Command::new("/usr/bin/open")
+            .args(["-b", bundle, &warp_uri(&path.to_string_lossy())])
+            .status()
+            .map_err(|e| e.to_string());
+        if !status.as_ref().is_ok_and(|s| s.success()) {
+            let _ = fs::remove_file(path);
+            return Err("Não foi possível abrir a configuração de sessão no Warp.".into());
+        }
+        // Warp reads the file asynchronously, so it must outlive this request.
+        return Ok(());
+    }
+    if matches!(kind, "wezterm" | "kitty") {
+        let program = crate::terminal::on_path(kind)
+            .unwrap_or_else(|| application.join("Contents/MacOS").join(kind));
+        let mut argv = if kind == "wezterm" {
+            vec!["start", "--always-new-process", "--"]
+        } else {
+            vec![]
+        };
+        argv.extend([
+            "/bin/sh",
+            "-c",
+            "cd \"$1\" && exec \"$2\" run -- \"$3\"",
+            "sh",
+            folder,
+        ]);
+        let mut child = Command::new(program)
+            .args(argv)
+            .arg(bridge)
+            .arg(executable)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Não foi possível iniciar {name}: {e}"))?;
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        return Ok(());
+    }
+    let output = Command::new("/usr/bin/osascript")
+        .args([
+            "-e",
+            &applescript_command(folder, &command, kind == "iterm2"),
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!("Não foi possível abrir {name}. Em Ajustes do Sistema → Privacidade e Segurança → Automação, permita que Open Island controle {name}. {}", String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn warp_values_round_trip_without_becoming_yaml_structure_or_url_parameters() {
+        let folder = "/tmp/ç a'\"\ncommands: bad";
+        let config = warp_configuration(folder, "/tmp/bin/agent '$(touch bad)");
+        let decoded: serde_json::Value = serde_json::from_str(&config.to_string()).unwrap();
+        assert_eq!(decoded["windows"][0]["tabs"][0]["layout"]["cwd"], folder);
+        assert_eq!(
+            decoded["windows"][0]["tabs"][0]["layout"]["commands"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(warp_uri("a b&x.yaml"), "warp://launch/a%20b%26x.yaml");
+    }
+    #[test]
+    fn warp_launch_uses_the_absolute_configuration_path_and_keeps_the_bridge_command() {
+        let path = "/Users/ma théus/.warp/launch_configurations/open-island-123.yaml";
+        assert_eq!(warp_uri(path), "warp://launch/%2FUsers%2Fma%20th%C3%A9us%2F.warp%2Flaunch_configurations%2Fopen-island-123.yaml");
+        let command = format!(
+            "{} run -- {}",
+            quote_shell("/Applications/Open Island.app/Contents/MacOS/open-islandd"),
+            quote_shell("/opt/homebrew/bin/claude")
+        );
+        let config = warp_configuration_command("/Users/ma théus/project", &command);
+        assert_eq!(config["windows"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            config["windows"][0]["tabs"][0]["layout"]["commands"][0]["exec"],
+            command
+        );
+    }
+    #[test]
+    fn profile_shell_runs_the_agent_in_the_literal_selected_directory() {
+        use std::{
+            fs,
+            os::unix::fs::PermissionsExt,
+            process::{Command, Stdio},
+        };
+        struct Directory(std::path::PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let root = Directory(
+            std::env::temp_dir().join(format!("open-island-launch-{}", std::process::id())),
+        );
+        fs::create_dir_all(&root.0).unwrap();
+        let folder = root.0.join("folder ' \" $(false) ç");
+        fs::create_dir_all(&folder).unwrap();
+        let executable = root.0.join("agent ' \" $(false)");
+        fs::write(&executable, "#!/bin/sh\npwd -P > result\n").unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        for iterm in [false, true] {
+            let status = Command::new("/bin/sh")
+                .args([
+                    "-c",
+                    &terminal_command(
+                        folder.to_str().unwrap(),
+                        executable.to_str().unwrap(),
+                        iterm,
+                    ),
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success());
+            assert_eq!(
+                fs::read_to_string(folder.join("result")).unwrap().trim(),
+                fs::canonicalize(&folder).unwrap().to_str().unwrap()
+            );
+            fs::remove_file(folder.join("result")).unwrap();
+        }
+    }
+    #[test]
+    fn iterm_creates_a_new_window_instead_of_writing_to_the_current_session() {
+        let script = applescript("/tmp/a'\"\n", "/bin/claude", true);
+        assert!(script.contains("create window with default profile command \"/bin/sh -lc "));
+        assert!(!script.contains("current session"));
+        assert_eq!(script.lines().count(), 4);
+    }
+}

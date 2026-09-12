@@ -60,6 +60,13 @@ pub struct SendStep {
 }
 
 pub fn capability(host: &TerminalInfo) -> Result<&'static str, Blocked> {
+    if host
+        .env
+        .get(crate::input_bridge::ENV)
+        .is_some_and(|path| !path.is_empty())
+    {
+        return Ok("island");
+    }
     if let Some(multiplexer) = host.multiplexer.as_ref() {
         if multiplexer.pane_id.is_some() {
             return Ok(multiplexer.kind.as_str());

@@ -29,16 +29,18 @@ fn kitty_runs_the_agent_inside_the_folder_through_sh() {
         session_argv(
             Path::new("/usr/bin/kitty"),
             Path::new("/home/x/proj"),
+            Path::new("/usr/bin/open-islandd"),
             "claude"
         ),
         [
             "/usr/bin/kitty",
             "sh",
             "-c",
-            "cd \"$1\" && exec \"$2\"",
+            "cd \"$1\" && exec \"$2\" run -- \"$3\"",
             "sh",
             "/home/x/proj",
-            "claude"
+            "/usr/bin/open-islandd",
+            "claude",
         ]
         .map(str::to_owned)
     );
@@ -49,16 +51,17 @@ fn alacritty_takes_the_same_command_after_dash_e() {
     let argv = session_argv(
         Path::new("/usr/bin/alacritty"),
         Path::new("/home/x/proj"),
+        Path::new("/usr/bin/open-islandd"),
         "codex",
     );
     assert_eq!(argv[..2], ["/usr/bin/alacritty", "-e"].map(str::to_owned));
     assert_eq!(
         argv[2..5],
-        ["sh", "-c", "cd \"$1\" && exec \"$2\""].map(str::to_owned)
+        ["sh", "-c", "cd \"$1\" && exec \"$2\" run -- \"$3\""].map(str::to_owned)
     );
     assert_eq!(
         argv[5..],
-        ["sh", "/home/x/proj", "codex"].map(str::to_owned)
+        ["sh", "/home/x/proj", "/usr/bin/open-islandd", "codex"].map(str::to_owned)
     );
 }
 
@@ -78,13 +81,32 @@ fn available_keeps_the_shipped_order_and_only_what_resolves() {
 #[test]
 fn a_relative_or_missing_folder_is_refused_before_anything_spawns() {
     let relative = open("relative/dir", "claude").unwrap_err();
-    assert!(relative.contains("is not a directory"), "{relative}");
+    assert!(
+        (relative.contains("is not a directory") || relative.contains("pasta válida")),
+        "{relative}"
+    );
     let missing = open("/nonexistent-open-island", "claude").unwrap_err();
-    assert!(missing.contains("is not a directory"), "{missing}");
+    assert!(
+        (missing.contains("is not a directory") || missing.contains("pasta válida")),
+        "{missing}"
+    );
 }
 
 #[test]
 fn an_unknown_agent_is_refused_even_with_a_real_folder() {
     let error = open("/tmp", "rm -rf /").unwrap_err();
     assert!(error.contains("unknown agent"), "{error}");
+}
+
+#[test]
+fn terminal_applescript_keeps_shell_and_applescript_quoting_separate() {
+    let script = super::terminal_script(
+        "/tmp/a b'\"\\$(echo unsafe)\nç",
+        "/Users/a/.local/bin/claude",
+    );
+    assert!(script.starts_with("tell application \"Terminal\"\nactivate\ndo script \"cd '"));
+    assert!(script.contains("$(echo unsafe)"));
+    assert!(script.contains("\\nç"));
+    assert!(script.ends_with("'/Users/a/.local/bin/claude'\"\nend tell"));
+    assert_eq!(script.lines().count(), 4);
 }

@@ -10,6 +10,7 @@ fn an_absent_or_empty_document_is_the_shipped_default() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn every_default_sound_points_at_the_installed_theme() {
     let events = SoundEvents::default();
     assert_eq!(
@@ -383,6 +384,7 @@ fn a_config_with_every_field_moved_off_its_default() -> Config {
             completion_card_height: 120,
         },
         integrations: IntegrationsConfig {
+            macos_terminal: "warp".into(),
             auto_configure: false,
             known_agents: vec!["claude".to_owned(), "codex".to_owned()],
         },
@@ -806,4 +808,26 @@ fn turning_the_update_check_off_survives_a_save_fired_by_another_control() {
     let written = config.to_json_value().to_string();
     let read_back = Config::from_json_str(&written);
     assert!(!read_back.updates.check_enabled);
+}
+
+#[test]
+fn macos_terminal_choice_round_trips_and_rejects_arbitrary_programs() {
+    for terminal in ["terminal", "iterm2", "warp", "wezterm", "kitty"] {
+        let config = Config::from_json_str(&format!(
+            r#"{{"integrations":{{"macos_terminal":"{terminal}"}}}}"#
+        ));
+        assert_eq!(config.integrations.macos_terminal, terminal);
+        assert_eq!(
+            Config::from_json_str(&config.to_json_value().to_string())
+                .integrations
+                .macos_terminal,
+            terminal
+        );
+    }
+    assert_eq!(
+        Config::from_json_str(r#"{"integrations":{"macos_terminal":"/tmp/program"}}"#)
+            .integrations
+            .macos_terminal,
+        "terminal"
+    );
 }

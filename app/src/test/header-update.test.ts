@@ -3,6 +3,7 @@ import { mountIsland } from "./dom";
 import { tauriMock } from "./tauri";
 
 let terminalMissing = false;
+let pendingUpdate: Promise<unknown> | null = null;
 
 const tauri = tauriMock(({ command }) => {
   if (command === "get_config") return { config: {} };
@@ -11,6 +12,7 @@ const tauri = tauriMock(({ command }) => {
   if (command === "get_usage") return { providers: [] };
   if (command === "get_update") return null;
   if (command === "run_update" && terminalMissing) throw new Error("no terminal emulator found on PATH");
+  if (command === "run_update" && pendingUpdate) return pendingUpdate;
   return {};
 });
 
@@ -53,4 +55,33 @@ test("when no terminal can be opened the island says so and shows the command to
   expect(error.textContent).toContain(
     "curl -fsSL https://raw.githubusercontent.com/matheus-cintra/open-island/master/install.sh | sh",
   );
+});
+
+test("an ongoing installation prevents repeated clicks and displays progress", async () => {
+  terminalMissing = false;
+  let finish!: () => void;
+  pendingUpdate = new Promise<void>((resolve) => { finish = resolve; });
+  const before = tauri.calls.filter((call) => call.command === "run_update").length;
+  button.click();
+  button.click();
+  expect(button.disabled).toBe(true);
+  expect(tauri.calls.filter((call) => call.command === "run_update").length).toBe(before + 1);
+  tauri.emit("update-progress", "Verificando assinatura…");
+  expect(button.title).toBe("Verificando assinatura…");
+  finish();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(button.disabled).toBe(false);
+  expect(button.hasAttribute("aria-busy")).toBe(false);
+  pendingUpdate = null;
+});
+
+test("macOS installation errors do not recommend the Linux installer", async () => {
+  document.body.classList.add("platform-macos");
+  terminalMissing = true;
+  button.click();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(error.textContent).toContain("Falha ao atualizar");
+  expect(error.textContent).not.toContain("curl");
+  document.body.classList.remove("platform-macos");
+  terminalMissing = false;
 });

@@ -4,7 +4,7 @@
 
 # Open Island
 
-**Uma ilha na barra do Hyprland que mostra o que os seus agentes de código estão fazendo agora.**
+**Uma ilha que mostra o que os seus agentes de código estão fazendo agora — Linux/Hyprland e macOS experimental.**
 
 Sessão, projeto, agente, modelo, terminal e tempo decorrido, num painel colado no topo da tela.<br>
 Quando um agente pede permissão ou faz uma pergunta, a ilha expande e você responde ali mesmo.
@@ -191,18 +191,21 @@ A ilha é a única superfície. Não existe notificação de desktop: ela existi
 
 ## Compatibilidade
 
-| Compositor | Status | Motivo |
+No macOS, consulte o [guia experimental](docs/macos.md). Os requisitos e comandos Linux abaixo não se aplicam ao Mac.
+
+| Plataforma | Status | Motivo |
 |---|:-:|---|
+| **macOS 12+** (Apple Silicon e Intel) | experimental | Painel AppKit e DMGs separados. [Instalação, limites e validação pendente](docs/macos.md). |
 | **Hyprland** (Wayland) | suportado | Layer shell na camada de overlay, socket de eventos e `hyprctl`. |
 | sway, river, Wayfire, KDE | não testado | Nenhum foi testado. Mesmo onde a janela aparecesse, o hover, o pulo e a altura colada na barra continuariam falando com o socket do Hyprland. |
 | GNOME | não roda | O Mutter não implementa `zwlr_layer_shell_v1`. A janela é recusada na inicialização com `wlr-layer-shell is not available on this compositor`. |
 | X11 | não roda | O protocolo de layer shell não existe no X11. |
 
 <details>
-<summary><b>Por que só Hyprland</b></summary>
+<summary><b>Por que Hyprland é o compositor Linux suportado</b></summary>
 <br>
 
-Três acoplamentos diretos:
+No backend Linux, três integrações dependem do Hyprland:
 
 - O sensor de ponteiro que faz a ilha expandir no hover abre o socket de eventos do Hyprland. Sem `HYPRLAND_INSTANCE_SIGNATURE` no ambiente ele sai na primeira linha e a ilha nunca expande sozinha (`app/src-tauri/src/lib.rs:99-101`, `app/src-tauri/src/compositor/hyprland.rs:7-15`).
 - O clique para pular para a sessão manda `hyprctl dispatch focuswindow address:…` (`app/crates/open-island-core/src/jump.rs:126`). Existe um fallback por X11, mas ele só enxerga janelas XWayland (`app/crates/open-island-core/src/focus.rs:117-124`).

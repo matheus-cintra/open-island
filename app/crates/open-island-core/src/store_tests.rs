@@ -165,7 +165,7 @@ fn snapshots_are_deterministic_and_remove_stale_or_missing_hooks() {
         vec!["claude:a", "claude:z"]
     );
     assert!(!store.snapshot_at(&[process(1, "/a")], now).is_empty());
-    assert!(store.snapshot_at(&[], now).is_empty());
+    assert!(store.snapshot_with_liveness(&[], now, |_| false).is_empty());
 }
 
 #[test]
@@ -1734,4 +1734,18 @@ fn the_queue_is_bounded_and_keeps_the_newest() {
     let ids = queued_ids(&mut store, &[working], 7);
     assert_eq!(ids.len(), MAX_QUEUED_MESSAGES);
     assert_eq!(ids[0], 4);
+}
+
+#[test]
+fn inaccessible_live_hook_is_kept_until_the_process_exits() {
+    let now = Instant::now();
+    let mut store = SessionStore::new();
+    store.apply_hook_event_at(
+        event(HookEventKind::SessionStart, "private", "/work", 4242),
+        now,
+    );
+    let sessions = store.snapshot_with_liveness(&[], now, |pid| pid == 4242);
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].id, "claude:private");
+    assert!(store.snapshot_with_liveness(&[], now, |_| false).is_empty());
 }

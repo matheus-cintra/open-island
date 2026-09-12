@@ -39,7 +39,7 @@ export interface SilenceRule {
   enabled: boolean;
 }
 
-export type IntegrationName = "autostart" | "hyprland" | "claude" | "codex" | "opencode";
+export type IntegrationName = "autostart" | "hyprland" | "claude" | "codex" | "opencode" | "input";
 
 export interface ConfigPayload {
   config: JsonObject;

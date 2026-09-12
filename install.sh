@@ -512,6 +512,34 @@ run_uninstall() {
 	report_uninstall
 }
 
+run_darwin() {
+    case "$(uname -m)" in
+        arm64) mac_arch=aarch64 ;;
+        x86_64) mac_arch=x86_64 ;;
+        *) refuse "$EXIT_UNSUPPORTED_ARCHITECTURE" "Arquitetura macOS sem suporte." ;;
+    esac
+    mac_major=$(sw_vers -productVersion | cut -d. -f1)
+    [ "$mac_major" -ge 12 ] || refuse "$EXIT_USAGE" "Open Island requer macOS 12 ou superior."
+    case "$verb" in
+        preflight) say "route: macOS experimental ($mac_arch), DMG manual" ;;
+        uninstall)
+            mac_daemon="/Applications/Open Island.app/Contents/MacOS/open-islandd"
+            [ -x "$mac_daemon" ] || mac_daemon="$HOME/Applications/Open Island.app/Contents/MacOS/open-islandd"
+            if [ -x "$mac_daemon" ]; then
+                "$mac_daemon" hooks uninstall
+                "$mac_daemon" input uninstall
+                "$mac_daemon" autostart uninstall
+                "$mac_daemon" stop
+            fi
+            say "Mova Open Island de Aplicativos para a Lixeira. Suas configurações foram preservadas." ;;
+        install)
+            open "https://github.com/$RELEASE_REPOSITORY/releases/latest/download/open-island-macos-$mac_arch.dmg"
+            say "macOS experimental: arraste Open Island para Aplicativos e abra o aplicativo."
+            say "Sem notarização: autorize a abertura em Ajustes do Sistema → Privacidade e Segurança."
+            say "Atualize pelo aplicativo; se a pasta não permitir escrita, substitua-o pelo DMG." ;;
+    esac
+}
+
 usage() {
 	say "usage: install.sh [--uninstall | --preflight-only]"
 	say ""
@@ -542,6 +570,11 @@ main() {
 		esac
 		shift
 	done
+
+	if [ "$(uname -s)" = Darwin ]; then
+		run_darwin
+		return 0
+	fi
 
 	resolve_elevation
 

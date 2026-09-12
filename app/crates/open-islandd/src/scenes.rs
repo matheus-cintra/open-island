@@ -132,7 +132,15 @@ impl SceneSource for SystemScenes {
     }
 
     fn screen_off(&mut self) -> bool {
-        monitors_dark(hypr_request("j/monitors")) || self.locked()
+        #[cfg(target_os = "linux")]
+        {
+            monitors_dark(hypr_request("j/monitors")) || self.locked()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            open_island_core::process::displays_asleep().unwrap_or(false)
+                || open_island_core::process::session_unavailable().unwrap_or(false)
+        }
     }
 }
 

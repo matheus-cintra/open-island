@@ -1,0 +1,32 @@
+{
+  "bundle": {
+    "targets": [
+      "deb",
+      "rpm"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libgtk-layer-shell0",
+          "libwebkit2gtk-4.1-0",
+          "libsoup-3.0-0",
+          "libgtk-3-0",
+          "pipewire-bin",
+          "gtk-update-icon-cache"
+        ],
+        "desktopTemplate": "open-island.desktop.template"
+      },
+      "rpm": {
+        "depends": [
+          "gtk-layer-shell",
+          "webkit2gtk4.1",
+          "libsoup3",
+          "gtk3",
+          "pipewire-utils",
+          "gtk-update-icon-cache"
+        ],
+        "desktopTemplate": "open-island.desktop.template"
+      }
+    }
+  }
+}

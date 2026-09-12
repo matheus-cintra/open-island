@@ -5,8 +5,9 @@ use std::{
     os::unix::net::UnixStream,
     path::PathBuf,
     process::{Child, Command, Stdio},
+    sync::atomic::{AtomicU64, Ordering},
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 mod support;
@@ -14,12 +15,11 @@ mod support;
 use support::{config_without_release_check, isolated_home};
 
 fn socket() -> PathBuf {
+    static NEXT_SOCKET: AtomicU64 = AtomicU64::new(0);
     env::temp_dir().join(format!(
         "open-island-test-{}-{}.sock",
         std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_nanos())
+        NEXT_SOCKET.fetch_add(1, Ordering::Relaxed)
     ))
 }
 

@@ -30,6 +30,8 @@ Uso: open-islandd [--socket <caminho>]
 Sem comando, sobe o daemon e fica escutando no socket.
 
 Comandos:
+  input install|uninstall|status       gerencia entrada pela ilha em sessões abertas no terminal
+  run -- <agente> [argumentos]         abre um agente com entrada pela ilha em qualquer terminal
   hook --agent claude|codex|opencode   trata um evento do agente lido da entrada padrão
   hooks install|uninstall|status       gerencia os hooks dos agentes [--agent <nome>] [--dry-run]
   hotkey install|uninstall|status      gerencia o atalho global [--combo <combinação>] [--dry-run]
@@ -107,6 +109,25 @@ fn run() -> io::Result<()> {
 fn main() {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
+        Some("input") => {
+            if let Err(error) = open_islandd::input_install::cli() {
+                eprintln!("open-islandd: {error}");
+                std::process::exit(1);
+            }
+        }
+        Some("run") => {
+            let mut command: Vec<_> = env::args_os().skip(2).collect();
+            if command.first().is_some_and(|arg| arg == "--") {
+                command.remove(0);
+            }
+            match open_islandd::input_bridge::run(command) {
+                Ok(code) => std::process::exit(code),
+                Err(error) => {
+                    eprintln!("open-islandd: {error}");
+                    std::process::exit(1);
+                }
+            }
+        }
         Some("hook") => {
             let code = run_hook();
             if code != 0 {
@@ -136,6 +157,10 @@ fn main() {
             if code != 0 {
                 std::process::exit(code);
             }
+        }
+        #[cfg(target_os = "macos")]
+        Some("stop") => {
+            std::process::exit(open_islandd::cli::client::run_stop());
         }
         Some("autostart") => {
             let code = run_autostart();

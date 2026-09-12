@@ -4,7 +4,6 @@ use crate::{
 };
 use std::{
     collections::{HashMap, HashSet},
-    fs,
     path::Path,
 };
 
@@ -113,13 +112,48 @@ pub fn scan() -> Vec<Session> {
 }
 
 pub fn terminal_for_session(session: &Session) -> Option<crate::terminal::TerminalInfo> {
-    read_snapshots()
-        .into_iter()
-        .find(|snapshot| snapshot.pid == session.pid)
-        .map(|snapshot| {
-            let snapshots = read_snapshots();
-            classify(&snapshot, &snapshots)
-        })
+    terminal_for_sessions(&[session]).remove(&session.pid)
+}
+
+/// Resolve terminal metadata from one process table snapshot. A reconciliation
+/// can include hook-only sessions whose interpreter argv0 prevents `scan` from
+/// recognizing them, so their environments are refreshed before classification.
+pub(crate) fn terminal_for_sessions(
+    sessions: &[&Session],
+) -> HashMap<u32, crate::terminal::TerminalInfo> {
+    terminal_for_sessions_with(sessions, read_snapshots, crate::process::environment)
+}
+
+fn terminal_for_sessions_with(
+    sessions: &[&Session],
+    read_snapshots: impl FnOnce() -> Vec<ProcessSnapshot>,
+    read_environment: impl Fn(u32) -> Vec<u8>,
+) -> HashMap<u32, crate::terminal::TerminalInfo> {
+    if sessions.is_empty() {
+        return HashMap::new();
+    }
+    let mut snapshots = read_snapshots();
+    let requested: HashSet<u32> = sessions.iter().map(|session| session.pid).collect();
+    for snapshot in &mut snapshots {
+        // Hook-only agents can have an interpreter as argv0. Read their process
+        // environment even when generic discovery did not classify them.
+        if requested.contains(&snapshot.pid) {
+            snapshot.env = parse_environment(&read_environment(snapshot.pid));
+        }
+    }
+    terminal_for_sessions_from_snapshots(sessions, &snapshots)
+}
+
+fn terminal_for_sessions_from_snapshots(
+    sessions: &[&Session],
+    snapshots: &[ProcessSnapshot],
+) -> HashMap<u32, crate::terminal::TerminalInfo> {
+    let requested: HashSet<u32> = sessions.iter().map(|session| session.pid).collect();
+    snapshots
+        .iter()
+        .filter(|snapshot| requested.contains(&snapshot.pid))
+        .map(|snapshot| (snapshot.pid, classify(snapshot, snapshots)))
+        .collect()
 }
 
 pub fn classify_processes(
@@ -148,26 +182,19 @@ pub fn classify_processes(
 }
 
 fn read_snapshots() -> Vec<ProcessSnapshot> {
-    let Ok(entries) = fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let pid = entry.file_name().to_str()?.parse::<u32>().ok()?;
-            let dir = entry.path();
-            let (ppid, comm) = read_stat(&dir.join("stat"))?;
-            let command = fs::read(dir.join("cmdline")).ok()?;
-            let agent = agent_for_cmdline(&command);
-            let (cwd, env) = match agent {
-                Some(_) => (
-                    fs::read_link(dir.join("cwd"))
-                        .ok()?
-                        .to_string_lossy()
-                        .into_owned(),
-                    parse_environment(&fs::read(dir.join("environ")).unwrap_or_default()),
-                ),
-                None => (String::new(), HashMap::new()),
+    crate::process::pids()
+        .into_iter()
+        .filter_map(|pid| {
+            let (ppid, comm) = crate::process::parent_and_comm(pid)?;
+            let agent =
+                crate::process::command(pid).and_then(|command| agent_for_cmdline(&command));
+            let (cwd, env) = if agent.is_some() {
+                (
+                    crate::process::cwd(pid)?.to_string_lossy().into_owned(),
+                    parse_environment(&crate::process::environment(pid)),
+                )
+            } else {
+                (String::new(), HashMap::new())
             };
             Some(ProcessSnapshot {
                 pid,
@@ -181,14 +208,6 @@ fn read_snapshots() -> Vec<ProcessSnapshot> {
         .collect()
 }
 
-fn read_stat(path: &Path) -> Option<(u32, String)> {
-    let text = fs::read_to_string(path).ok()?;
-    let close = text.rfind(')')?;
-    let comm = text.get(text.find('(')? + 1..close)?.to_owned();
-    let fields: Vec<&str> = text.get(close + 2..)?.split_whitespace().collect();
-    Some((fields.get(1)?.parse().ok()?, comm))
-}
-
 pub(crate) fn parse_environment(bytes: &[u8]) -> HashMap<String, String> {
     bytes
         .split(|byte| *byte == 0)
@@ -199,6 +218,7 @@ pub(crate) fn parse_environment(bytes: &[u8]) -> HashMap<String, String> {
             let key = std::str::from_utf8(key).ok()?;
             let value = std::str::from_utf8(value).ok()?;
             if key == "TERM_PROGRAM"
+                || key == crate::input_bridge::ENV
                 || key == "KITTY_WINDOW_ID"
                 || key == "KITTY_LISTEN_ON"
                 || key == "TMUX"
@@ -225,7 +245,7 @@ pub(crate) fn parse_environment(bytes: &[u8]) -> HashMap<String, String> {
 fn ancestor_pids(mut pid: u32) -> HashSet<u32> {
     let mut result = HashSet::new();
     for _ in 0..32 {
-        let Some((ppid, _)) = read_stat(Path::new(&format!("/proc/{pid}/stat"))) else {
+        let Some((ppid, _)) = crate::process::parent_and_comm(pid) else {
             break;
         };
         if ppid == 0 || !result.insert(ppid) {
@@ -330,5 +350,53 @@ mod tests {
             agent_for_argv0("/usr/bin/KIMICODE").map(|agent| agent.id),
             Some("kimi")
         );
+    }
+
+    #[test]
+    fn terminal_metadata_for_multiple_sessions_uses_the_same_snapshot() {
+        let claude = snapshot(30, 20, "python3", None);
+        let shell = snapshot(20, 10, "zsh", None);
+        let kitty = snapshot(10, 1, "kitty", None);
+        let codex = snapshot(40, 41, "node", None);
+        let alacritty = snapshot(41, 1, "alacritty", None);
+        let claude_session = Session::new("claude", "/work", 30, "unknown");
+        let codex_session = Session::new("codex", "/work", 40, "unknown");
+
+        let scans = std::cell::Cell::new(0);
+        let terminals = terminal_for_sessions_with(
+            &[&claude_session, &codex_session],
+            || {
+                scans.set(scans.get() + 1);
+                vec![claude, shell, kitty, codex, alacritty]
+            },
+            |_| Vec::new(),
+        );
+
+        assert_eq!(scans.get(), 1);
+        assert_eq!(terminals.len(), 2);
+        assert_eq!(
+            terminals.get(&30).map(|info| info.kind.as_str()),
+            Some("kitty")
+        );
+        assert_eq!(
+            terminals.get(&40).map(|info| info.kind.as_str()),
+            Some("alacritty")
+        );
+    }
+
+    #[test]
+    fn terminal_metadata_does_not_scan_when_no_sessions_need_it() {
+        let scans = std::cell::Cell::new(0);
+        let terminals = terminal_for_sessions_with(
+            &[],
+            || {
+                scans.set(scans.get() + 1);
+                Vec::new()
+            },
+            |_| Vec::new(),
+        );
+
+        assert!(terminals.is_empty());
+        assert_eq!(scans.get(), 0);
     }
 }

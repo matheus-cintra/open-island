@@ -12,12 +12,7 @@ pub fn save(config: Value) -> Result<(), String> {
 }
 
 pub fn user_sound_dir() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
-        })?;
-    Some(base.join("open-island/sounds"))
+    open_island_core::paths::data_dir().map(|dir| dir.join("sounds"))
 }
 
 fn sounds_in(directory: &Path) -> Vec<String> {
@@ -45,16 +40,27 @@ pub fn theme_sounds() -> Vec<String> {
     let mut sounds = user_sound_dir()
         .map(|directory| sounds_in(&directory))
         .unwrap_or_default();
-    sounds.extend(sounds_in(Path::new(SOUND_THEME_DIR)));
+    if cfg!(target_os = "macos") {
+        if let Some(dir) = open_island_core::paths::bundled_sounds() {
+            sounds.extend(sounds_in(&dir));
+        }
+    } else {
+        sounds.extend(sounds_in(Path::new(SOUND_THEME_DIR)));
+    }
     sounds
 }
 
 pub fn integration_status() -> Result<Value, String> {
     let mut report = serde_json::Map::new();
     report.insert(
+        "input".to_owned(),
+        always_detected(is_installed(&["input", "status"])?),
+    );
+    report.insert(
         "autostart".to_owned(),
         always_detected(is_installed(&["autostart", "status"])?),
     );
+    #[cfg(target_os = "linux")]
     report.insert(
         "hyprland".to_owned(),
         always_detected(is_installed(&["hotkey", "status"])?),
@@ -72,6 +78,7 @@ pub fn integration_status() -> Result<Value, String> {
 pub fn set_integration(name: &str, enabled: bool) -> Result<Value, String> {
     let action = if enabled { "install" } else { "uninstall" };
     match name {
+        "input" => run_daemon(&["input", action])?,
         "autostart" => run_daemon(&["autostart", action])?,
         "hyprland" => run_daemon(&["hotkey", action])?,
         agent => {
@@ -84,8 +91,17 @@ pub fn set_integration(name: &str, enabled: bool) -> Result<Value, String> {
 }
 
 pub fn remove_auto_configuration() -> Result<Vec<String>, String> {
+    if let Some(path) = config::path() {
+        let mut config = Config::from_json_str(&std::fs::read_to_string(&path).unwrap_or_default());
+        config.integrations.auto_configure = false;
+        config::save(&path, &config)?;
+    }
     let mut removed = Vec::new();
-    for args in [&["hooks", "uninstall"][..], &["hotkey", "uninstall"][..]] {
+    let mut actions = vec![&["hooks", "uninstall"][..], &["input", "uninstall"][..]];
+    if cfg!(target_os = "linux") {
+        actions.push(&["hotkey", "uninstall"]);
+    }
+    for args in actions {
         for line in run_daemon(args)?.lines() {
             removed.push(line.trim().to_owned());
         }
@@ -94,6 +110,7 @@ pub fn remove_auto_configuration() -> Result<Vec<String>, String> {
     Ok(removed)
 }
 
+#[cfg(target_os = "linux")]
 pub fn stop_daemon_unit() -> Result<(), String> {
     let status = Command::new("systemctl")
         .args(["--user", "stop", "open-islandd.service"])
@@ -105,6 +122,7 @@ pub fn stop_daemon_unit() -> Result<(), String> {
     Err(format!("systemctl stop exited with {status}"))
 }
 
+#[cfg(target_os = "linux")]
 fn detach_daemon(args: &[&str]) -> Result<(), String> {
     let executable = executables()
         .into_iter()
@@ -172,4 +190,28 @@ fn executables() -> Vec<PathBuf> {
     let mut candidates = daemon_candidates();
     candidates.push(PathBuf::from("open-islandd"));
     candidates
+}
+
+#[cfg(target_os = "macos")]
+pub fn stop_daemon_unit() -> Result<(), String> {
+    // Resolve the daemon through its private socket.
+    run_daemon(&["stop"]).map(|_| ())
+}
+#[cfg(target_os = "macos")]
+fn detach_daemon(args: &[&str]) -> Result<(), String> {
+    let executable = executables()
+        .into_iter()
+        .find(|p| p.is_file())
+        .ok_or("open-islandd não encontrado")?;
+    let mut child = Command::new(executable)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }

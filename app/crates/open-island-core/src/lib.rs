@@ -3,6 +3,7 @@ pub mod config;
 pub mod discovery;
 pub mod filters;
 pub mod focus;
+pub mod input_bridge;
 pub mod jump;
 pub mod naming;
 pub mod protocol;
@@ -26,3 +27,7 @@ pub use usage::{
     ProviderUsage, ResetCard, ThresholdWatch, UsageCredits, UsageError, UsageModelWindow,
     UsageProvider, UsageReport, UsageSnapshot, UsageWindow, PROVIDER_ANTHROPIC, PROVIDER_CODEX,
 };
+
+pub mod paths;
+pub mod process;
+pub mod process_args;

@@ -142,3 +142,27 @@ test("expanding the island asks for keyboard focus on demand and collapsing give
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(calls("island_keyboard").pop()!.args).toEqual({ active: false });
 });
+
+test("an unsupported host hides the composer and restores it when a channel becomes available", () => {
+  const li = main.createRow({ ...base, send_blocked: "host_unsupported" }, false);
+  const box = li.querySelector<HTMLElement>(".row-message")!;
+  const input = li.querySelector<HTMLTextAreaElement>(".message-input")!;
+  expect(box.hidden).toBe(true);
+  expect(input.hidden).toBe(true);
+  main.fillRow(li, { ...base, send_channel: "tmux" }, false);
+  expect(box.hidden).toBe(false);
+  expect(input.hidden).toBe(false);
+  expect(input.disabled).toBe(false);
+});
+
+test("losing host support keeps pending messages visible for cancellation", () => {
+  const li = main.createRow({
+    ...base,
+    send_blocked: "host_unsupported",
+    queued_messages: [{ id: 9, text: "pendente", queued_at_ms: 1 }],
+  }, false);
+  expect(li.querySelector<HTMLElement>(".row-message")!.hidden).toBe(false);
+  expect(li.querySelector<HTMLElement>(".message-input")!.hidden).toBe(true);
+  expect(li.querySelector<HTMLElement>(".message-hint")!.hidden).toBe(true);
+  expect(li.querySelector(".message-cancel")).not.toBeNull();
+});

@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: Build and publish ${{ matrix.arch }}
+    name: Build ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -54,6 +54,12 @@ jobs:
         working-directory: app
         run: bun run tauri build --bundles deb,rpm
 
+      - name: Regression tests
+        working-directory: app
+        run: |
+          python3 ../scripts/test-processes.py cargo test --workspace
+          bun run test
+
       - name: Assemble the release assets
         run: |
           set -euo pipefail
@@ -84,10 +90,82 @@ jobs:
           cp "$deb_source" "release/assets/$deb_name"
           cp "$rpm_source" "release/assets/$rpm_name"
 
-          cd release/assets
-          sha256sum "$deb_name" "$rpm_name" "$tarball_name" > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-assets
+          path: release/assets/*
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.arch }} (experimental)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: aarch64
+            target: aarch64-apple-darwin
+            macho: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+            target: x86_64-apple-darwin
+            macho: x86_64
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - run: node scripts/set-version.mjs "${GITHUB_REF_NAME#v}"
+      - run: bun install --frozen-lockfile
+        working-directory: app
+      - run: bun run tauri build --target ${{ matrix.target }} --bundles app,dmg
+        working-directory: app
+      - run: sh scripts/verify-macos-bundle.sh "app/target/${{ matrix.target }}/release/bundle/macos/Open Island.app" "${{ matrix.macho }}"
+      - run: python3 ../scripts/test-processes.py cargo test --workspace
+        working-directory: app
+      - run: bun run test
+        working-directory: app
+      - name: Test signed update and real daemon restart
+        working-directory: app
+        run: |
+          set -- target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+          test "$#" -eq 1
+          export OPEN_ISLAND_UPDATER_ARCHIVE="$PWD/$1"
+          export OPEN_ISLAND_TEST_LOG=/tmp/open-island-updater-tests.log
+          python3 ../scripts/test-processes.py cargo test -p open-island --lib update_macos::tests:: -- --ignored --test-threads=1
+      - run: |
+          mkdir -p release/assets
+          cp app/target/${{ matrix.target }}/release/bundle/dmg/*.dmg "release/assets/open-island-macos-${{ matrix.arch }}.dmg"
+          cp app/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz "release/assets/open-island-macos-${{ matrix.arch }}.app.tar.gz"
+          cp app/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig "release/assets/open-island-macos-${{ matrix.arch }}.app.tar.gz.sig"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-assets
+          path: release/assets/*
+          if-no-files-found: error
+
+  publish:
+    needs: [build, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-assets'
+          merge-multiple: true
+          path: release/assets
+      - name: Assemble signed macOS updater index
+        run: python3 scripts/updater-manifest.py "$GITHUB_REF_NAME" release/assets "$GITHUB_REPOSITORY"
+      - name: Consolidate checksums
+        working-directory: release/assets
+        run: |
+          sha256sum * > SHA256SUMS
           sha256sum -c SHA256SUMS
-          ls -l
 
       - name: Publish the release
         env:
@@ -95,6 +173,10 @@ jobs:
         run: |
           set -euo pipefail
           flags=(--title "$GITHUB_REF_NAME" --generate-notes)
+          notes="docs/releases/$GITHUB_REF_NAME.md"
+          if [ -f "$notes" ]; then
+            flags=(--title "$GITHUB_REF_NAME — suporte inicial ao macOS" --notes-file "$notes")
+          fi
           case "$GITHUB_REF_NAME" in
             *-*) flags+=(--prerelease) ;;
           esac

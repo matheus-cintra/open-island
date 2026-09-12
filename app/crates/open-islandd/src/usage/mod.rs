@@ -14,12 +14,7 @@ use std::{
 pub use anthropic::now_ms;
 
 pub fn cache_path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state"))
-        })?;
-    Some(base.join("open-island").join("usage.json"))
+    open_island_core::paths::state_dir().map(|dir| dir.join("usage.json"))
 }
 
 pub fn load_cached() -> UsageReport {

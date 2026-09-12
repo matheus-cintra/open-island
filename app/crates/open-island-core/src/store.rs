@@ -658,10 +658,42 @@ impl SessionStore {
     }
 
     pub fn snapshot(&mut self, processes: &[Session]) -> Vec<Session> {
-        self.snapshot_at(processes, Instant::now())
+        let mut sessions = self.snapshot_at(processes, Instant::now());
+        let unresolved = sessions
+            .iter()
+            .filter(|session| session.send_channel.is_none() && session.send_blocked.is_none())
+            .collect::<Vec<_>>();
+        let hosts = crate::discovery::terminal_for_sessions(&unresolved);
+        for session in &mut sessions {
+            // Interpreters may expose a different argv0 on macOS. Hooks still
+            // identify their PID, so recover terminal/input metadata for those
+            // live sessions instead of requiring generic process discovery.
+            if session.send_channel.is_none() && session.send_blocked.is_none() {
+                if let Some(host) = hosts.get(&session.pid) {
+                    if host.kind != "unknown" {
+                        session.terminal = host.kind.clone();
+                    }
+                    session.raise_pid = Some(host.raise_pid);
+                    match crate::send::capability(host) {
+                        Ok(channel) => session.send_channel = Some(channel.to_owned()),
+                        Err(blocked) => session.send_blocked = Some(blocked.code().to_owned()),
+                    }
+                }
+            }
+        }
+        sessions
     }
 
     pub fn snapshot_at(&mut self, processes: &[Session], now: Instant) -> Vec<Session> {
+        self.snapshot_with_liveness(processes, now, crate::process::exists)
+    }
+
+    fn snapshot_with_liveness(
+        &mut self,
+        processes: &[Session],
+        now: Instant,
+        alive: impl Fn(u32) -> bool,
+    ) -> Vec<Session> {
         let mut used = vec![false; processes.len()];
         let mut missing_hooks = Vec::new();
         let mut joined = Vec::new();
@@ -676,7 +708,15 @@ impl SessionStore {
                 })
             });
             let Some(index) = process_index else {
-                missing_hooks.push(hook_id.clone());
+                if alive(state.session.pid) {
+                    if !state.filtered && !self.stale(hook_id, state, now) {
+                        let mut session = state.session.clone();
+                        session.attention = Some(self.attention_of(hook_id, state, now));
+                        sessions.push(session);
+                    }
+                } else {
+                    missing_hooks.push(hook_id.clone());
+                }
                 continue;
             };
             used[index] = true;

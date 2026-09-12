@@ -1488,3 +1488,67 @@ body {
     scale: 1;
   }
 }
+
+/* The notch is an exclusion area inside the panel, not a top margin. */
+.compact-leading,
+.header-leading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.compact-leading { gap: 8px; }
+
+.has-notch {
+  --notch-gap: calc(var(--camera-width) + 24px);
+}
+.has-notch .view-compact {
+  padding: 0 20px;
+  height: var(--compact-height, var(--camera-top));
+}
+.has-notch .compact-row,
+.has-notch .island-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--notch-gap) minmax(0, 1fr);
+  column-gap: 0;
+  width: 100%;
+}
+.has-notch .compact-leading,
+.has-notch .header-leading {
+  grid-column: 1;
+  overflow: hidden;
+}
+.has-notch .compact-tail,
+.has-notch .header-actions {
+  grid-column: 3;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  justify-self: end;
+}
+.has-notch .header-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.has-notch .header-button { flex-shrink: 0; }
+.has-notch .header-usage-model { overflow: hidden; }
+.has-notch .view-expanded {
+  padding-top: 0;
+  scale: 1;
+}
+.has-notch .island-header {
+  height: var(--camera-top);
+}
+
+/* WebKit/system font metrics need symmetric text padding, unlike the Linux font. */
+.platform-macos .row-badges { align-items: center; }
+.platform-macos .row-badge:not(.row-badge-icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 16px;
+  padding: 2px 6px;
+  line-height: 1.2;
+}

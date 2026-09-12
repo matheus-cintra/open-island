@@ -25,6 +25,7 @@ pub fn ask_daemon(method: &str, params: Value) -> Result<Value, String> {
     let socket = socket_path();
     let mut stream = UnixStream::connect(&socket)
         .map_err(|error| format!("no daemon at {}: {error}", socket.display()))?;
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
     let request = json!({"v": 1, "id": 1, "method": method, "params": params});
     writeln!(stream, "{request}")
         .and_then(|_| stream.flush())
@@ -72,4 +73,39 @@ pub fn run_settings() -> i32 {
     }
     eprintln!("open-islandd: no island is running and none could be started");
     1
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_stop() -> i32 {
+    let result = (|| -> Result<(), String> {
+        // The private socket authenticates this same-user daemon; never search by name.
+        match UnixStream::connect(socket_path()) {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) =>
+            {
+                return Ok(())
+            }
+            Err(error) => return Err(error.to_string()),
+            Ok(_) => (),
+        }
+        let reply = ask_daemon("ping", json!({}))?;
+        let pid = reply["pid"]
+            .as_u64()
+            .filter(|pid| *pid > 1 && *pid <= i32::MAX as u64)
+            .ok_or("PID inválido")? as i32;
+        if unsafe { libc::kill(pid, libc::SIGTERM) } != 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("{error}");
+            1
+        }
+    }
 }

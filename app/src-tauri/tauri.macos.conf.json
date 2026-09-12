@@ -1,0 +1,25 @@
+{
+  "app": {
+    "macOSPrivateApi": true
+  },
+  "bundle": {
+    "targets": [
+      "dmg"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": "-",
+      "hardenedRuntime": false,
+      "infoPlist": "Info.macos.plist"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlGRkNFRUM0QzM2MDJCRgpSV1MvQWpaTTdNNy9DWG5XMlIydTlESFFjNFR3L25KbUN0MExNWHNMTjVmUDNScWpiZ3NyUHBYago=",
+      "endpoints": [
+        "https://github.com/matheus-cintra/open-island/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
