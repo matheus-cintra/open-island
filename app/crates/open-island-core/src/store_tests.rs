@@ -1,5 +1,42 @@
 use super::*;
 use crate::{protocol::HookEventKind, session::HookId};
+use std::{
+    fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+struct TemporaryRepository(PathBuf);
+
+impl TemporaryRepository {
+    fn on_branch(branch: &str) -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "open-island-store-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock after Unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(path.join(".git")).expect("create repository metadata");
+        fs::write(
+            path.join(".git/HEAD"),
+            format!("ref: refs/heads/{branch}\n"),
+        )
+        .expect("write branch head");
+        Self(path)
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for TemporaryRepository {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
 
 fn event(kind: HookEventKind, id: &str, cwd: &str, pid: u32) -> HookEvent {
     let mut event = HookEvent::new("claude", id, kind);
@@ -484,18 +521,15 @@ fn the_first_prompt_names_the_session_and_later_prompts_never_rename_it() {
 fn the_branch_is_resolved_from_the_session_cwd() {
     let now = Instant::now();
     let mut store = SessionStore::new();
-    let repository = env!("CARGO_MANIFEST_DIR");
+    let repository = TemporaryRepository::on_branch("session-fixture");
+    let repository = repository.path().to_string_lossy();
     store.apply_hook_event_at(
-        event(HookEventKind::SessionStart, "one", repository, 4242),
+        event(HookEventKind::SessionStart, "one", &repository, 4242),
         now,
     );
 
-    let session = &store.snapshot_at(&[process(4242, repository)], now)[0];
-    assert_eq!(
-        session.branch,
-        crate::naming::branch_of(Path::new(repository))
-    );
-    assert!(session.branch.is_some());
+    let session = &store.snapshot_at(&[process(4242, &repository)], now)[0];
+    assert_eq!(session.branch.as_deref(), Some("session-fixture"));
 }
 
 fn stopped_store(id: &str, cwd: &str, pid: u32) -> (SessionStore, Instant, HookId) {

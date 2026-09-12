@@ -123,6 +123,42 @@ fn truncate(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct TemporaryRepository(PathBuf);
+
+    impl TemporaryRepository {
+        fn on_branch(branch: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "open-island-naming-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("clock after Unix epoch")
+                    .as_nanos()
+            ));
+            fs::create_dir_all(path.join(".git")).expect("create repository metadata");
+            fs::write(
+                path.join(".git/HEAD"),
+                format!("ref: refs/heads/{branch}\n"),
+            )
+            .expect("write branch head");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TemporaryRepository {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn a_short_prompt_is_the_name_unchanged() {
@@ -203,10 +239,10 @@ mod tests {
 
     #[test]
     fn the_branch_comes_from_the_repository_head() {
-        let branch = branch_of(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("a branch");
+        let repository = TemporaryRepository::on_branch("fixture-branch");
+        let branch = branch_of(repository.path()).expect("a branch");
 
-        assert!(!branch.is_empty());
-        assert!(!branch.contains(char::is_whitespace));
+        assert_eq!(branch, "fixture-branch");
     }
 
     #[test]
