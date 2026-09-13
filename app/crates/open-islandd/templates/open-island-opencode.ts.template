@@ -1,7 +1,7 @@
 // open-island-managed
 import type { Plugin } from "@opencode-ai/plugin";
 
-const DAEMON = __OPEN_ISLANDD_PATH__;
+const DAEMON_ARGV = __OPEN_ISLANDD_ARGV__;
 const EVENTS = new Set([
   "session.created",
   "session.deleted",
@@ -144,7 +144,7 @@ export const OpenIslandPlugin: Plugin = async ({ client, serverUrl, directory })
       new Promise<Metadata[]>((resolve) => { timer = setTimeout(() => resolve([]), 1200); }),
     ]).finally(() => clearTimeout(timer));
     const child = Bun.spawn(
-      [DAEMON, "hook", "--agent", "opencode", "--managed-by", "open-island"],
+      [...DAEMON_ARGV, "hook", "--agent", "opencode", "--managed-by", "open-island"],
       { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
     );
     child.stdin.write(

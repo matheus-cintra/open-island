@@ -95,7 +95,16 @@ pub fn auto_configure(
     let mut configured = Vec::new();
     let mut errors = Vec::new();
     for agent in AGENTS {
-        if known.iter().any(|name| name == agent) || !detected(home, agent) {
+        if !detected(home, agent) {
+            continue;
+        }
+        if known.iter().any(|name| name == agent) {
+            // Refresh only existing managed integrations: removing one is an opt-out.
+            match refresh_existing_hooks(home, agent, executable) {
+                Ok(true) => configured.push((*agent).to_owned()),
+                Ok(false) => {}
+                Err(error) => errors.push(format!("{agent}: {error}")),
+            }
             continue;
         }
         match install(home, &[agent], executable, false) {
@@ -104,6 +113,67 @@ pub fn auto_configure(
         }
     }
     (configured, errors)
+}
+
+fn refresh_existing_hooks(home: &Path, agent: &str, executable: &Path) -> Result<bool, String> {
+    let path = agent_path(home, agent)?;
+    if !path.exists() {
+        return Ok(false);
+    }
+    if agent == "opencode" {
+        let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        return if text.contains(OPENCODE_START) && text.contains(OPENCODE_END) {
+            merge_opencode_plugin(&path, executable, true, false)
+        } else {
+            Ok(false)
+        };
+    }
+    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut root: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let mut changed = false;
+    if let Some(events) = root.get_mut("hooks").and_then(Value::as_object_mut) {
+        for groups in events.values_mut().filter_map(Value::as_array_mut) {
+            changed |= refresh_managed_groups(groups, agent, &command(executable, agent));
+        }
+    }
+    if changed {
+        write_json_atomic(&path, &root)?;
+    }
+    Ok(changed)
+}
+
+// Keep matcher scopes, user settings and unrelated handlers; remove duplicate owned
+// handlers with identical scopes after rebasing their executable to this installation.
+fn refresh_managed_groups(groups: &mut Vec<Value>, agent: &str, command: &str) -> bool {
+    let before = groups.clone();
+    let mut seen = Vec::new();
+    for group in groups.iter_mut() {
+        let mut scope = group.clone();
+        if let Some(object) = scope.as_object_mut() {
+            object.remove("hooks");
+        }
+        if let Some(items) = group.get_mut("hooks").and_then(Value::as_array_mut) {
+            items.retain_mut(|item| {
+                if !is_managed_handler(item, agent) {
+                    return true;
+                }
+                item["command"] = json!(command);
+                let key = (scope.clone(), item.clone());
+                if seen.contains(&key) {
+                    return false;
+                }
+                seen.push(key);
+                true
+            });
+        }
+    }
+    groups.retain(|group| {
+        group
+            .get("hooks")
+            .and_then(Value::as_array)
+            .is_none_or(|items| !items.is_empty())
+    });
+    *groups != before
 }
 
 pub fn install(
@@ -563,10 +633,12 @@ pub fn install_notes(agents: &[&str]) -> Vec<String> {
     ]
 }
 
-fn command(executable: &Path, agent: &str) -> String {
+const DAEMON_RESOLVER: &str = include_str!("../templates/resolve-daemon.sh");
+
+fn command(_executable: &Path, agent: &str) -> String {
     format!(
-        "{} hook --agent {agent} {MANAGED_MARKER}",
-        shell_quote(&executable.to_string_lossy())
+        "/bin/sh -c {} open-island-hook hook --agent {agent} {MANAGED_MARKER}",
+        shell_quote(DAEMON_RESOLVER)
     )
 }
 
@@ -612,6 +684,7 @@ fn merge_agent_json(
                         path.display()
                     )
                 })?;
+            changed |= refresh_managed_groups(groups, agent, &managed);
             let present = groups
                 .iter()
                 .any(|group| group_has_command(group, &managed));
@@ -729,11 +802,11 @@ fn merge_opencode_plugin(
     Ok(true)
 }
 
-fn opencode_plugin(executable: &Path) -> Result<String, String> {
-    let path = serde_json::to_string(&executable.to_string_lossy().to_string())
-        .map_err(|error| format!("encode daemon path: {error}"))?;
+fn opencode_plugin(_executable: &Path) -> Result<String, String> {
+    let argv = serde_json::to_string(&["/bin/sh", "-c", DAEMON_RESOLVER, "open-island-hook"])
+        .map_err(|error| format!("encode daemon resolver: {error}"))?;
     let template = include_str!("../templates/open-island-opencode.ts.template");
-    Ok(template.replace("__OPEN_ISLANDD_PATH__", &path))
+    Ok(template.replace("__OPEN_ISLANDD_ARGV__", &argv))
 }
 
 fn write_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
@@ -824,6 +897,158 @@ mod tests {
         let final_text = fs::read_to_string(&path).expect("read final");
         assert!(final_text.contains("keep-me"));
         assert!(!final_text.contains(MANAGED_MARKER));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn relocating_hooks_replaces_old_paths_and_duplicates_without_touching_user_hooks() {
+        let root = home();
+        for agent in ["claude", "codex"] {
+            let old = Path::new("/home/matheus/.local/bin/open-islandd");
+            let new = Path::new("/Applications/Open Island.app/Contents/MacOS/open-islandd");
+            install(&root, &[agent], old, false).unwrap();
+            let path = agent_path(&root, agent).unwrap();
+            let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            for groups in value["hooks"].as_object_mut().unwrap().values_mut() {
+                for group in groups.as_array_mut().unwrap() {
+                    for item in group["hooks"].as_array_mut().unwrap() {
+                        item["command"] = json!(format!(
+                            "{} hook --agent {agent} {MANAGED_MARKER}",
+                            shell_quote(&old.to_string_lossy())
+                        ));
+                    }
+                }
+            }
+            let groups = value["hooks"]["SessionStart"].as_array_mut().unwrap();
+            groups.push(json!({"matcher":"*", "hooks":[
+                {"type":"command", "command":command(new, agent)},
+                {"type":"command", "command":"keep-me", "timeout":42}
+            ]}));
+            write_json_atomic(&path, &value).unwrap();
+            let before = fs::read(&path).unwrap();
+            assert!(!installed(&root, agent, new).unwrap());
+            assert_eq!(before, fs::read(&path).unwrap(), "dry run wrote settings");
+            install(&root, &[agent], new, false).unwrap();
+            let text = fs::read_to_string(&path).unwrap();
+            assert!(!text.contains("/home/matheus"));
+            let value: Value = serde_json::from_str(&text).unwrap();
+            let items: Vec<_> = value["hooks"]["SessionStart"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|g| g["hooks"].as_array().unwrap())
+                .collect();
+            assert_eq!(
+                items
+                    .iter()
+                    .filter(|h| is_managed_handler(h, agent))
+                    .count(),
+                1
+            );
+            assert!(items
+                .iter()
+                .any(|h| h["command"] == "keep-me" && h["timeout"] == 42));
+            assert!(installed(&root, agent, new).unwrap());
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn known_integrations_refresh_after_relocation_but_removed_events_stay_removed() {
+        let root = home();
+        let old = Path::new("/old/open-islandd");
+        let new = Path::new("/Applications/Open Island.app/Contents/MacOS/open-islandd");
+        install(&root, AGENTS, old, false).unwrap();
+        let path = agent_path(&root, "claude").unwrap();
+        let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        value["hooks"].as_object_mut().unwrap().remove("Stop");
+        write_json_atomic(&path, &value).unwrap();
+        // Simulate files synchronized from an older installation.
+        for agent in ["claude", "codex"] {
+            let path = agent_path(&root, agent).unwrap();
+            let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            for groups in value["hooks"].as_object_mut().unwrap().values_mut() {
+                for group in groups.as_array_mut().unwrap() {
+                    for item in group["hooks"].as_array_mut().unwrap() {
+                        item["command"] = json!(format!(
+                            "'/old/open-islandd' hook --agent {agent} {MANAGED_MARKER}"
+                        ));
+                    }
+                }
+            }
+            write_json_atomic(&path, &value).unwrap();
+        }
+        fs::write(agent_path(&root, "opencode").unwrap(), "// open-island-managed\nconst daemon = '/old/open-islandd';\n// end-open-island-managed\n").unwrap();
+        let known: Vec<_> = AGENTS.iter().map(|a| a.to_string()).collect();
+        let (updated, errors) = auto_configure(&root, new, &known);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(updated, known);
+        for agent in AGENTS {
+            assert!(!fs::read_to_string(agent_path(&root, agent).unwrap())
+                .unwrap()
+                .contains("/old/"));
+        }
+        let value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert!(value["hooks"].get("Stop").is_none());
+        assert!(auto_configure(&root, new, &known).0.is_empty());
+        uninstall(&root, AGENTS, new, false).unwrap();
+        assert!(auto_configure(&root, new, &known).0.is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn synced_hooks_are_identical_and_resolve_each_machines_daemon() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::{Command, Stdio};
+        let linux = Path::new("/home/linux/.local/bin/open-islandd");
+        let mac = Path::new("/Applications/Open Island.app/Contents/MacOS/open-islandd");
+        assert_eq!(command(linux, "codex"), command(mac, "codex"));
+        assert_eq!(
+            opencode_plugin(linux).unwrap(),
+            opencode_plugin(mac).unwrap()
+        );
+        let root = home();
+        for (machine, platform) in [
+            ("desktop ' ç", "Linux"),
+            ("notebook", "Linux"),
+            ("macbook", "Darwin"),
+        ] {
+            let home = root.join(machine);
+            let bin = home.join(".local/bin");
+            fs::create_dir_all(&bin).unwrap();
+            let uname = bin.join("uname");
+            fs::write(&uname, format!("#!/bin/sh\nprintf '%s\\n' {platform}\n")).unwrap();
+            fs::set_permissions(&uname, fs::Permissions::from_mode(0o700)).unwrap();
+            let daemon = if platform == "Darwin" {
+                // A synced Linux binary exists but must not take precedence over the Mac app.
+                fs::write(bin.join("open-islandd"), "#!/bin/sh\nexit 99\n").unwrap();
+                fs::set_permissions(bin.join("open-islandd"), fs::Permissions::from_mode(0o700))
+                    .unwrap();
+                home.join("Applications/Open Island.app/Contents/MacOS/open-islandd")
+            } else {
+                bin.join("open-islandd")
+            };
+            fs::create_dir_all(daemon.parent().unwrap()).unwrap();
+            fs::write(&daemon, "#!/bin/sh\nprintf '%s\\n' \"$@\"\ncat\n").unwrap();
+            fs::set_permissions(&daemon, fs::Permissions::from_mode(0o700)).unwrap();
+            let payload = home.join("input.json");
+            fs::write(&payload, "{\"message\":\"literal input\"}").unwrap();
+            let output = Command::new("/bin/sh")
+                .args(["-c", &command(linux, "codex")])
+                .env_remove("OPEN_ISLAND_DAEMON")
+                .env("HOME", &home)
+                .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+                .stdin(fs::File::open(&payload).unwrap())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{machine}: {output:?}");
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap(),
+                "hook\n--agent\ncodex\n--managed-by\nopen-island\n{\"message\":\"literal input\"}"
+            );
+        }
         let _ = fs::remove_dir_all(root);
     }
 

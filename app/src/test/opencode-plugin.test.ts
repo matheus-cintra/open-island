@@ -1,7 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 
 const source = await Bun.file(new URL("../../crates/open-islandd/templates/open-island-opencode.ts.template", import.meta.url)).text();
-const js = new Bun.Transpiler({ loader: "ts" }).transformSync(source.replace("__OPEN_ISLANDD_PATH__", '"/fake/daemon"'));
+const js = new Bun.Transpiler({ loader: "ts" }).transformSync(source.replace("__OPEN_ISLANDD_ARGV__", '["/fake/daemon"]'));
 const { OpenIslandPlugin } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
 let restore: (() => void) | undefined;
 afterEach(() => restore?.());

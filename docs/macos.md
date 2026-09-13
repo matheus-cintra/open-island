@@ -159,8 +159,13 @@ tela sem notch. Essa inspeção não substitui a confirmação visual no WebKit 
 ### Correção de abertura do Warp e teclado ao expandir
 
 Após relato de falha na abertura do Warp e captura do teclado ao expandir a ilha,
-o lançamento passou a usar o caminho completo da configuração no URI `warp://launch/`,
-conforme a documentação oficial. A configuração cria uma nova janela e preserva
+a primeira correção passou a usar o caminho completo da configuração no URI
+`warp://launch/`. Essa interpretação estava incorreta: o leitor atual do Warp rejeita
+caminhos absolutos e compara o link com o campo `name` do YAML. Agora cada solicitação
+recebe um nome único, usado tanto no YAML quanto no URI, evitando selecionar uma sessão
+anterior. Referência: [leitor de URI do Warp](https://github.com/warpdotdev/warp/blob/master/app/src/uri/mod.rs),
+`get_launch_config_path`, `validate_launch_config_path` e `find_matching_config_name`.
+A configuração cria uma nova janela e preserva
 o comando da ponte de entrada. A preferência de terminal fica em Geral → Novas sessões;
 o padrão continua Terminal.app.
 
@@ -173,3 +178,22 @@ quatro testes Rust de lançamento aprovados. O comportamento físico de abertura
 Warp e digitação durante hover ainda precisa de confirmação no Mac do usuário.
 
 Os dois DMGs passaram no [CI 34639579534](https://github.com/matheus-cintra/open-island/actions/runs/34639579534), commit `13379fd`: workspace Rust, bundle e atualização assinada com reinício real do daemon. Checksums conferidos após download.
+
+### Hooks após mover ou reinstalar o aplicativo
+
+A instalação atualiza caminhos de handlers identificados por `--managed-by open-island`
+e remove duplicatas equivalentes, preservando outros hooks, matchers e opções. Com
+configuração automática habilitada, agentes conhecidos também têm suas integrações
+existentes atualizadas para o resolvedor portátil. Hooks ou eventos removidos pelo usuário
+não são recriados nessa atualização. Os hooks de Claude/Codex e o plugin OpenCode
+usam o mesmo resolvedor em todas as máquinas: no macOS, o aplicativo em `/Applications`
+ou `~/Applications` tem prioridade; depois são consultados `~/.local/bin`, os diretórios
+de instalação do sistema e o PATH. `OPEN_ISLAND_DAEMON` permite escolher uma instalação
+personalizada no ambiente local. Nenhum caminho específico do usuário que instalou
+é gravado nesses arquivos compartilhados pelo Syncthing. Isso evita alternar caminhos
+Linux/macOS a cada sincronização. Versões antigas ainda podem acrescentar hooks legados;
+a atualização do aplicativo nas outras máquinas continua necessária.
+
+Validação física pendente: com a nova versão no Mac, abrir Claude no terminal normal;
+abrir Codex, Claude e OpenCode pela ilha com Warp fechado e aberto; lançar duas
+sessões em pastas distintas e confirmar pasta, agente e envio pela ponte em cada uma.

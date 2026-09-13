@@ -34,15 +34,15 @@ fn applescript_command(folder: &str, command: &str, iterm: bool) -> String {
     }
 }
 pub fn warp_configuration(folder: &str, executable: &str) -> serde_json::Value {
-    warp_configuration_command(folder, &quote_shell(executable))
+    warp_configuration_command("Open Island", folder, &quote_shell(executable))
 }
-fn warp_configuration_command(folder: &str, command: &str) -> serde_json::Value {
-    serde_json::json!({"name":"Open Island", "windows":[{"tabs":[{
+fn warp_configuration_command(name: &str, folder: &str, command: &str) -> serde_json::Value {
+    serde_json::json!({"name":name, "windows":[{"tabs":[{
         "title":"Open Island", "layout":{"cwd":folder, "commands":[{"exec":command}]}
     }]}]})
 }
-pub fn warp_uri(path: &str) -> String {
-    let encoded: String = path
+pub fn warp_uri(configuration_name: &str) -> String {
+    let encoded: String = configuration_name
         .bytes()
         .map(|byte| {
             if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
@@ -103,7 +103,8 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
             .duration_since(UNIX_EPOCH)
             .map_err(|e| e.to_string())?
             .as_nanos();
-        let file_name = format!("open-island-{}-{nonce}.yaml", std::process::id());
+        let config_name = format!("open-island-{}-{nonce}", std::process::id());
+        let file_name = format!("{config_name}.yaml");
         let path = directory.join(&file_name);
         let mut file = fs::OpenOptions::new()
             .write(true)
@@ -113,14 +114,14 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         // JSON is a YAML subset and quotes every user-supplied scalar.
         file.write_all(
-            serde_json::to_string(&warp_configuration_command(folder, &command))
+            serde_json::to_string(&warp_configuration_command(&config_name, folder, &command))
                 .map_err(|e| e.to_string())?
                 .as_bytes(),
         )
         .map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
         let status = Command::new("/usr/bin/open")
-            .args(["-b", bundle, &warp_uri(&path.to_string_lossy())])
+            .args(["-b", bundle, &warp_uri(&config_name)])
             .status()
             .map_err(|e| e.to_string());
         if !status.as_ref().is_ok_and(|s| s.success()) {
@@ -192,15 +193,20 @@ mod tests {
         assert_eq!(warp_uri("a b&x.yaml"), "warp://launch/a%20b%26x.yaml");
     }
     #[test]
-    fn warp_launch_uses_the_absolute_configuration_path_and_keeps_the_bridge_command() {
-        let path = "/Users/ma théus/.warp/launch_configurations/open-island-123.yaml";
-        assert_eq!(warp_uri(path), "warp://launch/%2FUsers%2Fma%20th%C3%A9us%2F.warp%2Flaunch_configurations%2Fopen-island-123.yaml");
+    fn warp_launch_resolves_the_unique_yaml_name_and_keeps_the_bridge_command() {
+        // Warp rejects absolute paths and matches the decoded link against YAML's
+        // name field, not its file path (app/src/uri/mod.rs in warpdotdev/warp).
+        let name = "open-island-123";
+        assert_eq!(warp_uri(name), "warp://launch/open-island-123");
         let command = format!(
             "{} run -- {}",
             quote_shell("/Applications/Open Island.app/Contents/MacOS/open-islandd"),
             quote_shell("/opt/homebrew/bin/claude")
         );
-        let config = warp_configuration_command("/Users/ma théus/project", &command);
+        let config = warp_configuration_command(name, "/Users/ma théus/project", &command);
+        assert_eq!(config["name"], name);
+        let other = warp_configuration_command("open-island-124", "/tmp/other", &command);
+        assert_ne!(config["name"], other["name"]);
         assert_eq!(config["windows"].as_array().unwrap().len(), 1);
         assert_eq!(
             config["windows"][0]["tabs"][0]["layout"]["commands"][0]["exec"],
