@@ -17,8 +17,7 @@ const EVENTS = new Set([
 
 const PROMPT_EVENT = "open-island.prompt";
 const TRACKED_MESSAGES = 64;
-const userMessages = new Set<string>();
-const promptedMessages = new Set<string>();
+
 
 function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -31,7 +30,7 @@ function remember(seen: Set<string>, id: string): void {
   if (seen.size > TRACKED_MESSAGES) seen.delete(seen.values().next().value as string);
 }
 
-function userPrompt(type: string, properties: Record<string, unknown>): unknown {
+function userPrompt(type: string, properties: Record<string, unknown>, userMessages: Set<string>, promptedMessages: Set<string>): unknown {
   if (type === "message.updated") {
     const info = record(properties.info);
     if (info.role === "user" && typeof info.id === "string") remember(userMessages, info.id);
@@ -84,22 +83,76 @@ function requestID(properties: Record<string, unknown>): string {
   return "";
 }
 
-export const OpenIslandPlugin: Plugin = async ({ client, serverUrl, directory }) => ({
+export const OpenIslandPlugin: Plugin = async ({ client, serverUrl, directory }) => {
+  const userMessages = new Set<string>();
+  const promptedMessages = new Set<string>();
+  type Metadata = { id: string; parent_id: string | null; title: string | null };
+  const cache = new Map<string, Metadata>();
+  const pending = new Map<string, Promise<Metadata | null>>();
+  function metadata(info: Record<string, unknown>): Metadata | null {
+    if (typeof info.id !== "string" || !info.id) return null;
+    const result = {
+      id: info.id,
+      parent_id: typeof info.parentID === "string" ? info.parentID : null,
+      title: typeof info.title === "string" ? info.title : null,
+    };
+    cache.set(result.id, result);
+    return result;
+  }
+  async function lookup(id: string): Promise<Metadata | null> {
+    if (cache.has(id)) return cache.get(id)!;
+    if (pending.has(id)) return pending.get(id)!;
+    const request = (async () => {
+      try {
+        const response = await client.session.get(
+          { path: { id }, query: { directory }, signal: AbortSignal.timeout(1000) },
+        );
+        const info = record(response.data);
+        return info.id === id ? metadata(info) : null;
+      } catch { return null; }
+      finally { pending.delete(id); }
+    })();
+    pending.set(id, request);
+    return request;
+  }
+  async function lineage(id: string): Promise<Metadata[]> {
+    const result: Metadata[] = [];
+    const seen = new Set<string>();
+    while (id && !seen.has(id) && seen.size < 32) {
+      seen.add(id);
+      const info = await lookup(id);
+      if (!info) break;
+      result.push(info);
+      id = info.parent_id ?? "";
+    }
+    return result;
+  }
+  return {
   async event({ event }) {
-    const prompt = userPrompt(event.type, record(event.properties));
+    const prompt = userPrompt(event.type, record(event.properties), userMessages, promptedMessages);
     if (prompt === null && !EVENTS.has(event.type)) return;
+    const outgoing = record(prompt ?? event);
+    const properties = record(outgoing.properties);
+    const info = record(properties.info);
+    const sessionID = typeof properties.sessionID === "string" ? properties.sessionID
+      : typeof info.id === "string" ? info.id : "";
+    if (event.type.startsWith("session.") && typeof info.id === "string") metadata(info);
+    // Bound metadata work for the whole chain, including broken/unreachable ancestors.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const session_metadata = await Promise.race([
+      lineage(sessionID),
+      new Promise<Metadata[]>((resolve) => { timer = setTimeout(() => resolve([]), 1200); }),
+    ]).finally(() => clearTimeout(timer));
     const child = Bun.spawn(
       [DAEMON, "hook", "--agent", "opencode", "--managed-by", "open-island"],
       { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
     );
     child.stdin.write(
-      JSON.stringify({ ...(prompt ?? event), cwd: directory, pid: process.pid }),
+      JSON.stringify({ ...outgoing, session_metadata, cwd: directory, pid: process.pid }),
     );
     child.stdin.end();
     const output = await new Response(child.stdout).text();
     const exitCode = await child.exited;
-    const properties = record(event.properties);
-    const sessionID = typeof properties.sessionID === "string" ? properties.sessionID : "";
 
     if (event.type === "question.asked") {
       const answers = questionAnswers(output, exitCode);
@@ -118,9 +171,21 @@ export const OpenIslandPlugin: Plugin = async ({ client, serverUrl, directory })
     if (sessionID === "" || id === "") return;
     const reply = permissionReply(output, exitCode);
     if (reply === null) return;
-    await client.permission.reply({ sessionID, requestID: id, reply });
+    const modern = client as unknown as {
+      permission?: { reply(input: { sessionID: string; requestID: string; reply: PermissionReply }): Promise<unknown> };
+    };
+    if (modern.permission) {
+      await modern.permission.reply({ sessionID, requestID: id, reply });
+    } else {
+      await client.postSessionIdPermissionsPermissionId({
+        path: { id: sessionID, permissionID: id },
+        query: { directory },
+        body: { response: reply },
+      });
+    }
   },
-});
+  };
+};
 
 export default OpenIslandPlugin;
 // end-open-island-managed

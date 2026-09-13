@@ -118,6 +118,10 @@ test("real listeners keep content silent and apply deadlines only to relevant ne
     clock.advance(1);
     expect(expanded()).toBe(false);
 
+    for (const id of ["a-1", "a-2", "a-3"]) {
+      tauri.emit("approval-resolved", { approval_id: id, session_id: base.id, decision: "allow" });
+    }
+
     // Resolving a focused card blurs it, releasing the hold into a full deadline.
     tauri.emit("approval-requested", { approval_id: "a-focused", session_id: base.id, tool_name: "Bash" });
     const allow = document.getElementById("approval-allow") as HTMLButtonElement;

@@ -9,7 +9,7 @@ import {
 } from "./elements";
 import { isRecord, stringField } from "./json";
 import { Question, QuestionRequest, QuestionResolved } from "./types";
-import { jumpToId, render, resetIdle, showCard, showError } from "./main";
+import { childLabel, jumpToId, render, resetIdle, showCard, showError } from "./main";
 
 export let pendingQuestion: QuestionRequest | null = null;
 let questionAnswers: string[][] = [];
@@ -59,7 +59,14 @@ export function parseQuestionResolution(value: unknown): QuestionResolved | null
   return { question_id: questionId, session_id: sessionId, outcome };
 }
 
+const questionQueue: QuestionRequest[] = [];
 export function openQuestion(question: QuestionRequest): void {
+  if (pendingQuestion && pendingQuestion.question_id !== question.question_id) {
+    if (!questionQueue.some((entry) => entry.question_id === question.question_id)) {
+      questionQueue.push(question);
+    }
+    return;
+  }
   if (pendingQuestion?.question_id === question.question_id) {
     // Repeated hook delivery can update text, but must not erase a draft or restart its deadline.
     pendingQuestion = question;
@@ -75,13 +82,20 @@ export function openQuestion(question: QuestionRequest): void {
   }
 }
 
-export function closeQuestion(): void {
+export function closeQuestion(id?: string): void {
+  if (id && pendingQuestion?.question_id !== id) {
+    const index = questionQueue.findIndex((entry) => entry.question_id === id);
+    if (index >= 0) questionQueue.splice(index, 1);
+    return;
+  }
   pendingQuestion = null;
   questionAnswers = [];
   resolvingQuestion = false;
   questionDeadline = 0;
   clearInterval(countdownTimer);
   renderedQuestionKey = "";
+  const next = questionQueue.shift();
+  if (next) openQuestion(next);
 }
 
 function toggleAnswer(index: number, label: string, multiSelect: boolean): void {
@@ -243,7 +257,8 @@ export function renderQuestion(): void {
   });
   showCard(questionCardEl, true);
   questionCardEl.setAttribute("aria-label", strings.question.label);
-  questionKickerEl.textContent = strings.question.kicker(pendingQuestion.agent);
+  const owner = childLabel(pendingQuestion.session_id);
+  questionKickerEl.textContent = strings.question.kicker(pendingQuestion.agent) + (owner ? ` · ${owner}` : "");
   questionCountEl.textContent = strings.question.count(pendingQuestion.questions.length);
   if (renderedQuestionKey === renderKey) return;
   const focused = document.activeElement;
@@ -271,6 +286,7 @@ function submitAnswers(): void {
       resetIdle();
     })
     .catch((error: unknown) => {
+      if (pendingQuestion?.question_id !== question.question_id) return;
       resolvingQuestion = false;
       renderQuestion();
       showError(strings.question.failed(String(error)));

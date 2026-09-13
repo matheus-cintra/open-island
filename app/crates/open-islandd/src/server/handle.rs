@@ -86,7 +86,15 @@ pub fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> Strin
                         .map(|mut state| state.store.snapshot(&processes))?;
                     sessions
                         .into_iter()
-                        .find(|session| session.id == params.id)
+                        .find(|session| {
+                            session.id == params.id
+                                || (session.agent == "opencode"
+                                    && session.subagents.as_ref().is_some_and(|children| {
+                                        children.iter().any(|child| {
+                                            format!("opencode:{}", child.id) == params.id
+                                        })
+                                    }))
+                        })
                         .ok_or_else(|| format!("session '{}' not found", params.id))
                 })
                 .and_then(|session| {

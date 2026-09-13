@@ -1,4 +1,4 @@
-import { expect, mock, test } from "bun:test";
+import { beforeEach, expect, mock, test } from "bun:test";
 import { mountIsland } from "./dom";
 import { tauriMock } from "./tauri";
 
@@ -25,6 +25,8 @@ mock.module("@tauri-apps/api/event", () => ({ listen: tauri.listen }));
 
 mountIsland({ reducedMotion: true });
 await import("../main");
+const questions = await import("../question");
+beforeEach(() => { while (questions.pendingQuestion) questions.closeQuestion(); });
 await new Promise((resolve) => setTimeout(resolve, 30));
 
 const island = document.getElementById("island")!;

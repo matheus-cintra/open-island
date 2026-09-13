@@ -1,0 +1,41 @@
+[
+  {
+    "agent": "opencode",
+    "attention": "needs_attention",
+    "completion_id": "254ee0-18d4cd8d83b52344-1-4",
+    "cwd": "/tmp/open-island-opencode-family-qa",
+    "effort": "xhigh",
+    "hook_id": "opencode:ses_f668ae424ffesNE7WFdHqXEuGF",
+    "id": "opencode:ses_f668ae424ffesNE7WFdHqXEuGF",
+    "launcher": "timeout",
+    "mode": "bypassPermissions",
+    "model": "gpt-5.6-sol",
+    "name": "Open Island QA - two subagents",
+    "pid": 2445056,
+    "raise_pid": 2445056,
+    "send_blocked": "host_unsupported",
+    "since_ms": 1789281060774,
+    "status": "idle",
+    "subagents": [
+      {
+        "description": "Research (@general subagent)",
+        "done": true,
+        "id": "ses_f668aa514ffep6O14KLORoyQMa",
+        "kind": "opencode",
+        "since_ms": 1789281028454,
+        "summary": "TASK: Read `/tmp/open-island-opencode-family-qa/README.md`, run `sleep 20` in the shell, and assess the file briefly. EXPECTED OUTCOME: Return exactly one sentence about README.md after the sleep…"
+      },
+      {
+        "description": "Review (@general subagent)",
+        "done": true,
+        "id": "ses_f668aa528ffecXvUzqCscgxLdM",
+        "kind": "opencode",
+        "since_ms": 1789281057724,
+        "summary": "TASK: Read `/tmp/open-island-opencode-family-qa/README.md`, run `sleep 20` in the shell, and assess the file briefly. EXPECTED OUTCOME: Return exactly one sentence about README.md after the sleep…"
+      }
+    ],
+    "summary": "\"Validate the subagent display integration. Use the task tool to start exactly TWO general subagents, preferably concurrently. Name them Research and Review. Tell each to read README.md, run sleep…",
+    "terminal": "unknown",
+    "title": "open-island-opencode-family-qa"
+  }
+]

@@ -19,6 +19,7 @@ pub fn parse(input: &str) -> Result<Option<ParsedIngress>, ParseError> {
     let agent_session_id = data
         .get("sessionID")
         .or_else(|| data.get("session_id"))
+        .or_else(|| data.get("info").and_then(|info| info.get("id")))
         .and_then(Value::as_str)
         .ok_or(ParseError::MissingField("sessionID"))?;
     let is_approval = matches!(&event, HookEventKind::PermissionRequest);
@@ -27,6 +28,24 @@ pub fn parse(input: &str) -> Result<Option<ParsedIngress>, ParseError> {
         HookEventKind::QuestionAsked | HookEventKind::QuestionAnswered
     );
     let mut normalized = HookEvent::new("opencode", agent_session_id, event);
+    normalized.session_metadata = value
+        .get("session_metadata")
+        .and_then(|metadata| serde_json::from_value(metadata.clone()).ok())
+        .unwrap_or_default();
+    if name.starts_with("session.") {
+        if let Some(info) = data
+            .get("info")
+            .filter(|info| info.get("id").and_then(Value::as_str).is_some())
+        {
+            normalized
+                .session_metadata
+                .push(crate::protocol::SessionMetadata {
+                    id: agent_session_id.to_owned(),
+                    parent_id: optional_string(info, "parentID"),
+                    title: optional_string(info, "title"),
+                });
+        }
+    }
     normalized.cwd = optional_string(data, "cwd").or_else(|| optional_string(&value, "cwd"));
     normalized.pid = optional_pid(&value);
     normalized.tool_name =
@@ -35,7 +54,10 @@ pub fn parse(input: &str) -> Result<Option<ParsedIngress>, ParseError> {
         .get("metadata")
         .cloned()
         .or_else(|| data.get("args").cloned());
-    normalized.status = optional_string(data, "status");
+    normalized.status = optional_string(data, "status").or_else(|| {
+        data.get("status")
+            .and_then(|status| optional_string(status, "type"))
+    });
     normalized.prompt = optional_string(data, "text");
     if let Some(model) = data.get("info").and_then(|info| info.get("model")) {
         normalized.model =
@@ -97,5 +119,33 @@ pub fn parse_decision_output(input: &str) -> Result<Option<NativeDecision>, Pars
         Some("reject") => Ok(Some(NativeDecision::Deny)),
         Some(_) => Err(ParseError::InvalidField("reply")),
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_info_confirms_ancestry_but_legacy_events_leave_it_unknown() {
+        for kind in ["session.created", "session.updated", "session.deleted"] {
+            let event = parse(&format!(r#"{{"type":"{kind}","properties":{{"info":{{"id":"child","parentID":"root","title":"Research"}}}}}}"#)).unwrap().unwrap().event;
+            assert_eq!(event.session_id.as_str(), "opencode:child");
+            assert_eq!(event.session_metadata[0].parent_id.as_deref(), Some("root"));
+            assert_eq!(event.session_metadata[0].title.as_deref(), Some("Research"));
+        }
+        let legacy = parse(r#"{"type":"session.idle","properties":{"sessionID":"old"}}"#)
+            .unwrap()
+            .unwrap()
+            .event;
+        assert!(legacy.session_metadata.is_empty());
+        let root = parse(
+            r#"{"type":"session.created","properties":{"info":{"id":"root","title":"Main"}}}"#,
+        )
+        .unwrap()
+        .unwrap()
+        .event;
+        assert_eq!(root.session_metadata.len(), 1);
+        assert_eq!(root.session_metadata[0].parent_id, None);
     }
 }

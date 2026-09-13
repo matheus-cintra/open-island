@@ -373,9 +373,23 @@ pub fn hook_event(
     } else {
         let kind = event.event.clone();
         let mut spamming = false;
+        let mut announce = true;
         if let Ok(mut state) = ctx.state.lock() {
+            let id = event.session_id.clone();
+            let previous_completion = state.store.completion_id(&id).map(str::to_owned);
             state.store.apply_hook_event(event);
-            if kind == HookEventKind::UserPromptSubmit {
+            let child = state.store.presentation_id(&id) != id;
+            if child {
+                use open_island_core::config::SubagentTiming;
+                announce = kind == HookEventKind::Stop
+                    && state.store.completion_id(&id) != previous_completion.as_deref()
+                    && match ctx.config.get().notifications.subagent_timing {
+                        SubagentTiming::RootResponses => false,
+                        SubagentTiming::EveryCompletion => true,
+                        SubagentTiming::AllFinished => state.store.family_children_finished(&id),
+                    };
+            }
+            if kind == HookEventKind::UserPromptSubmit && !child {
                 let sound = &ctx.config.get().sound;
                 spamming = state.store.note_prompt(
                     Instant::now(),
@@ -387,7 +401,9 @@ pub fn hook_event(
         if spamming {
             ctx.sound.play(SoundEvent::UserSpam);
         }
-        announce_hook_event(&ctx, kind);
+        if announce {
+            announce_hook_event(&ctx, kind);
+        }
     }
     let Some((approval_id, generation, receiver, cell, return_mode)) = waiter else {
         return Ok(json!({"accepted": true, "decision": "deny"}));

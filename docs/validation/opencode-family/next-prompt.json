@@ -1,0 +1,23 @@
+[
+  {
+    "agent": "opencode",
+    "attention": "needs_attention",
+    "completion_id": "254ee0-18d4cd8d83b52344-1-5",
+    "cwd": "/tmp/open-island-opencode-family-qa",
+    "effort": "xhigh",
+    "hook_id": "opencode:ses_f668ae424ffesNE7WFdHqXEuGF",
+    "id": "opencode:ses_f668ae424ffesNE7WFdHqXEuGF",
+    "launcher": "timeout",
+    "mode": "bypassPermissions",
+    "model": "gpt-5.6-sol",
+    "name": "Open Island QA - two subagents",
+    "pid": 2445056,
+    "raise_pid": 2445056,
+    "send_blocked": "host_unsupported",
+    "since_ms": 1789281146321,
+    "status": "idle",
+    "summary": "\"Reply only QA second prompt. Do not use tools or create subagents.\"",
+    "terminal": "unknown",
+    "title": "open-island-opencode-family-qa"
+  }
+]

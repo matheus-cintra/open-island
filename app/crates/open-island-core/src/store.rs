@@ -132,6 +132,8 @@ fn question_intent(event: &HookEvent) -> Option<QuestionIntent<'_>> {
 #[derive(Clone, Debug)]
 pub struct SessionStore {
     hooks: HashMap<HookId, HookState>,
+    parents: HashMap<HookId, Option<HookId>>,
+    retired_children: HashSet<HookId>,
     pending_approvals: HashMap<String, PendingApproval>,
     approval_order: VecDeque<String>,
     pending_questions: HashMap<String, PendingQuestion>,
@@ -164,6 +166,8 @@ impl Default for SessionStore {
     fn default() -> Self {
         Self {
             hooks: HashMap::new(),
+            parents: HashMap::new(),
+            retired_children: HashSet::new(),
             pending_approvals: HashMap::new(),
             approval_order: VecDeque::new(),
             pending_questions: HashMap::new(),
@@ -275,6 +279,12 @@ impl SessionStore {
     // Hidden, not removed: the process is still alive, so removing the hook would only
     // downgrade a rich row to a bare one, and any new event un-hides it anyway.
     fn stale(&self, hook_id: &HookId, state: &HookState, now: Instant) -> bool {
+        let root = self.root_of(hook_id);
+        if root != *hook_id {
+            if let Some(parent) = self.hooks.get(&root) {
+                return self.stale(&root, parent, now);
+            }
+        }
         if self.cleanup_after.is_zero() {
             return false;
         }
@@ -286,7 +296,13 @@ impl SessionStore {
                 .pending_approvals
                 .values()
                 .any(|pending| pending.session_id == *hook_id);
+        let active_descendant = self.hooks.iter().any(|(id, child)| {
+            id != hook_id
+                && self.root_of(id) == *hook_id
+                && (child.stopped_at.is_none() || self.is_waiting(id))
+        });
         !busy
+            && !active_descendant
             && state
                 .stopped_at
                 .is_some_and(|stopped_at| now.duration_since(stopped_at) >= self.cleanup_after)
@@ -329,6 +345,63 @@ impl SessionStore {
     /// absolute stamp the island renders the elapsed badge from. Separate parameters so a
     /// test can pin the stamp without two transitions landing in the same millisecond.
     pub fn apply_hook_event_at_wall(&mut self, event: HookEvent, now: Instant, wall_ms: u64) {
+        if event.agent == "opencode" {
+            for metadata in &event.session_metadata {
+                if metadata.id.is_empty() {
+                    continue;
+                }
+                let id = HookId::new("opencode", &metadata.id);
+                let parent = metadata
+                    .parent_id
+                    .as_ref()
+                    .map(|id| HookId::new("opencode", id));
+                if parent
+                    .as_ref()
+                    .is_some_and(|parent| self.is_descendant_of(parent, &id))
+                {
+                    continue;
+                }
+                self.parents.insert(id.clone(), parent);
+                if !self.hooks.contains_key(&id) && id != event.session_id {
+                    let mut ancestor =
+                        HookEvent::new("opencode", &metadata.id, HookEventKind::Status);
+                    ancestor.pid = event.pid;
+                    ancestor.cwd = event.cwd.clone();
+                    self.apply_hook_event_at_wall(ancestor, now, wall_ms);
+                    if let Some(state) = self.hooks.get_mut(&id) {
+                        state.stopped_at = Some(now);
+                        state.seen_at = Some(now);
+                    }
+                }
+                if let Some(state) = self.hooks.get_mut(&id) {
+                    if let Some(title) = &metadata.title {
+                        state.session.name = Some(title.clone());
+                    }
+                }
+            }
+            if event.event == HookEventKind::UserPromptSubmit
+                && self.root_of(&event.session_id) == event.session_id
+            {
+                let completed = self
+                    .hooks
+                    .iter()
+                    .filter(|(id, state)| {
+                        **id != event.session_id
+                            && self.root_of(id) == event.session_id
+                            && state.stopped_at.is_some()
+                            && !self.is_waiting(id)
+                    })
+                    .map(|(id, _)| id.clone())
+                    .collect::<Vec<_>>();
+                self.retired_children.extend(completed);
+            }
+            if !matches!(event.event, HookEventKind::Status | HookEventKind::Stop)
+                || event.status.as_deref() == Some("busy")
+            {
+                self.retired_children.remove(&event.session_id);
+            }
+        }
+
         if event.event == HookEventKind::SessionEnd {
             self.remove_hook(&event.session_id);
             return;
@@ -391,6 +464,18 @@ impl SessionStore {
                 state.session.completion_id = None;
             }
             state.session.agent = event.agent.clone();
+            if let Some(title) = event
+                .session_metadata
+                .iter()
+                .find(|metadata| HookId::new(&event.agent, &metadata.id) == hook_id)
+                .and_then(|metadata| metadata.title.as_ref())
+            {
+                state.session.name = Some(title.clone());
+            }
+            if event.status.as_deref() == Some("busy") {
+                state.stopped_at = None;
+                state.legacy_stop_armed = true;
+            }
             if let Some(cwd) = event.cwd {
                 if state.branch_cwd != cwd {
                     state.branch_cwd = cwd.clone();
@@ -614,8 +699,16 @@ impl SessionStore {
     }
 
     pub fn mark_seen(&mut self, hook_id: &HookId, now: Instant) {
-        if let Some(state) = self.hooks.get_mut(hook_id) {
-            state.seen_at = Some(now);
+        let family = self
+            .hooks
+            .keys()
+            .filter(|id| self.is_descendant_of(id, hook_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in family {
+            if let Some(state) = self.hooks.get_mut(&id) {
+                state.seen_at = Some(now);
+            }
         }
     }
 
@@ -642,6 +735,14 @@ impl SessionStore {
                     .map(|pending| pending.session_id.clone()),
             )
             .collect();
+        // Completion reminders belong to the conversation, as with embedded Claude
+        // subagents. A child's pending response still gets its own reminder.
+        let children = self
+            .hooks
+            .keys()
+            .filter(|id| self.root_of(id) != **id)
+            .cloned()
+            .collect::<HashSet<_>>();
         let mut due = Vec::new();
         for (hook_id, state) in &mut self.hooks {
             if state.filtered {
@@ -667,7 +768,7 @@ impl SessionStore {
                 state.waiting_reminded_at = Some(now);
                 waited
             } else {
-                if !scopes.completed_tasks {
+                if !scopes.completed_tasks || children.contains(hook_id) {
                     continue;
                 }
                 let Some(stopped_at) = state.stopped_at else {
@@ -746,10 +847,19 @@ impl SessionStore {
         let mut joined = Vec::new();
         let mut sessions = Vec::new();
         for (hook_id, state) in &self.hooks {
-            let process_index = find_process(&used, processes, |process| {
+            let shared = state.session.agent == "opencode";
+            let available = if shared {
+                vec![false; processes.len()]
+            } else {
+                used.clone()
+            };
+            let process_index = find_process(&available, processes, |process| {
                 process.agent == state.session.agent && process.pid == state.session.pid
             })
             .or_else(|| {
+                if shared {
+                    return None;
+                }
                 find_process(&used, processes, |process| {
                     process.agent == state.session.agent && process.cwd == state.session.cwd
                 })
@@ -831,6 +941,7 @@ impl SessionStore {
                 .filter(|queue| !queue.messages.is_empty())
                 .map(|queue| queue.messages.iter().cloned().collect());
         }
+        self.group_children(&mut sessions);
         sessions.sort_by(|left, right| {
             left.attention
                 .unwrap_or(Attention::Working)
@@ -841,6 +952,95 @@ impl SessionStore {
                 .then_with(|| left.pid.cmp(&right.pid))
         });
         sessions
+    }
+
+    fn is_descendant_of(&self, id: &HookId, ancestor: &HookId) -> bool {
+        let mut current = id.clone();
+        let mut seen = HashSet::new();
+        while seen.insert(current.clone()) {
+            if &current == ancestor {
+                return true;
+            }
+            match self.parents.get(&current) {
+                Some(Some(parent)) => current = parent.clone(),
+                _ => break,
+            }
+        }
+        false
+    }
+
+    pub fn completion_id(&self, id: &HookId) -> Option<&str> {
+        self.hooks.get(id)?.session.completion_id.as_deref()
+    }
+
+    pub fn presentation_id(&self, id: &HookId) -> HookId {
+        self.root_of(id)
+    }
+
+    pub fn family_children_finished(&self, id: &HookId) -> bool {
+        let root = self.root_of(id);
+        self.hooks
+            .iter()
+            .filter(|(id, _)| **id != root && self.root_of(id) == root)
+            .all(|(id, state)| state.stopped_at.is_some() && !self.is_waiting(id))
+    }
+
+    fn root_of(&self, id: &HookId) -> HookId {
+        let mut current = id.clone();
+        let mut seen = HashSet::new();
+        while seen.insert(current.clone()) {
+            match self.parents.get(&current) {
+                Some(Some(parent)) => current = parent.clone(),
+                _ => return current,
+            }
+        }
+        id.clone()
+    }
+
+    fn group_children(&self, sessions: &mut Vec<Session>) {
+        let children = sessions
+            .iter()
+            .filter_map(|child| {
+                let id = child.hook_id.as_ref()?;
+                let root = self.root_of(id);
+                (root != *id && sessions.iter().any(|session| session.id == root.as_str()))
+                    .then(|| (child.clone(), root))
+            })
+            .collect::<Vec<_>>();
+        for (child, root) in &children {
+            let id = child.hook_id.as_ref().unwrap();
+            if self.retired_children.contains(id) {
+                continue;
+            }
+            let parent = sessions
+                .iter_mut()
+                .find(|session| session.id == root.as_str())
+                .unwrap();
+            parent.attention = Some(
+                parent
+                    .attention
+                    .unwrap_or(Attention::Idle)
+                    .min(child.attention.unwrap_or(Attention::Idle)),
+            );
+            let raw_id = child.id.strip_prefix("opencode:").unwrap_or(&child.id);
+            let agents = parent.subagents.get_or_insert_with(Vec::new);
+            agents.retain(|agent| agent.id != raw_id && agent.id != child.id);
+            agents.push(Subagent {
+                id: raw_id.to_owned(),
+                kind: "opencode".to_owned(),
+                description: child.name.clone().or_else(|| Some(child.title.clone())),
+                tool: child.current_tool.clone(),
+                summary: child.last_message.clone().or_else(|| child.summary.clone()),
+                since_ms: child.since_ms,
+                done: self
+                    .hooks
+                    .get(id)
+                    .is_some_and(|state| state.stopped_at.is_some())
+                    && !self.is_waiting(id),
+            });
+            agents.sort_by(|a, b| a.id.cmp(&b.id));
+        }
+        sessions.retain(|session| !children.iter().any(|(child, _)| child.id == session.id));
     }
 
     fn add_approval(&mut self, approval_id: String, session_id: HookId, now: Instant) {
@@ -899,7 +1099,23 @@ impl SessionStore {
     }
 
     fn remove_hook(&mut self, hook_id: &HookId) {
+        let descendants = self
+            .hooks
+            .keys()
+            .filter(|id| *id != hook_id && self.is_descendant_of(id, hook_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in descendants {
+            self.hooks.remove(&id);
+            self.parents.remove(&id);
+            self.retired_children.remove(&id);
+            self.drop_pending(&id);
+            self.queues.remove(id.as_str());
+        }
         self.hooks.remove(hook_id);
+        self.parents.remove(hook_id);
+        self.retired_children.remove(hook_id);
+        self.queues.remove(hook_id.as_str());
         self.drop_pending(hook_id);
     }
 

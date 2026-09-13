@@ -101,8 +101,18 @@ pub struct Question {
     pub id: Option<String>,
 }
 
+/// An entry confirms ancestry; an absent entry means ancestry is still unknown.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SessionMetadata {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub title: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct HookEvent {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub session_metadata: Vec<SessionMetadata>,
     pub agent: String,
     pub session_id: HookId,
     #[serde(alias = "kind")]
@@ -158,6 +168,7 @@ pub struct HookEvent {
 impl HookEvent {
     pub fn new(agent: &str, agent_session_id: &str, event: HookEventKind) -> Self {
         Self {
+            session_metadata: Vec::new(),
             agent: agent.to_owned(),
             session_id: HookId::new(agent, agent_session_id),
             event,

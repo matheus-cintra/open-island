@@ -715,10 +715,22 @@ export function jumpTo(session: Session, row: HTMLButtonElement): void {
   });
 }
 
+export function familySession(id: string): Session | undefined {
+  return sessions.find((entry) => entry.id === id || (entry.agent === "opencode" &&
+    entry.subagents?.some((child) => `opencode:${child.id}` === id)));
+}
+
+export function childLabel(id: string): string {
+  const parent = familySession(id);
+  if (!parent || parent.id === id) return "";
+  const child = parent.subagents?.find((child) => `opencode:${child.id}` === id);
+  return child?.description ?? id;
+}
+
 export function jumpToId(id: string): void {
   if (!id) return;
-  const session = sessions.find((entry) => entry.id === id);
-  invoke("jump", { id }).catch((err: unknown) => {
+  const session = familySession(id);
+  invoke("jump", { id: session?.id ?? id }).catch((err: unknown) => {
     showError(strings.jump.failed(session?.title ?? id, String(err)));
   });
 }
@@ -806,6 +818,16 @@ function renderApprovalDiff(approval: ApprovalRequest): void {
   }
 }
 
+const approvalQueue: ApprovalRequest[] = [];
+function closeApproval(id: string): void {
+  const index = approvalQueue.findIndex((entry) => entry.approval_id === id);
+  if (index >= 0) approvalQueue.splice(index, 1);
+  if (pendingApproval?.approval_id === id) {
+    pendingApproval = approvalQueue.shift() ?? null;
+    resolvingApproval = false;
+  }
+}
+
 function renderApproval(): void {
   if (!pendingApproval) {
     showCard(approvalCardEl, false);
@@ -820,7 +842,8 @@ function renderApproval(): void {
     pendingApproval.tool_name === PLAN_TOOL
       ? strings.approval.planTool
       : (pendingApproval.tool_name ?? strings.approval.missingTool);
-  approvalSummaryEl.textContent = approvalDescription(pendingApproval);
+  const owner = childLabel(pendingApproval.session_id);
+  approvalSummaryEl.textContent = (owner ? `${owner} · ` : "") + approvalDescription(pendingApproval);
   renderApprovalDiff(pendingApproval);
   approvalAlwaysEl.hidden = !supportsAlways(pendingApproval);
   approvalAllowEl.disabled = resolvingApproval;
@@ -838,12 +861,12 @@ function resolveApproval(decision: ApprovalDecision): void {
     decision,
   })
     .then(() => {
-      if (pendingApproval?.approval_id === approval.approval_id) pendingApproval = null;
-      resolvingApproval = false;
+      closeApproval(approval.approval_id);
       render();
       resetIdle();
     })
     .catch((error: unknown) => {
+      if (pendingApproval?.approval_id !== approval.approval_id) return;
       resolvingApproval = false;
       renderApproval();
       showError(strings.approval.failed(decision, String(error)));
@@ -960,7 +983,9 @@ void listen<unknown>("approval-requested", (event) => {
   const isNew = !seenApprovalIds.has(approval.approval_id);
   seenApprovalIds.add(approval.approval_id);
   if (!isNew && pendingApproval?.approval_id !== approval.approval_id) return;
-  pendingApproval = approval;
+  if (pendingApproval && pendingApproval.approval_id !== approval.approval_id) {
+    if (!approvalQueue.some((entry) => entry.approval_id === approval.approval_id)) approvalQueue.push(approval);
+  } else pendingApproval = approval;
   if (isNew && admitsExpansion("approval")) activity.relevantEvent();
   render();
   resetIdle();
@@ -969,11 +994,8 @@ void listen<unknown>("approval-requested", (event) => {
 void listen<unknown>("approval-resolved", (event) => {
   const resolution = parseResolution(event.payload);
   if (!resolution) return;
-  if (pendingApproval?.approval_id === resolution.approval_id) {
-    pendingApproval = null;
-    resolvingApproval = false;
-    render();
-  }
+  closeApproval(resolution.approval_id);
+  render();
   resetIdle();
 });
 
@@ -995,10 +1017,8 @@ void listen<unknown>("question-asked", (event) => {
 void listen<unknown>("question-resolved", (event) => {
   const resolution = parseQuestionResolution(event.payload);
   if (!resolution) return;
-  if (pendingQuestion?.question_id === resolution.question_id) {
-    closeQuestion();
-    render();
-  }
+  closeQuestion(resolution.question_id);
+  render();
   resetIdle();
 });
 

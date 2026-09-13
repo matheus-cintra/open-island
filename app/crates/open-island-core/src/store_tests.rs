@@ -1868,3 +1868,195 @@ fn inaccessible_live_hook_is_kept_until_the_process_exits() {
     assert_eq!(sessions[0].id, "claude:private");
     assert!(store.snapshot_with_liveness(&[], now, |_| false).is_empty());
 }
+
+fn oc_event(id: &str, parent: Option<&str>, kind: HookEventKind) -> HookEvent {
+    let mut event = HookEvent::new("opencode", id, kind);
+    event.pid = Some(4242);
+    event.cwd = Some("/work".into());
+    event
+        .session_metadata
+        .push(crate::protocol::SessionMetadata {
+            id: id.into(),
+            parent_id: parent.map(str::to_owned),
+            title: Some(format!("Title {id}")),
+        });
+    if let Some(parent) = parent {
+        event
+            .session_metadata
+            .push(crate::protocol::SessionMetadata {
+                id: parent.into(),
+                parent_id: None,
+                title: Some(format!("Title {parent}")),
+            });
+    }
+    event
+}
+
+fn oc_snapshot(store: &mut SessionStore, now: Instant) -> Vec<Session> {
+    store.snapshot_with_liveness(
+        &[Session::new("opencode", "/work", 4242, "kitty")],
+        now,
+        |_| true,
+    )
+}
+
+#[test]
+fn opencode_family_keeps_original_identities_and_parent_content() {
+    let now = Instant::now();
+    let mut store = SessionStore::new();
+    store.apply_hook_event_at(oc_event("a", Some("root"), HookEventKind::PreToolUse), now);
+    store.apply_hook_event_at(oc_event("b", Some("root"), HookEventKind::PreToolUse), now);
+    let mut root = oc_event("root", None, HookEventKind::UserPromptSubmit);
+    root.prompt = Some("Main prompt".into());
+    root.model = Some("main-model".into());
+    store.apply_hook_event_at(root, now);
+    let sessions = oc_snapshot(&mut store, now);
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].id, "opencode:root");
+    assert_eq!(sessions[0].subagents.as_ref().unwrap().len(), 2);
+    assert_eq!(sessions[0].model.as_deref(), Some("main-model"));
+    assert_eq!(sessions[0].summary.as_deref(), Some("Main prompt"));
+    assert_eq!(sessions[0].terminal, "kitty");
+    assert_eq!(store.hooks.len(), 3);
+}
+
+#[test]
+fn opencode_late_metadata_reconciles_bridge_and_multilevel_children_without_pid_grouping() {
+    let now = Instant::now();
+    let mut store = SessionStore::new();
+    let bridge = crate::adapters::parse_claude(r#"{"hook_source":"opencode-plugin","session_id":"leaf","pid":4242,"cwd":"/work","hook_event_name":"PreToolUse","tool_name":"Bash"}"#).unwrap().unwrap().event;
+    store.apply_hook_event_at(bridge.clone(), now);
+    store.apply_hook_event_at(oc_event("other", None, HookEventKind::SessionStart), now);
+    assert_eq!(oc_snapshot(&mut store, now).len(), 2);
+    let mut info = oc_event("leaf", Some("middle"), HookEventKind::Status);
+    info.session_metadata[1].parent_id = Some("root".into());
+    info.session_metadata
+        .push(crate::protocol::SessionMetadata {
+            id: "root".into(),
+            parent_id: None,
+            title: Some("Root".into()),
+        });
+    store.apply_hook_event_at(info, now);
+    store.apply_hook_event_at(bridge, now);
+    let sessions = oc_snapshot(&mut store, now);
+    assert_eq!(sessions.len(), 2);
+    let root = sessions.iter().find(|s| s.id == "opencode:root").unwrap();
+    assert_eq!(root.subagents.as_ref().unwrap().len(), 2);
+    assert_eq!(root.subagents.as_ref().unwrap()[0].id, "leaf");
+    let mut cycle = oc_event("root", Some("leaf"), HookEventKind::Status);
+    cycle.session_metadata.truncate(1);
+    store.apply_hook_event_at(cycle, now);
+    assert_eq!(
+        store.root_of(&HookId::new("opencode", "leaf")).as_str(),
+        "opencode:root"
+    );
+}
+
+#[test]
+fn opencode_lifecycle_preserves_pending_children_and_removes_family() {
+    let now = Instant::now();
+    let mut store = SessionStore::new();
+    store.set_cleanup_after(Duration::from_secs(1));
+    store.apply_hook_event_at(oc_event("a", Some("root"), HookEventKind::PreToolUse), now);
+    store.apply_hook_event_at(oc_event("b", Some("root"), HookEventKind::Stop), now);
+    store.apply_hook_event_at(oc_event("root", None, HookEventKind::Stop), now);
+    let later = now + Duration::from_secs(1000);
+    let sessions = oc_snapshot(&mut store, later);
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].attention, Some(Attention::Working));
+    let mut question = oc_event("a", Some("root"), HookEventKind::QuestionAsked);
+    question.question_id = Some("q-a".into());
+    store.apply_hook_event_at(question, later);
+    let mut permission = oc_event("b", Some("root"), HookEventKind::PermissionRequest);
+    permission.approval_id = Some("p-b".into());
+    store.apply_hook_event_at(permission, later);
+    assert_eq!(
+        oc_snapshot(&mut store, later)[0].attention,
+        Some(Attention::WaitingForInput)
+    );
+    store.apply_hook_event_at(
+        oc_event("root", None, HookEventKind::UserPromptSubmit),
+        later,
+    );
+    assert_eq!(
+        oc_snapshot(&mut store, later)[0]
+            .subagents
+            .as_ref()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        store.pending_questions["q-a"].session_id.as_str(),
+        "opencode:a"
+    );
+    assert_eq!(
+        store.pending_approvals["p-b"].session_id.as_str(),
+        "opencode:b"
+    );
+    store.resolve_approval("p-b", ApprovalDecision::Allow);
+    store.apply_hook_event_at(
+        oc_event("b", Some("root"), HookEventKind::PreToolUse),
+        later,
+    );
+    store.apply_hook_event_at(oc_event("b", Some("root"), HookEventKind::Stop), later);
+    store.apply_hook_event_at(
+        oc_event("root", None, HookEventKind::UserPromptSubmit),
+        later,
+    );
+    assert_eq!(
+        oc_snapshot(&mut store, later)[0]
+            .subagents
+            .as_ref()
+            .unwrap()
+            .len(),
+        1
+    );
+    store.apply_hook_event_at(
+        oc_event("b", Some("root"), HookEventKind::PreToolUse),
+        later,
+    );
+    assert_eq!(
+        oc_snapshot(&mut store, later)[0]
+            .subagents
+            .as_ref()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(store
+        .snapshot_with_liveness(&[], later, |_| false)
+        .is_empty());
+    assert!(store.hooks.is_empty());
+    assert!(store.pending_questions.is_empty());
+}
+
+#[test]
+fn opencode_cleanup_hides_a_finished_family_together_and_child_deletion_keeps_parent() {
+    let now = Instant::now();
+    let mut store = SessionStore::new();
+    store.set_cleanup_after(Duration::from_secs(1));
+    store.apply_hook_event_at(oc_event("child", Some("root"), HookEventKind::Stop), now);
+    store.apply_hook_event_at(oc_event("root", None, HookEventKind::Stop), now);
+    assert_eq!(
+        oc_snapshot(&mut store, now)[0]
+            .subagents
+            .as_ref()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(oc_snapshot(&mut store, now + Duration::from_secs(2)).is_empty());
+    assert_eq!(store.hooks.len(), 2);
+    store.apply_hook_event_at(
+        oc_event("child", Some("root"), HookEventKind::PreToolUse),
+        now,
+    );
+    assert_eq!(oc_snapshot(&mut store, now).len(), 1);
+    store.apply_hook_event_at(
+        oc_event("child", Some("root"), HookEventKind::SessionEnd),
+        now,
+    );
+    assert_eq!(oc_snapshot(&mut store, now)[0].id, "opencode:root");
+    assert_eq!(store.hooks.len(), 1);
+}

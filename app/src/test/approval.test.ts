@@ -55,6 +55,7 @@ test("Sempre is hidden on a plan, where it would repeat Permitir", () => {
 });
 
 test("Sempre still shows on an ordinary tool from an agent that supports it", () => {
+  tauri.emit("approval-resolved", { approval_id: "approval-ExitPlanMode", session_id: "claude:abc123", decision: "allow" });
   request("Bash", { command: "pwd" });
   expect(always.hidden).toBe(false);
   expect(tool.textContent).toBe("Bash");
