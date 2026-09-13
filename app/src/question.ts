@@ -16,6 +16,7 @@ let questionAnswers: string[][] = [];
 let resolvingQuestion = false;
 let questionDeadline = 0;
 let countdownTimer = 0;
+let renderedQuestionKey = "";
 
 export function parseQuestion(value: unknown): QuestionRequest | null {
   const questionId = stringField(value, "question_id");
@@ -59,6 +60,11 @@ export function parseQuestionResolution(value: unknown): QuestionResolved | null
 }
 
 export function openQuestion(question: QuestionRequest): void {
+  if (pendingQuestion?.question_id === question.question_id) {
+    // Repeated hook delivery can update text, but must not erase a draft or restart its deadline.
+    pendingQuestion = question;
+    return;
+  }
   pendingQuestion = question;
   questionAnswers = question.questions.map(() => []);
   resolvingQuestion = false;
@@ -75,6 +81,7 @@ export function closeQuestion(): void {
   resolvingQuestion = false;
   questionDeadline = 0;
   clearInterval(countdownTimer);
+  renderedQuestionKey = "";
 }
 
 function toggleAnswer(index: number, label: string, multiSelect: boolean): void {
@@ -158,6 +165,10 @@ function questionItem(question: Question, index: number): HTMLDivElement {
     custom.dataset.question = String(index);
     custom.placeholder = strings.question.customPlaceholder;
     custom.disabled = resolvingQuestion;
+    const selected = questionAnswers[index] ?? [];
+    const optionLabels = new Set(question.options.map((option) => option.label));
+    const savedCustom = selected.find((answer) => !optionLabels.has(answer));
+    if (savedCustom) custom.value = savedCustom;
     custom.addEventListener("input", () => {
       const value = custom.value.trim();
       questionAnswers[index] = value ? [value] : [];
@@ -226,12 +237,25 @@ export function renderQuestion(): void {
     });
     return;
   }
+  const renderKey = JSON.stringify({
+    question: pendingQuestion,
+    resolving: resolvingQuestion,
+  });
   showCard(questionCardEl, true);
   questionCardEl.setAttribute("aria-label", strings.question.label);
   questionKickerEl.textContent = strings.question.kicker(pendingQuestion.agent);
   questionCountEl.textContent = strings.question.count(pendingQuestion.questions.length);
+  if (renderedQuestionKey === renderKey) return;
+  const focused = document.activeElement;
+  const focusedIndex = focused instanceof HTMLElement && focused.matches(".question-custom")
+    ? focused.dataset.question
+    : undefined;
   questionBodyEl.replaceChildren(...pendingQuestion.questions.map(questionItem));
+  if (focusedIndex !== undefined) {
+    questionBodyEl.querySelector<HTMLInputElement>(`.question-custom[data-question="${focusedIndex}"]`)?.focus();
+  }
   renderQuestionActions();
+  renderedQuestionKey = renderKey;
 }
 
 function submitAnswers(): void {

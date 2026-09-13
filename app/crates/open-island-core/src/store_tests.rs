@@ -1320,6 +1320,91 @@ fn three_prompts_inside_the_window_cross_once_and_only_once() {
 }
 
 #[test]
+fn primary_stops_get_daemon_completion_ids_and_duplicate_turns_do_not_replace_them() {
+    let now = Instant::now();
+    let mut store = SessionStore::new();
+    store.apply_hook_event_at(
+        event(HookEventKind::UserPromptSubmit, "one", "/work", 4242),
+        now,
+    );
+    let mut stop = event(HookEventKind::Stop, "one", "/work", 4242);
+    stop.turn_id = Some("turn-1".to_owned());
+    store.apply_hook_event_at(stop.clone(), now);
+    let first = store.snapshot_at(&[process(4242, "/work")], now)[0]
+        .completion_id
+        .clone()
+        .expect("accepted stop has an id");
+
+    store.apply_hook_event_at(stop, now + Duration::from_secs(1));
+    assert_eq!(
+        store.snapshot_at(&[process(4242, "/work")], now)[0]
+            .completion_id
+            .as_deref(),
+        Some(first.as_str())
+    );
+
+    store.apply_hook_event_at(
+        event(HookEventKind::UserPromptSubmit, "one", "/work", 4242),
+        now + Duration::from_secs(2),
+    );
+    let mut next = event(HookEventKind::Stop, "one", "/work", 4242);
+    next.turn_id = Some("turn-2".to_owned());
+    store.apply_hook_event_at(next, now + Duration::from_secs(3));
+    let second = store.snapshot_at(&[process(4242, "/work")], now)[0]
+        .completion_id
+        .clone()
+        .expect("new turn has an id");
+    assert_ne!(first, second);
+
+    let mut delayed = event(HookEventKind::Stop, "one", "/work", 4242);
+    delayed.turn_id = Some("turn-1".to_owned());
+    store.apply_hook_event_at(delayed, now + Duration::from_secs(4));
+    assert_eq!(
+        store.snapshot_at(&[process(4242, "/work")], now)[0]
+            .completion_id
+            .as_deref(),
+        Some(second.as_str())
+    );
+}
+
+#[test]
+fn legacy_stops_need_primary_activity_before_they_can_complete_again() {
+    let now = Instant::now();
+    let mut store = SessionStore::new();
+    store.apply_hook_event_at(event(HookEventKind::Stop, "one", "/work", 4242), now);
+    let first = store.snapshot_at(&[process(4242, "/work")], now)[0]
+        .completion_id
+        .clone()
+        .expect("first legacy stop is accepted");
+
+    store.apply_hook_event_at(
+        event(HookEventKind::Stop, "one", "/work", 4242),
+        now + Duration::from_secs(1),
+    );
+    assert_eq!(
+        store.snapshot_at(&[process(4242, "/work")], now)[0]
+            .completion_id
+            .as_deref(),
+        Some(first.as_str())
+    );
+
+    store.apply_hook_event_at(
+        event(HookEventKind::PreToolUse, "one", "/work", 4242),
+        now + Duration::from_secs(2),
+    );
+    store.apply_hook_event_at(
+        event(HookEventKind::Stop, "one", "/work", 4242),
+        now + Duration::from_secs(3),
+    );
+    assert_ne!(
+        store.snapshot_at(&[process(4242, "/work")], now)[0]
+            .completion_id
+            .as_deref(),
+        Some(first.as_str())
+    );
+}
+
+#[test]
 fn prompts_spread_wider_than_the_window_never_cross() {
     let now = Instant::now();
     let mut store = SessionStore::new();

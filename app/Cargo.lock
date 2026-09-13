@@ -2554,7 +2554,7 @@ dependencies = [
 
 [[package]]
 name = "open-island"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.22.1",
  "cc",
@@ -2578,7 +2578,7 @@ dependencies = [
 
 [[package]]
 name = "open-island-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "cc",
  "libc",
@@ -2588,7 +2588,7 @@ dependencies = [
 
 [[package]]
 name = "open-islandd"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "libc",
  "open-island-core",

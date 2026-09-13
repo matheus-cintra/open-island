@@ -2,6 +2,7 @@ import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { bindIslandKeyboard } from "./island-keyboard";
+import { ActivityController } from "./activity-controller";
 import { strings } from "./strings";
 import {
   ApprovalDecision,
@@ -49,7 +50,7 @@ import {
   muteWavesEl,
   muteCrossEl,
 } from "./elements";
-import { listKey, renderCompact, renderList, tickElapsed } from "./row";
+import { renderCompact, renderList, tickElapsed } from "./row";
 import {
   closeQuestion,
   openQuestion,
@@ -147,12 +148,16 @@ export let expanded = false;
 let macosPanel = false;
 const islandKeyboard = bindIslandKeyboard(
   islandEl,
-  () => macosPanel && expanded,
+  () => expanded,
   (active) => invoke("island_keyboard", { active }),
 );
-let hovered = false;
 export let sessions: Session[] = [];
-let lastListKey = "";
+let receivedSessionSnapshot = false;
+const seenCompletionIds = new Set<string>();
+const seenApprovalIds = new Set<string>();
+const seenQuestionIds = new Set<string>();
+const knownSessionIds = new Set<string>();
+const previousAttention = new Map<string, string>();
 let pendingApproval: ApprovalRequest | null = null;
 let resolvingApproval = false;
 let launchOpen = false;
@@ -210,6 +215,8 @@ export function showCard(card: HTMLElement, visible: boolean, onHidden?: () => v
     }
     return;
   }
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement && card.contains(focused)) focused.blur();
   if (card.hidden || card.classList.contains("is-leaving")) {
     if (card.hidden) onHidden?.();
     card.hidden = true;
@@ -406,9 +413,9 @@ export function expandedSize(): Size {
   };
 }
 
-function expand(): void {
+function expand(interactive = false): void {
   expanded = true;
-  if (!macosPanel) void invoke("island_keyboard", { active: true }).catch(() => {});
+  if (interactive && !macosPanel) islandKeyboard.activate();
   // Swap SVG + content at tween START (expanding).
   islandEl.classList.add("expanded");
   setView("expanded");
@@ -419,8 +426,8 @@ function expand(): void {
 
 function collapse(): void {
   expanded = false;
-  if (macosPanel) islandKeyboard.release();
-  else void invoke("island_keyboard", { active: false }).catch(() => {});
+  activity.collapsed();
+  islandKeyboard.release();
   // Keep the expanded SVG during the shrink; swap at tween END.
   morphTo(COMPACT, noop, () => {
     islandEl.classList.remove("expanded");
@@ -439,33 +446,48 @@ export function syncExpandedSize(): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* Hover / dwell state machine                                         */
+/* Hover / automatic activity                                          */
 /* ------------------------------------------------------------------ */
 
-let dwellTimer = 0;
-let autoCollapseTimer = 0;
-
-function pointerEntered(): void {
-  if (hovered) return;
-  hovered = true;
-  clearTimeout(dwellTimer);
-  clearTimeout(autoCollapseTimer);
-  if (!expandOnHover) return;
-  dwellTimer = window.setTimeout(() => {
-    if (!expanded) expand();
-  }, dwellMs);
+function islandHasEditor(): boolean {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && islandEl.contains(active) &&
+    active.matches('textarea:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), [contenteditable="true"]');
 }
 
-function pointerLeft(): void {
-  if (!hovered) return;
-  hovered = false;
-  clearTimeout(dwellTimer);
-  clearTimeout(autoCollapseTimer);
-  if (collapseOnLeave && expanded && !launchOpen) collapse();
+function islandHasInteractiveFocus(): boolean {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && islandEl.contains(active) && active.matches(
+    'button:not(:disabled), a[href], [tabindex]:not([tabindex="-1"]), textarea:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), [contenteditable="true"]',
+  );
 }
 
-islandEl.addEventListener("mouseenter", pointerEntered);
-islandEl.addEventListener("mouseleave", pointerLeft);
+const activity = new ActivityController({
+  clock: window,
+  open: () => expand(false),
+  collapse,
+  isExpanded: () => expanded,
+  isEditing: () => launchOpen || islandHasEditor(),
+  expandOnHover: () => expandOnHover,
+  collapseOnLeave: () => collapseOnLeave,
+  dwellMs: () => dwellMs,
+  autoCollapseMs: () => autoCollapseMs,
+});
+
+islandEl.addEventListener("mouseenter", () => activity.domEntered());
+islandEl.addEventListener("mouseleave", () => activity.domLeft());
+islandEl.addEventListener("pointerdown", () => activity.interaction());
+islandEl.addEventListener("pointerup", () => activity.interactionEnded());
+islandEl.addEventListener("pointercancel", () => activity.interactionEnded());
+window.addEventListener("blur", () => activity.interactionEnded());
+islandEl.addEventListener("pointermove", (event) => activity.domMoved(event.screenX, event.screenY));
+islandEl.addEventListener("focusin", () => { if (islandHasInteractiveFocus()) activity.editorFocused(); });
+islandEl.addEventListener("focusout", () => queueMicrotask(() => {
+  if (!islandHasInteractiveFocus()) activity.editorRemoved();
+}));
+new window.MutationObserver(() => {
+  if (!islandHasInteractiveFocus()) activity.editorRemoved();
+}).observe(islandEl, { childList: true, subtree: true });
 
 export function admitsExpansion(reason: "completion" | "question" | "approval"): boolean {
   if (quietScene) return false;
@@ -502,32 +524,40 @@ export function subagentEdge(list: Session[]): boolean {
   return fired;
 }
 
-function showActivity(forceExpand = false): void {
-  if (forceExpand || !hovered) expand();
-  clearTimeout(autoCollapseTimer);
-  autoCollapseTimer = window.setTimeout(() => {
-    if (!hovered && pendingApproval === null && pendingQuestion === null && !launchOpen) collapse();
-  }, autoCollapseMs);
-}
-
 function onSessions(list: Session[]): void {
   sessions = list;
   trackAgentIdle(list);
-  const key = listKey(list);
-  const changed = key !== lastListKey;
-  lastListKey = key;
   const subagentDone = subagentEdge(list);
+  const initial = !receivedSessionSnapshot;
+  receivedSessionSnapshot = true;
+  let completion = false;
+  for (const session of list) {
+    const known = knownSessionIds.has(session.id);
+    knownSessionIds.add(session.id);
+    const completionId = session.completion_id;
+    if (completionId) {
+      const unseen = !seenCompletionIds.has(completionId);
+      seenCompletionIds.add(completionId);
+      if (unseen && !initial && known && session.attention !== "working") completion = true;
+    } else if (!initial && known && previousAttention.get(session.id) === "working" && session.attention === "needs_attention") {
+      completion = true;
+    }
+    previousAttention.set(session.id, session.attention ?? "working");
+  }
+  const activeSessions = new Set(list.map((session) => session.id));
+  for (const id of previousAttention.keys()) if (!activeSessions.has(id)) previousAttention.delete(id);
+  for (const id of knownSessionIds) if (!activeSessions.has(id)) knownSessionIds.delete(id);
   render();
   const suppressed = smartSuppression && terminalIsFocused(list);
-  if ((changed || subagentDone) && !hovered && admitsExpansion("completion") && !suppressed) {
-    showActivity();
+  if ((completion || subagentDone) && admitsExpansion("completion") && !suppressed) {
+    activity.relevantEvent();
   }
   resetIdle();
 }
 
 export function render(): void {
   const n = sessions.length;
-  renderCompact(n);
+  renderCompact(n, pendingApproval !== null || pendingQuestion !== null);
   headerLabelEl.textContent = strings.island.sessions(n);
   renderUsage();
   renderList();
@@ -925,11 +955,13 @@ void listen<unknown>("approval-requested", (event) => {
   const approval = parseApproval(event.payload);
   if (!approval) {
     showError(strings.approval.invalid);
-    if (admitsExpansion("approval")) showActivity(true);
     return;
   }
+  const isNew = !seenApprovalIds.has(approval.approval_id);
+  seenApprovalIds.add(approval.approval_id);
+  if (!isNew && pendingApproval?.approval_id !== approval.approval_id) return;
   pendingApproval = approval;
-  if (admitsExpansion("approval")) showActivity(true);
+  if (isNew && admitsExpansion("approval")) activity.relevantEvent();
   render();
   resetIdle();
 });
@@ -949,11 +981,13 @@ void listen<unknown>("question-asked", (event) => {
   const question = parseQuestion(event.payload);
   if (!question) {
     showError(strings.question.invalid);
-    if (admitsExpansion("question")) showActivity(true);
     return;
   }
+  const isNew = !seenQuestionIds.has(question.question_id);
+  seenQuestionIds.add(question.question_id);
+  if (!isNew && pendingQuestion?.question_id !== question.question_id) return;
   openQuestion(question);
-  if (admitsExpansion("question")) showActivity(true);
+  if (isNew && admitsExpansion("question")) activity.relevantEvent();
   render();
   resetIdle();
 });
@@ -971,8 +1005,6 @@ void listen<unknown>("question-resolved", (event) => {
 void listen<unknown>("question-focus", (event) => {
   const questionId = stringField(event.payload, "question_id");
   if (!questionId || pendingQuestion?.question_id !== questionId) return;
-  if (!admitsExpansion("question")) return;
-  showActivity(true);
   questionCardEl.classList.remove("focused");
   void questionCardEl.offsetWidth;
   questionCardEl.classList.add("focused");
@@ -980,11 +1012,7 @@ void listen<unknown>("question-focus", (event) => {
 });
 
 void listen<PointerState>("island-pointer", (event) => {
-  if (event.payload.inside) {
-    pointerEntered();
-    return;
-  }
-  pointerLeft();
+  activity.nativePointer(event.payload);
 });
 
 void listen<FocusState>("island-focus", (event) => {
@@ -1003,13 +1031,12 @@ void listen<{ fullscreen: boolean }>("island-fullscreen", (event) => {
 void listen<unknown>("island-toggle", () => {
   const wasIdle = idle;
   resetIdle();
-  clearTimeout(dwellTimer);
-  clearTimeout(autoCollapseTimer);
   if (wasIdle || !expanded) {
-    expand();
+    activity.manualOpened();
+    expand(true);
     return;
   }
-  if (pendingApproval !== null || pendingQuestion !== null || launchOpen) return;
+  if (launchOpen) return;
   collapse();
 });
 
@@ -1176,6 +1203,7 @@ function closeNewSession(): void {
   launchOpen = false;
   showCard(newSessionCardEl, false);
   syncExpandedSize();
+  activity.editingEnded();
 }
 
 function pickSessionFolder(agent: LaunchAgent): void {
@@ -1219,7 +1247,8 @@ async function openNewSession(): Promise<void> {
 }
 
 headerNewSessionEl.addEventListener("click", () => {
-  if (!expanded) expand();
+  activity.manualOpened();
+  if (!expanded) expand(true);
   void openNewSession();
 });
 

@@ -8,6 +8,8 @@ pub const POINTER_TICK: Duration = Duration::from_millis(100);
 #[derive(Clone, serde::Serialize)]
 pub struct PointerState {
     inside: bool,
+    x: i32,
+    y: i32,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -24,7 +26,7 @@ pub fn watch_pointer(window: tauri::WebviewWindow, compositor: impl Compositor) 
     if !compositor.available() {
         return;
     }
-    let mut last: Option<bool> = None;
+    let mut last: Option<(bool, i32, i32)> = None;
     let mut last_fullscreen: Option<bool> = None;
     let mut last_focus: Option<Option<u32>> = None;
     loop {
@@ -58,12 +60,13 @@ pub fn watch_pointer(window: tauri::WebviewWindow, compositor: impl Compositor) 
             continue;
         };
         let inside = pointer_is_inside(rect, x, y);
-        if last == Some(inside) {
+        let next = (inside, x, y);
+        if last == Some(next) {
             continue;
         }
-        last = Some(inside);
+        last = Some(next);
         if window
-            .emit("island-pointer", PointerState { inside })
+            .emit("island-pointer", PointerState { inside, x, y })
             .is_err()
         {
             return;
@@ -78,10 +81,14 @@ mod tests {
 
     #[test]
     fn the_pointer_payload_carries_inside() {
-        let payload = PointerState { inside: true };
+        let payload = PointerState {
+            inside: true,
+            x: 10,
+            y: 20,
+        };
         assert_eq!(
             serde_json::to_value(payload).unwrap(),
-            json!({"inside": true})
+            json!({"inside": true, "x": 10, "y": 20})
         );
     }
 

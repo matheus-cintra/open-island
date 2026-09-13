@@ -3,7 +3,7 @@ export function bindIslandKeyboard(
   root: HTMLElement,
   enabled: () => boolean,
   send: (active: boolean) => Promise<unknown>,
-): { release: () => void } {
+): { activate: () => void; release: () => void } {
   let active = false;
   let pending = Promise.resolve();
   const set = (next: boolean) => {
@@ -37,5 +37,5 @@ export function bindIslandKeyboard(
   new window.MutationObserver(() => {
     if (active && !editable(document.activeElement)) set(false);
   }).observe(root, { childList: true, subtree: true });
-  return { release };
+  return { activate: () => set(true), release };
 }

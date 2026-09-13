@@ -175,7 +175,7 @@ jobs:
           flags=(--title "$GITHUB_REF_NAME" --generate-notes)
           notes="docs/releases/$GITHUB_REF_NAME.md"
           if [ -f "$notes" ]; then
-            flags=(--title "$GITHUB_REF_NAME — suporte inicial ao macOS" --notes-file "$notes")
+            flags=(--title "$GITHUB_REF_NAME" --notes-file "$notes")
           fi
           case "$GITHUB_REF_NAME" in
             *-*) flags+=(--prerelease) ;;

@@ -11,8 +11,11 @@ use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::Path,
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+static NEXT_STORE_INSTANCE: AtomicU64 = AtomicU64::new(1);
 
 pub const IDLE_AFTER: Duration = Duration::from_secs(10 * 60);
 pub const MAX_QUEUED_MESSAGES: usize = 32;
@@ -65,6 +68,8 @@ struct HookState {
     launcher: Option<String>,
     filtered: bool,
     prior_mode: Option<String>,
+    seen_completion_turns: HashSet<String>,
+    legacy_stop_armed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,6 +143,8 @@ pub struct SessionStore {
     prompts: VecDeque<Instant>,
     queues: HashMap<String, MessageQueue>,
     next_message_id: u64,
+    completion_instance: String,
+    next_completion_id: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -168,6 +175,8 @@ impl Default for SessionStore {
             prompts: VecDeque::new(),
             queues: HashMap::new(),
             next_message_id: 1,
+            completion_instance: daemon_instance_nonce(),
+            next_completion_id: 1,
         }
     }
 }
@@ -336,6 +345,14 @@ impl SessionStore {
             Some(QuestionIntent::Resolve(id)) => Some(id.to_owned()),
             _ => None,
         };
+        let primary_activity = matches!(
+            event.event,
+            HookEventKind::SessionStart
+                | HookEventKind::UserPromptSubmit
+                | HookEventKind::PreToolUse
+                | HookEventKind::PostToolUse
+        ) && event.agent_id.is_none();
+        let mut accepted_stop = false;
         {
             let state = self
                 .hooks
@@ -353,6 +370,10 @@ impl SessionStore {
                     launcher: None,
                     filtered: false,
                     prior_mode: None,
+                    seen_completion_turns: HashSet::new(),
+                    // The first legacy Stop follows a session start that older hooks did not
+                    // always report. Once accepted, another one needs real primary activity.
+                    legacy_stop_armed: true,
                 });
 
             let from_subagent = event.agent_id.is_some()
@@ -364,8 +385,10 @@ impl SessionStore {
                 );
 
             state.last_seen = now;
-            if !matches!(event.event, HookEventKind::Status) && !from_subagent {
+            if primary_activity {
                 state.stopped_at = None;
+                state.legacy_stop_armed = true;
+                state.session.completion_id = None;
             }
             state.session.agent = event.agent.clone();
             if let Some(cwd) = event.cwd {
@@ -469,14 +492,31 @@ impl SessionStore {
                     }
                 }
                 HookEventKind::Stop => {
-                    state.session.current_tool = None;
-                    state.stopped_at = Some(now);
-                    if let Some(answer) = event.last_message.as_deref() {
-                        if let Some(spoken) = naming::spoken_line(answer) {
-                            state.session.last_message = Some(spoken);
+                    let fresh_turn = event
+                        .turn_id
+                        .as_ref()
+                        .is_some_and(|turn| !state.seen_completion_turns.contains(turn));
+                    let accept = event
+                        .turn_id
+                        .is_some()
+                        .then_some(fresh_turn)
+                        .unwrap_or(state.legacy_stop_armed);
+                    if accept {
+                        accepted_stop = true;
+                        state.session.current_tool = None;
+                        state.stopped_at = Some(now);
+                        state.session.since_ms = Some(wall_ms);
+                        state.legacy_stop_armed = false;
+                        if let Some(turn) = event.turn_id {
+                            state.seen_completion_turns.insert(turn);
                         }
-                        if let Some(body) = naming::transcript_body(answer) {
-                            state.session.last_message_body = Some(body);
+                        if let Some(answer) = event.last_message.as_deref() {
+                            if let Some(spoken) = naming::spoken_line(answer) {
+                                state.session.last_message = Some(spoken);
+                            }
+                            if let Some(body) = naming::transcript_body(answer) {
+                                state.session.last_message_body = Some(body);
+                            }
                         }
                     }
                 }
@@ -490,6 +530,13 @@ impl SessionStore {
             }
             if opened_question.is_some() {
                 state.session.question_state = Some(QuestionState::Pending);
+            }
+        }
+        if accepted_stop {
+            let completion_id = format!("{}-{}", self.completion_instance, self.next_completion_id);
+            self.next_completion_id += 1;
+            if let Some(state) = self.hooks.get_mut(&hook_id) {
+                state.session.completion_id = Some(completion_id);
             }
         }
         if let Some(state) = self.hooks.get_mut(&hook_id) {
@@ -881,6 +928,9 @@ impl SessionStore {
         if let Some(state) = self.hooks.get_mut(hook_id) {
             state.waiting_since = None;
             state.waiting_reminded_at = None;
+            // A settled interactive request returns control to the agent, but does not
+            // re-arm a legacy Stop; only primary activity may do that.
+            state.stopped_at = None;
         }
     }
 
@@ -918,7 +968,6 @@ fn stamps_activity(kind: &HookEventKind) -> bool {
             | HookEventKind::UserPromptSubmit
             | HookEventKind::PreToolUse
             | HookEventKind::PostToolUse
-            | HookEventKind::Stop
     )
 }
 
@@ -995,6 +1044,14 @@ fn wall_clock_ms() -> u64 {
         })
 }
 
+fn daemon_instance_nonce() -> String {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let sequence = NEXT_STORE_INSTANCE.fetch_add(1, Ordering::Relaxed);
+    format!("{:x}-{:x}-{:x}", std::process::id(), stamp, sequence)
+}
+
 fn initial_session(event: &HookEvent, hook_id: &HookId) -> Session {
     let mut session = Session::new(
         &event.agent,
@@ -1030,6 +1087,7 @@ fn merge_session(hook: &Session, process: &Session, attention: Attention) -> Ses
     merged.model = hook.model.clone();
     merged.effort = hook.effort.clone();
     merged.since_ms = hook.since_ms;
+    merged.completion_id = hook.completion_id.clone();
     merged
 }
 

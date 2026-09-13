@@ -5,6 +5,7 @@ import { createSprite, spriteAgent } from "./sprites";
 import {
   compactCount,
   compactLabel,
+  compactPending,
   compactProject,
   compactRowEl,
   compactSpriteEl,
@@ -49,9 +50,14 @@ export function listKey(list: Session[]): string {
     .join("\n");
 }
 
-export function renderCompact(n: number): void {
+export function renderCompact(n: number, pending = false): void {
   if (n === 0) {
-    compactRowEl.replaceChildren();
+    compactPending.hidden = !pending;
+    compactCount.textContent = "";
+    compactLabel.textContent = "";
+    compactLabel.hidden = true;
+    if (pending) compactRowEl.replaceChildren(compactTail);
+    else compactRowEl.replaceChildren();
     return;
   }
   const lead = sessions[0];
@@ -71,6 +77,7 @@ export function renderCompact(n: number): void {
   compactProject.hidden = compactClean || !show.project;
   if (compactProject.textContent !== lead.title) compactProject.textContent = lead.title;
   compactLabel.hidden = compactClean;
+  compactPending.hidden = !pending;
   const label = strings.island.compactSessions(n);
   if (compactLabel.textContent !== label) compactLabel.textContent = label;
   const next = String(n);

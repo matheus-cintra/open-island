@@ -152,6 +152,9 @@ pub struct Session {
     pub raise_pid: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launcher: Option<String>,
+    /// Opaque daemon-local edge token for one accepted primary Stop event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued_messages: Option<Vec<QueuedMessage>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -200,6 +203,7 @@ impl Session {
             since_ms: None,
             raise_pid: None,
             launcher: None,
+            completion_id: None,
             queued_messages: None,
             send_channel: None,
             send_blocked: None,
@@ -299,6 +303,7 @@ mod tests {
             "status": "working",
             "current_tool": "Bash",
             "summary": "Inspect the project",
+            "completion_id": "daemon-1",
             "mode": "default",
             "subagents": [{"id": "a1", "kind": "Explore", "description": "look around"}],
             "permission_state": "pending"
@@ -312,6 +317,7 @@ mod tests {
         assert_eq!(session.status.as_deref(), Some("working"));
         assert_eq!(session.current_tool.as_deref(), Some("Bash"));
         assert_eq!(session.summary.as_deref(), Some("Inspect the project"));
+        assert_eq!(session.completion_id.as_deref(), Some("daemon-1"));
         assert_eq!(session.mode.as_deref(), Some("default"));
         let subagents = session.subagents.as_ref().expect("subagents");
         assert_eq!(subagents.len(), 1);

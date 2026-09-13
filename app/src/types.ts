@@ -40,6 +40,7 @@ export interface Session {
   since_ms?: number;
   raise_pid?: number;
   launcher?: string;
+  completion_id?: string;
 }
 
 export type Attention = "waiting_for_input" | "needs_attention" | "working" | "idle";
@@ -47,6 +48,8 @@ export type SubagentTiming = "root_responses" | "all_finished" | "every_completi
 
 export interface PointerState {
   inside: boolean;
+  x?: number;
+  y?: number;
 }
 
 export interface FocusState {
