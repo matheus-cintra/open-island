@@ -19,10 +19,23 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned native build tool
+        run: |
+          python3 -m venv "$RUNNER_TEMP/open-island-build-tools"
+          "$RUNNER_TEMP/open-island-build-tools/bin/python" -m pip install cmake==3.31.6
+          echo "$RUNNER_TEMP/open-island-build-tools/bin" >> "$GITHUB_PATH"
+      - name: Verify audio dependency notices
+        working-directory: app
+        run: |
+          cargo fetch --locked
+          python3 ../scripts/verify-audio-licenses.py
+      - name: Locate portable build artifacts
+        working-directory: app
+        run: node scripts/portable-build.mjs paths --format=github-env >> "$GITHUB_ENV"
       - if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libgtk-layer-shell-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf
+          sudo apt-get install -y libgtk-3-dev libgtk-layer-shell-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf clang pkg-config libasound2-dev
       - run: bun install --frozen-lockfile
         working-directory: app
       - run: bun run prebundle
@@ -35,13 +48,83 @@ jobs:
           --config '{"bundle":{"createUpdaterArtifacts":false}}'
         working-directory: app
       - if: runner.os == 'macOS'
-        run: sh scripts/verify-macos-bundle.sh "app/target/release/bundle/macos/Open Island.app" "$(uname -m)"
-      - run: python3 ../scripts/test-processes.py cargo test --workspace
+        run: sh scripts/verify-macos-bundle.sh "$OPEN_ISLAND_RELEASE_DIR/bundle/macos/Open Island.app" "$(uname -m)"
+      - run: python3 ../scripts/test-processes.py bun scripts/portable-build.mjs cargo test --workspace
         working-directory: app
       - run: bun run test
         working-directory: app
+      - run: node --test scripts/portable-paths.test.mjs scripts/portable-build-options.test.mjs scripts/portable-audit.test.mjs
+        working-directory: app
+      - run: python3 -m unittest discover -s scripts -p verify_bundle_content_test.py
+      - run: python3 -m unittest discover -s scripts -p install_resources_test.py
+      - run: python3 -m unittest discover -s scripts -p audio_licenses_test.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-log-${{ matrix.runner }}
           path: /tmp/open-island-tests.log
+
+  # Model-backed transcription is deliberately isolated from the compatibility
+  # matrix: it is allowed to download one pinned QA artifact, while ordinary
+  # tests remain offline and never need a microphone or model cache.
+  voice-model:
+    name: Voice model QA (Linux)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    env:
+      VOICE_MODEL_URL: https://huggingface.co/ggerganov/whisper.cpp/resolve/90a64d80ea254cf67575b41a5971f972c79f7b45/ggml-small.bin
+      VOICE_MODEL_SHA256: 1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b
+      VOICE_MODEL_BYTES: 487601967
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install audio and Tauri build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang pkg-config libasound2-dev libgtk-3-dev libgtk-layer-shell-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf
+      - name: Install pinned native build tool
+        run: |
+          python3 -m venv "$RUNNER_TEMP/open-island-build-tools"
+          "$RUNNER_TEMP/open-island-build-tools/bin/python" -m pip install cmake==3.31.6
+          echo "$RUNNER_TEMP/open-island-build-tools/bin" >> "$GITHUB_PATH"
+      - name: Locate portable build artifacts
+        working-directory: app
+        run: node scripts/portable-build.mjs paths --format=github-env >> "$GITHUB_ENV"
+      - name: Restore pinned model cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/open-island-voice-model
+          key: open-island-voice-model-${{ env.VOICE_MODEL_SHA256 }}
+      - name: Fetch and verify pinned model
+        run: |
+          set -euo pipefail
+          model_dir="$RUNNER_TEMP/open-island-voice-model"
+          model="$model_dir/ggml-small.bin"
+          mkdir -p "$model_dir"
+          if [ ! -f "$model" ]; then
+            curl --fail --location --retry 3 --retry-delay 2 --output "$model" "$VOICE_MODEL_URL"
+          fi
+          test "$(stat -c '%s' "$model")" = "$VOICE_MODEL_BYTES"
+          printf '%s  %s\n' "$VOICE_MODEL_SHA256" "$model" > "$RUNNER_TEMP/voice-model.sha256"
+          sha256sum --check "$RUNNER_TEMP/voice-model.sha256"
+      - name: Install frontend dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+      - name: Build the product transcription probe
+        working-directory: app
+        run: bun scripts/portable-build.mjs cargo build --release -p open-island --example voice_probe
+      - name: Evaluate the pinned model and synthetic fixtures
+        working-directory: app
+        run: |
+          python3 scripts/voice-qa.py \
+            --probe "$OPEN_ISLAND_RELEASE_DIR/examples/voice_probe" \
+            --model "$RUNNER_TEMP/open-island-voice-model/ggml-small.bin" \
+            --evidence "$RUNNER_TEMP/open-island-voice-evidence" \
+            --case quality
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: voice-model-evidence
+          path: ${{ runner.temp }}/open-island-voice-evidence
+          if-no-files-found: error

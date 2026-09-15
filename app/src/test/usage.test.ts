@@ -5,6 +5,7 @@ import { tauriMock } from "./tauri";
 const tauri = tauriMock(({ command }) => {
   if (command === "get_config") return { config: {} };
   if (command === "island_metrics") return { scale: 1, compact_height: null };
+  if (command === "get_message_recovery") return [];
   if (command === "list_sessions") return [];
   if (command === "get_usage") return { providers: [] };
   return {};
@@ -20,7 +21,7 @@ await new Promise((resolve) => setTimeout(resolve, 50));
 const lane = document.getElementById("header-usage-model")!;
 
 function codex(credits: { balance: number; unlimited: boolean } | undefined): void {
-  tauri.emit("usage-updated", {
+  tauri.state.usage({
     providers: [
       {
         provider: "codex",
@@ -40,7 +41,7 @@ function codex(credits: { balance: number; unlimited: boolean } | undefined): vo
 }
 
 function display(mode: string): void {
-  tauri.emit("config-changed", { config: { usage: { codex_credit_display: mode } } });
+  tauri.state.config({ usage: { codex_credit_display: mode } });
 }
 
 function laneText(): string {

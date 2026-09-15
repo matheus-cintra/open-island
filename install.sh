@@ -440,6 +440,26 @@ remove_tarball_files() {
 	remove_file .local/share/icons/hicolor/32x32/apps/open-island.png
 	remove_file .local/share/icons/hicolor/128x128/apps/open-island.png
 	remove_file .local/share/icons/hicolor/256x256@2/apps/open-island.png
+	remove_tarball_resources
+}
+
+remove_tarball_resources() {
+	for component in .local .local/lib ".local/lib/Open Island" ".local/lib/Open Island/sounds" ".local/lib/Open Island/licenses"; do
+		if [ -L "$HOME/$component" ]; then
+			note_failed "$HOME/$component is a symbolic link; resource files were preserved"
+			return 0
+		fi
+	done
+	for sound in device-added complete message dialog-warning suspend-error; do
+		remove_file ".local/lib/Open Island/sounds/$sound.wav"
+	done
+	remove_file ".local/lib/Open Island/sounds/README.md"
+	remove_file ".local/lib/Open Island/licenses/AUDIO-LICENSES.txt"
+	remove_file ".local/lib/Open Island/licenses/audio-manifest.json"
+	# Empty application directories may go; unknown files stay untouched.
+	rmdir "$HOME/.local/lib/Open Island/sounds" 2>/dev/null || :
+	rmdir "$HOME/.local/lib/Open Island/licenses" 2>/dev/null || :
+	rmdir "$HOME/.local/lib/Open Island" 2>/dev/null || :
 }
 
 remove_with_package_manager() {

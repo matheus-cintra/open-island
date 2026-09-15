@@ -14,6 +14,7 @@ const tauri = tauriMock((call) => {
   if (call.command === "get_update") return null;
   return {};
 });
+tauri.state.sessions([base]);
 mock.module("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 mock.module("@tauri-apps/api/event", () => ({ listen: tauri.listen }));
 mountIsland({ reducedMotion: true });
@@ -55,32 +56,32 @@ test("real listeners keep content silent and apply deadlines only to relevant ne
   window.clearTimeout = clock.clearTimeout as typeof window.clearTimeout;
   try {
     // Tool/status content keeps the island compact even after a long running session.
-    tauri.emit("sessions-updated", [{ ...base, current_tool: "Bash" }]);
+    tauri.state.sessions([{ ...base, current_tool: "Bash" }]);
     clock.advance(30_000);
-    tauri.emit("sessions-updated", [{ ...base, current_tool: "Read" }]);
+    tauri.state.sessions([{ ...base, current_tool: "Read" }]);
     expect(expanded()).toBe(false);
 
     // First observations, reorders, and removals are baseline maintenance, never activity.
     const fresh = { ...base, id: "claude:fresh", completion_id: "fresh-1", attention: "needs_attention" as const };
-    tauri.emit("sessions-updated", [base, fresh]);
-    tauri.emit("sessions-updated", [fresh, base]);
-    tauri.emit("sessions-updated", [base]);
+    tauri.state.sessions([base, fresh]);
+    tauri.state.sessions([fresh, base]);
+    tauri.state.sessions([base]);
     expect(expanded()).toBe(false);
 
     // A completion seen while still working is consumed and cannot notify late.
-    tauri.emit("sessions-updated", [{ ...base, completion_id: "working-1" }]);
-    tauri.emit("sessions-updated", [{ ...base, completion_id: "working-1", attention: "needs_attention" }]);
+    tauri.state.sessions([{ ...base, completion_id: "working-1" }]);
+    tauri.state.sessions([{ ...base, completion_id: "working-1", attention: "needs_attention" }]);
     expect(expanded()).toBe(false);
 
     // Legacy snapshots only open for a known working -> needs_attention transition.
-    tauri.emit("sessions-updated", [base]);
-    tauri.emit("sessions-updated", [{ ...base, attention: "needs_attention" }]);
+    tauri.state.sessions([base]);
+    tauri.state.sessions([{ ...base, attention: "needs_attention" }]);
     expect(expanded()).toBe(true);
     clock.advance(2500);
     expect(expanded()).toBe(false);
 
     // Pending cards do not hold automatic expansion; a manual reopen does.
-    tauri.emit("question-asked", {
+    tauri.state.question({
       question_id: "timer-question", session_id: base.id, agent: "claude", answerable: false,
       questions: [{ question: "Continue?", options: [] }],
     });
@@ -93,49 +94,49 @@ test("real listeners keep content silent and apply deadlines only to relevant ne
     collapse();
 
     // Same IDs are updates only; a new ID renews the single automatic deadline.
-    tauri.emit("approval-requested", { approval_id: "a-1", session_id: base.id, tool_name: "Bash" });
+    tauri.state.approval({ approval_id: "a-1", session_id: base.id, tool_name: "Bash" });
     clock.advance(2400);
-    tauri.emit("approval-requested", { approval_id: "a-1", session_id: base.id, tool_name: "Read" });
+    tauri.state.approval({ approval_id: "a-1", session_id: base.id, tool_name: "Read" });
     clock.advance(100);
     expect(expanded()).toBe(false);
-    tauri.emit("approval-requested", { approval_id: "a-2", session_id: base.id, tool_name: "Bash" });
+    tauri.state.approval({ approval_id: "a-2", session_id: base.id, tool_name: "Bash" });
     clock.advance(2400);
-    tauri.emit("approval-requested", { approval_id: "a-3", session_id: base.id, tool_name: "Read" });
+    tauri.state.approval({ approval_id: "a-3", session_id: base.id, tool_name: "Read" });
     clock.advance(2400);
     expect(expanded()).toBe(true);
     clock.advance(100);
     expect(expanded()).toBe(false);
 
     // Settling does not extend or retain the original deadline.
-    tauri.emit("question-asked", {
+    tauri.state.question({
       question_id: "settled", session_id: base.id, agent: "claude", answerable: false,
       questions: [{ question: "Done?", options: [] }],
     });
     clock.advance(1000);
-    tauri.emit("question-resolved", { question_id: "settled", session_id: base.id, outcome: "answered" });
+    tauri.state.resolveQuestion("settled");
     clock.advance(1499);
     expect(expanded()).toBe(true);
     clock.advance(1);
     expect(expanded()).toBe(false);
 
     for (const id of ["a-1", "a-2", "a-3"]) {
-      tauri.emit("approval-resolved", { approval_id: id, session_id: base.id, decision: "allow" });
+      tauri.state.resolveApproval(id);
     }
 
     // Resolving a focused card blurs it, releasing the hold into a full deadline.
-    tauri.emit("approval-requested", { approval_id: "a-focused", session_id: base.id, tool_name: "Bash" });
+    tauri.state.approval({ approval_id: "a-focused", session_id: base.id, tool_name: "Bash" });
     const allow = document.getElementById("approval-allow") as HTMLButtonElement;
     allow.focus();
-    tauri.emit("approval-resolved", { approval_id: "a-focused", session_id: base.id, decision: "allow" });
+    tauri.state.resolveApproval("a-focused");
     expect(document.activeElement).not.toBe(allow);
     await Promise.resolve();
     clock.advance(2500);
     expect(expanded()).toBe(false);
 
     // Without a hold, resolving does not renew the deadline already in progress.
-    tauri.emit("approval-requested", { approval_id: "a-unfocused", session_id: base.id, tool_name: "Bash" });
+    tauri.state.approval({ approval_id: "a-unfocused", session_id: base.id, tool_name: "Bash" });
     clock.advance(1000);
-    tauri.emit("approval-resolved", { approval_id: "a-unfocused", session_id: base.id, decision: "allow" });
+    tauri.state.resolveApproval("a-unfocused");
     clock.advance(1499);
     expect(expanded()).toBe(true);
     clock.advance(1);

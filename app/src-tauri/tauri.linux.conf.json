@@ -11,6 +11,8 @@
           "libwebkit2gtk-4.1-0",
           "libsoup-3.0-0",
           "libgtk-3-0",
+          "libasound2",
+          "libstdc++6",
           "pipewire-bin",
           "gtk-update-icon-cache"
         ],
@@ -22,6 +24,8 @@
           "webkit2gtk4.1",
           "libsoup3",
           "gtk3",
+          "alsa-lib",
+          "libstdc++",
           "pipewire-utils",
           "gtk-update-icon-cache"
         ],

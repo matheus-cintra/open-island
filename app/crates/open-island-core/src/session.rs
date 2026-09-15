@@ -96,6 +96,8 @@ pub struct Subagent {
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Session {
+    #[serde(skip)]
+    pub hook_generation: u64,
     pub id: String,
     pub agent: String,
     pub cwd: String,
@@ -183,6 +185,7 @@ impl Session {
             cwd: cwd.to_owned(),
             title: title.to_owned(),
             pid,
+            hook_generation: 0,
             terminal: terminal.to_owned(),
             hook_id: None,
             last_message: None,

@@ -1,7 +1,7 @@
 use super::{
     admit_locked, admit_question_locked, expire_questions, pending_question, resolve_if_current,
-    settle_question, withdraw, Admission, AdmissionRequest, DaemonContext, DaemonState,
-    PendingApproval, QuestionAdmission, QuestionAdmissionRequest,
+    settle_question, settle_question_checked, withdraw, Admission, AdmissionRequest, DaemonContext,
+    DaemonState, PendingApproval, QuestionAdmission, QuestionAdmissionRequest,
 };
 use crate::config_handle::ConfigHandle;
 use crate::notifications::approval::Resolution;
@@ -33,6 +33,14 @@ fn approval_event(session: &str, approval_id: &str) -> HookEvent {
 fn pending(session: &str, generation: u64) -> PendingApproval {
     let (wake_sender, _wake_receiver) = mpsc::channel();
     PendingApproval {
+        session_generation: 0,
+        request: open_island_core::protocol::ApprovalRequest {
+            approval_id: "fixture".into(),
+            session_id: HookId::new("claude", session),
+            tool_name: None,
+            tool_input: None,
+            reason: None,
+        },
         connection_id: 1,
         session_id: HookId::new("claude", session),
         approval_generation: generation,
@@ -43,6 +51,8 @@ fn pending(session: &str, generation: u64) -> PendingApproval {
 
 fn daemon_state(pending: HashMap<String, PendingApproval>) -> DaemonState {
     DaemonState {
+        publication_revision: 0,
+        no_island: 0,
         store: SessionStore::new(),
         pending,
         pending_questions: HashMap::new(),
@@ -195,6 +205,14 @@ fn a_resolution_publishes_before_the_broadcast_and_never_holds_the_lock() {
     let mut daemon_state = daemon_state(HashMap::from([(
         "resolution-id".to_owned(),
         PendingApproval {
+            session_generation: 0,
+            request: open_island_core::protocol::ApprovalRequest {
+                approval_id: "resolution-id".into(),
+                session_id: event.session_id.clone(),
+                tool_name: None,
+                tool_input: None,
+                reason: None,
+            },
             connection_id: 3,
             session_id: event.session_id.clone(),
             approval_generation: 4,
@@ -205,9 +223,13 @@ fn a_resolution_publishes_before_the_broadcast_and_never_holds_the_lock() {
     daemon_state.store.apply_hook_event(event);
     let state = Arc::new(std::sync::Mutex::new(daemon_state));
     let context = DaemonContext {
+        discovery: Arc::new(crate::discovery_cache::DiscoveryCache::default()),
+        admission: Arc::new(crate::server::admission::Admission::default()),
+        snapshots: Arc::new(crate::ui_state::UiSnapshots::new().unwrap()),
         state: Arc::clone(&state),
         config: ConfigHandle::default(),
         sound: SoundPlayer::silent(),
+        messages: Arc::new(crate::message_executor::MessageExecutor::new().unwrap()),
     };
     let state_during_broadcast = Arc::clone(&state);
 
@@ -299,9 +321,13 @@ fn admit_question(
 
 fn question_ctx(state: DaemonState) -> DaemonContext {
     DaemonContext {
+        discovery: Arc::new(crate::discovery_cache::DiscoveryCache::default()),
+        admission: Arc::new(crate::server::admission::Admission::default()),
+        snapshots: Arc::new(crate::ui_state::UiSnapshots::new().unwrap()),
         state: Arc::new(Mutex::new(state)),
         config: ConfigHandle::default(),
         sound: SoundPlayer::silent(),
+        messages: Arc::new(crate::message_executor::MessageExecutor::new().unwrap()),
     }
 }
 
@@ -488,6 +514,15 @@ fn the_notification_action_reads_back_the_session_and_whether_it_is_answerable()
 fn a_pending_question_type_is_reachable_from_the_daemon_state() {
     let (wake_sender, _receiver) = mpsc::channel();
     let pending = PendingQuestion {
+        session_generation: 0,
+        request: open_island_core::protocol::QuestionRequest {
+            question_id: "fixture".into(),
+            session_id: HookId::new("claude", "s"),
+            agent: "claude".into(),
+            questions: vec![],
+            answerable: true,
+            expires_in_ms: None,
+        },
         connection_id: Some(1),
         session_id: HookId::new("claude", "s"),
         question_generation: 0,
@@ -497,4 +532,296 @@ fn a_pending_question_type_is_reachable_from_the_daemon_state() {
         expires_at: None,
     };
     assert!(pending.answerable);
+}
+
+#[test]
+fn ui_snapshot_keeps_pending_generation_and_remaining_deadline_without_resurrection() {
+    let mut state = daemon_state(HashMap::new());
+    admit_question(&mut state, "snapshot-q", false);
+    state
+        .pending_questions
+        .get_mut("snapshot-q")
+        .unwrap()
+        .expires_at = Some(Instant::now() + Duration::from_secs(4));
+    let ctx = question_ctx(state);
+    let first = crate::ui_state::freeze(&ctx).unwrap();
+    assert_eq!(first.questions.len(), 1);
+    assert_eq!(first.questions[0].pending_generation.0, 32);
+    assert!(first.questions[0].request.expires_in_ms.unwrap() <= 4000);
+    settle_question(
+        &ctx,
+        "snapshot-q",
+        Some(32),
+        QuestionSettlement::AnsweredElsewhere,
+        |_| true,
+    )
+    .unwrap();
+    let second = crate::ui_state::freeze(&ctx).unwrap();
+    assert!(second.questions.is_empty());
+    assert_eq!(
+        first.questions.len(),
+        1,
+        "the in-flight document remains immutable"
+    );
+}
+
+#[test]
+fn checked_settlement_rejects_under_lock_without_consuming_pending_or_waking_hook() {
+    let mut state = daemon_state(HashMap::new());
+    let (_, cell, wake) = admit_question(&mut state, "guarded-question", true);
+    let ctx = question_ctx(state);
+    let result = settle_question_checked(
+        &ctx,
+        "guarded-question",
+        Some(32),
+        QuestionSettlement::Answered(vec![vec!["yes".into()]]),
+        |_| panic!("must not broadcast"),
+        |state| {
+            assert!(state.pending_questions.contains_key("guarded-question"));
+            assert!(
+                ctx.state.try_lock().is_err(),
+                "validation belongs to the settlement lock"
+            );
+            Err("stale_pending".into())
+        },
+    );
+    assert_eq!(result.unwrap_err(), "stale_pending");
+    assert!(cell.get().is_none());
+    assert!(wake.try_recv().is_err());
+    assert!(ctx
+        .state
+        .lock()
+        .unwrap()
+        .pending_questions
+        .contains_key("guarded-question"));
+}
+
+#[test]
+fn guarded_approval_reused_id_rejects_old_generation_and_old_hook_instance() {
+    use crate::server::guarded_actions::{resolve, Resolve};
+    use open_island_core::message_delivery::DeliveryIdentity;
+    let mut state = daemon_state(HashMap::new());
+    let mut event = approval_event("guarded-approval", "reused");
+    event.pid = Some(std::process::id());
+    let (wake_sender, _wake) = mpsc::channel();
+    let cell = Arc::new(OnceLock::new());
+    let result = admit_locked(
+        &mut state,
+        AdmissionRequest {
+            connection_id: 1,
+            approval_id: "reused".into(),
+            event: event.clone(),
+            cell: cell.clone(),
+            wake_sender,
+        },
+    );
+    assert!(matches!(result, Admission::Accepted(32, _)));
+    let ctx = question_ctx(state);
+    let snapshot = crate::ui_state::freeze(&ctx).unwrap();
+    let identity = DeliveryIdentity {
+        daemon_epoch: ctx.messages.epoch.clone(),
+        session_instance_id: snapshot.approvals[0].session_instance_id.clone().unwrap(),
+    };
+    let request = |generation, identity| Resolve {
+        approval_id: "reused".into(),
+        pending_generation: generation,
+        decision: ApprovalDecision::Allow,
+        identity,
+    };
+    assert_eq!(
+        resolve(&ctx, request(31, identity.clone())).unwrap_err(),
+        "stale_pending"
+    );
+    assert!(cell.get().is_none());
+    resolve(&ctx, request(32, identity.clone())).unwrap();
+    assert_eq!(cell.get(), Some(&ApprovalDecision::Allow));
+    let next = Arc::new(OnceLock::new());
+    let (wake_sender, _wake) = mpsc::channel();
+    {
+        let mut state = ctx.state.lock().unwrap();
+        admit_locked(
+            &mut state,
+            AdmissionRequest {
+                connection_id: 1,
+                approval_id: "reused".into(),
+                event: event.clone(),
+                cell: next.clone(),
+                wake_sender,
+            },
+        );
+    }
+    assert_eq!(
+        resolve(&ctx, request(32, identity.clone())).unwrap_err(),
+        "stale_pending"
+    );
+    assert!(next.get().is_none());
+    event.event = HookEventKind::SessionStart;
+    ctx.state.lock().unwrap().store.apply_hook_event(event);
+    assert_eq!(
+        resolve(&ctx, request(33, identity)).unwrap_err(),
+        "stale_session"
+    );
+    assert!(next.get().is_none());
+    let current = crate::ui_state::freeze(&ctx).unwrap();
+    assert!(current.approvals[0].session_instance_id.is_none());
+    let new_identity = DeliveryIdentity {
+        daemon_epoch: ctx.messages.epoch.clone(),
+        session_instance_id: current
+            .sessions
+            .iter()
+            .find(|s| s.session.id == "claude:guarded-approval")
+            .unwrap()
+            .session_instance_id
+            .clone()
+            .unwrap(),
+    };
+    assert_eq!(
+        resolve(&ctx, request(33, new_identity)).unwrap_err(),
+        "stale_session"
+    );
+    assert!(next.get().is_none());
+}
+
+#[test]
+fn grouped_child_approval_keeps_own_instance_and_rejects_parent_guard() {
+    use crate::server::guarded_actions::{resolve, Resolve};
+    use open_island_core::{message_delivery::DeliveryIdentity, protocol::SessionMetadata};
+    let mut state = daemon_state(HashMap::new());
+    let mut parent = HookEvent::new("opencode", "root", HookEventKind::SessionStart);
+    parent.pid = Some(std::process::id());
+    parent.cwd = Some("/tmp/project".into());
+    state.store.apply_hook_event(parent.clone());
+    let mut child = HookEvent::new("opencode", "child", HookEventKind::PermissionRequest);
+    child.pid = parent.pid;
+    child.cwd = parent.cwd.clone();
+    child.approval_id = Some("child-approval".into());
+    child.session_metadata = vec![SessionMetadata {
+        id: "child".into(),
+        parent_id: Some("root".into()),
+        title: None,
+    }];
+    let cell = Arc::new(OnceLock::new());
+    let (wake_sender, _wake) = mpsc::channel();
+    assert!(matches!(
+        admit_locked(
+            &mut state,
+            AdmissionRequest {
+                connection_id: 1,
+                approval_id: "child-approval".into(),
+                event: child.clone(),
+                cell: cell.clone(),
+                wake_sender,
+            }
+        ),
+        Admission::Accepted(32, _)
+    ));
+    let ctx = question_ctx(state);
+    let snapshot = crate::ui_state::freeze(&ctx).unwrap();
+    assert!(!snapshot
+        .sessions
+        .iter()
+        .any(|s| s.session.id == "opencode:child"));
+    let child_target = snapshot
+        .child_sessions
+        .iter()
+        .find(|s| s.session.id == "opencode:child")
+        .unwrap();
+    let parent_target = snapshot
+        .sessions
+        .iter()
+        .find(|s| s.session.id == "opencode:root")
+        .unwrap();
+    assert_ne!(
+        child_target.session_instance_id,
+        parent_target.session_instance_id
+    );
+    assert_eq!(
+        snapshot.approvals[0].session_instance_id,
+        child_target.session_instance_id
+    );
+    let request = |target: &open_island_core::ui_state::UiSession| Resolve {
+        approval_id: "child-approval".into(),
+        pending_generation: 32,
+        decision: ApprovalDecision::Allow,
+        identity: DeliveryIdentity {
+            daemon_epoch: snapshot.daemon_epoch.clone(),
+            session_instance_id: target.session_instance_id.clone().unwrap(),
+        },
+    };
+    assert_eq!(
+        resolve(&ctx, request(parent_target)).unwrap_err(),
+        "stale_session"
+    );
+    assert!(cell.get().is_none());
+    // Reusing the parent's hook does not invalidate the independent child request.
+    ctx.state.lock().unwrap().store.apply_hook_event(parent);
+    resolve(&ctx, request(child_target)).unwrap();
+    assert_eq!(cell.get(), Some(&ApprovalDecision::Allow));
+}
+
+#[test]
+fn hook_only_pending_can_be_answered_but_old_session_start_cannot_be_adopted() {
+    use crate::server::guarded_actions::{resolve, Resolve};
+    use open_island_core::message_delivery::DeliveryIdentity;
+    let mut state = daemon_state(HashMap::new());
+    let mut event = approval_event("hook-only", "hook-approval");
+    event.pid = None;
+    let cell = Arc::new(OnceLock::new());
+    let (wake_sender, _wake) = mpsc::channel();
+    admit_locked(
+        &mut state,
+        AdmissionRequest {
+            connection_id: 1,
+            approval_id: "hook-approval".into(),
+            event: event.clone(),
+            cell: cell.clone(),
+            wake_sender,
+        },
+    );
+    let ctx = question_ctx(state);
+    let snapshot = crate::ui_state::freeze(&ctx).unwrap();
+    let target = snapshot
+        .targets()
+        .find(|s| s.session.id == "claude:hook-only")
+        .unwrap();
+    assert_eq!(target.session.pid, 0);
+    assert_eq!(
+        target.session.send_blocked.as_deref(),
+        Some("unverified_target")
+    );
+    let identity = DeliveryIdentity {
+        daemon_epoch: snapshot.daemon_epoch.clone(),
+        session_instance_id: snapshot.approvals[0].session_instance_id.clone().unwrap(),
+    };
+    let request = || Resolve {
+        approval_id: "hook-approval".into(),
+        pending_generation: 32,
+        decision: ApprovalDecision::Allow,
+        identity: identity.clone(),
+    };
+    resolve(&ctx, request()).unwrap();
+    assert_eq!(cell.get(), Some(&ApprovalDecision::Allow));
+    event.event = HookEventKind::SessionStart;
+    ctx.state.lock().unwrap().store.apply_hook_event(event);
+    assert_eq!(resolve(&ctx, request()).unwrap_err(), "stale_session");
+}
+
+#[test]
+fn answerable_question_without_island_falls_back_immediately_and_counts_reason() {
+    let ctx = question_ctx(daemon_state(HashMap::new()));
+    let started = Instant::now();
+    let reply = super::question_event(
+        ctx.clone(),
+        1,
+        question_hook_event("no-island"),
+        question_input("no-island", true),
+        Duration::from_secs(30),
+        |_| false,
+    )
+    .unwrap();
+    assert_eq!(reply["settled"], "cancelled");
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let state = ctx.state.lock().unwrap();
+    assert!(state.pending_questions.is_empty());
+    assert_eq!(state.no_island, 1);
 }

@@ -14,6 +14,8 @@ execução pelo carregador dinâmico do sistema.
 
 | Biblioteca | Licença |
 | --- | --- |
+| ALSA (`libasound.so.2`) | LGPL-2.1-or-later |
+| libstdc++ | GPL-3.0-or-later com GCC Runtime Library Exception 3.1 |
 | GTK 3 | LGPL-2.1-or-later |
 | libsoup | LGPL-2.1-or-later |
 | WebKitGTK | LGPL-2.1-or-later e BSD-2-Clause (licença dupla: partes do WebKit são LGPL-2.1-or-later, outras são BSD-2-Clause) |
@@ -25,47 +27,13 @@ execução pelo carregador dinâmico do sistema.
 | glibc (`libc`, `libm`, `ld-linux`) | LGPL-2.1-or-later |
 | libgcc | GPL-3.0-or-later com a GCC Runtime Library Exception 3.1, que libera a ligação sem impor copyleft |
 
-### Lista exata das bibliotecas resolvidas no binário
+### Conferência do binário gerado
 
-Saída do `ldd` sobre o binário `open-island` produzido por `bun run tauri build`, restrita às
-dependências diretas de ligação, que são as entradas `DT_NEEDED` do ELF. O resto do que o `ldd`
-imprime — 145 linhas no total — é o fechamento transitivo puxado por estas, resolvido pelo
-carregador dinâmico do sistema.
-
-```
-	libgtk-layer-shell.so.0 => /usr/lib/libgtk-layer-shell.so.0 (0x00007f973e470000)
-	libgdk-3.so.0 => /usr/lib/libgdk-3.so.0 (0x00007f973d913000)
-	libgdk_pixbuf-2.0.so.0 => /usr/lib/libgdk_pixbuf-2.0.so.0 (0x00007f973e436000)
-	libcairo.so.2 => /usr/lib/libcairo.so.2 (0x00007f973d7d6000)
-	libgobject-2.0.so.0 => /usr/lib/libgobject-2.0.so.0 (0x00007f973d773000)
-	libglib-2.0.so.0 => /usr/lib/libglib-2.0.so.0 (0x00007f973d610000)
-	libdbus-1.so.3 => /usr/lib/libdbus-1.so.3 (0x00007f973e3e1000)
-	libwebkit2gtk-4.1.so.0 => /usr/lib/libwebkit2gtk-4.1.so.0 (0x00007f9737c00000)
-	libgtk-3.so.0 => /usr/lib/libgtk-3.so.0 (0x00007f9737400000)
-	libsoup-3.0.so.0 => /usr/lib/libsoup-3.0.so.0 (0x00007f973d579000)
-	libgio-2.0.so.0 => /usr/lib/libgio-2.0.so.0 (0x00007f9737221000)
-	libjavascriptcoregtk-4.1.so.0 => /usr/lib/libjavascriptcoregtk-4.1.so.0 (0x00007f9734e00000)
-	libgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007f973d54c000)
-	libm.so.6 => /usr/lib/libm.so.6 (0x00007f9734cc9000)
-	libc.so.6 => /usr/lib/libc.so.6 (0x00007f9734a00000)
-	/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f973e4d7000)
-```
-
-Como isso casa com a tabela acima:
-
-- `libgtk-layer-shell.so.0` → gtk-layer-shell.
-- `libgtk-3.so.0`, `libgdk-3.so.0` → GTK 3.
-- `libsoup-3.0.so.0` → libsoup.
-- `libwebkit2gtk-4.1.so.0`, `libjavascriptcoregtk-4.1.so.0` → WebKitGTK. O JavaScriptCore é parte do WebKitGTK e vem no mesmo pacote.
-- `libglib-2.0.so.0`, `libgobject-2.0.so.0`, `libgio-2.0.so.0` → GLib.
-- `libgdk_pixbuf-2.0.so.0` → gdk-pixbuf.
-- `libcairo.so.2` → cairo.
-- `libdbus-1.so.3` → libdbus.
-- `libc.so.6`, `libm.so.6`, `ld-linux-x86-64.so.2` → glibc.
-- `libgcc_s.so.1` → libgcc.
-
-Nenhuma biblioteca da tabela deixou de ser resolvida pelo `ldd`, e nenhuma dependência direta
-resolvida pelo `ldd` está fora da tabela.
+As dependências diretas do ELF mudam conforme o build. Confira o artefato real
+com `readelf -d <open-island>` e as linhas `NEEDED`; não use uma saída antiga de
+`ldd` como inventário da versão atual. O build Linux com áudio acrescenta
+`libasound.so.2` e `libstdc++.so.6`. Os pacotes declaram `libasound2`/`libstdc++6`
+(DEB) e `alsa-lib`/`libstdc++` (RPM), além das dependências gráficas existentes.
 
 ## Como a obrigação da LGPL é cumprida
 
@@ -91,9 +59,51 @@ disponíveis nos endereços oficiais:
 
 ## Dependências Rust e JavaScript
 
-As dependências Rust (`app/Cargo.lock`) e JavaScript (`app/bun.lock`) são
-todas permissivas: MIT, Apache-2.0, BSD, ISC, Unicode ou equivalentes. Nenhuma delas é
-GPL-only ou LGPL-only, então nenhuma impõe copyleft ao código do Open Island.
+As versões resolvidas estão em `app/Cargo.lock` e `app/bun.lock`. O ditado local
+acrescenta as seguintes bibliotecas e dependências de áudio/FFT. As licenças da
+tabela foram conferidas nos manifests dos crates dessas versões:
+
+| Componente | Versão | Licença declarada |
+| --- | --- | --- |
+| cpal | 0.18.2 | Apache-2.0 |
+| whisper-rs | 0.16.0 | Unlicense |
+| whisper-rs-sys | 0.15.0 | Unlicense; whisper.cpp/ggml vendorizado sob MIT |
+| rubato | 4.0.0 | MIT OR Apache-2.0 |
+| audioadapter / audioadapter-buffers | 4.0.0 | MIT OR Apache-2.0 |
+| alsa | 0.11.0 | Apache-2.0 / MIT |
+| alsa-sys | 0.4.0 | MIT |
+| dasp_sample | 0.11.0 | MIT OR Apache-2.0 |
+| realfft | 3.5.0 | MIT |
+| rustfft | 6.4.1 | MIT OR Apache-2.0 |
+| primal-check | 0.3.4 | MIT OR Apache-2.0 |
+| strength_reduce | 0.2.4 | MIT OR Apache-2.0 |
+| transpose | 0.2.3 | MIT OR Apache-2.0 |
+| num-complex | 0.4.6 | MIT OR Apache-2.0 |
+| num-integer | 0.1.47 | MIT OR Apache-2.0 |
+| num-traits | 0.2.19 | MIT OR Apache-2.0 |
+
+O inventário completo das 41 dependências de áudio para os targets publicados,
+incluindo dependências transitivas e as atribuições fornecidas pelos projetos,
+está em [`audio-manifest.json`](app/src-tauri/resources/licenses/audio-manifest.json).
+Os textos legíveis estão em [`AUDIO-LICENSES.txt`](app/src-tauri/resources/licenses/AUDIO-LICENSES.txt).
+Ambos acompanham o bundle em `licenses/`. O inventário registra checksums dos
+crates, revisões upstream e hashes dos textos; `scripts/verify-audio-licenses.py`
+confere a cobertura contra o grafo resolvido e o lockfile, sem rede.
+
+Quando o pacote só fornece uma declaração MIT, os avisos preservam a declaração
+e os autores informados e acrescentam os termos padrão, sem inventar titular ou
+ano de copyright. Os resumos de licenciamento e observações dos upstreams são
+mantidos integralmente. O modelo escolhido pelo usuário não faz parte desse
+inventário de código.
+
+O código C/C++ do whisper.cpp é ligado estaticamente; os frameworks CoreAudio,
+AVFoundation e Accelerate no macOS são fornecidos pelo sistema. O modelo Whisper
+é escolhido pelo usuário e não acompanha os pacotes do aplicativo.
+
+O driver `tauri-plugin-wdio-webdriver` 1.4.0 (MIT) é exclusivo dos builds opcionais
+de QA. O protocolo de ponteiro virtual preserva a licença MIT no XML em
+`app/scripts/qa/protocols`. Ferramentas, compositor e fixtures de QA não entram no
+bundle normal.
 
 ## Fonte
 

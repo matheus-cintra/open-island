@@ -4,7 +4,7 @@ if [ -n "${OPEN_ISLAND_DAEMON:-}" ]; then
 fi
 case "$(uname -s)" in
     Darwin)
-        for oi_daemon in "/Applications/Open Island.app/Contents/MacOS/open-islandd" "$HOME/Applications/Open Island.app/Contents/MacOS/open-islandd"; do
+        for oi_daemon in "$HOME/Applications/Open Island.app/Contents/MacOS/open-islandd" "/Applications/Open Island.app/Contents/MacOS/open-islandd"; do
             if [ -x "$oi_daemon" ]; then exec "$oi_daemon" "$@"; fi
         done
         ;;

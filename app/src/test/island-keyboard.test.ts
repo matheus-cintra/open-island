@@ -4,6 +4,7 @@ import { tauriMock } from "./tauri";
 
 const tauri = tauriMock(({ command }) => {
   if (command === "platform_capabilities") return { os: "macos" };
+  if (command === "get_message_recovery") return [];
   if (command === "list_sessions") return [];
   if (command === "get_usage") return { providers: [] };
   return {};
@@ -63,4 +64,13 @@ test("collapsing clears DOM focus and reopening does not recapture keyboard", as
   await settle();
   expect(keyboard().length).toBe(count);
   input.remove();
+});
+
+test("a focused microphone button retains keyboard for native Enter and Space activation", async () => {
+  const button = document.createElement("button"); button.className = "voice-toggle";
+  root.append(button); button.focus(); await settle();
+  expect(keyboard().pop()).toBe(true);
+  expect(document.activeElement).toBe(button);
+  button.remove(); await settle();
+  expect(keyboard().pop()).toBe(false);
 });

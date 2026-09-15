@@ -1,13 +1,13 @@
 use serde_json::{json, Value};
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
 use tauri::Emitter;
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 #[cfg(target_os = "macos")]
 static STATUS: std::sync::Mutex<(String, Option<String>)> =
     std::sync::Mutex::new((String::new(), None));
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
 pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri_plugin_global_shortcut::Builder::new()
         .with_handler(|app, _, event| {
@@ -21,7 +21,7 @@ pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 fn path() -> Option<std::path::PathBuf> {
     open_island_core::paths::config_dir().map(|dir| dir.join("shortcut.json"))
 }
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
 pub fn restore(app: &tauri::AppHandle) {
     let combo = path()
         .and_then(|path| std::fs::read_to_string(path).ok())
@@ -50,6 +50,7 @@ pub fn get_shortcut() -> Value {
         json!({"shortcut": "", "error": null})
     }
 }
+#[cfg(not(feature = "qa-harness"))]
 #[tauri::command]
 pub fn set_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<Value, String> {
     #[cfg(target_os = "macos")]
@@ -89,4 +90,12 @@ pub fn set_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<Value, St
         let _ = (app, shortcut);
         Err("Configure o atalho na integração Hyprland.".into())
     }
+}
+
+#[cfg(feature = "qa-harness")]
+#[tauri::command]
+pub fn set_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<Value, String> {
+    let _ = (app, shortcut);
+    crate::qa::service_control::register_shortcut()?;
+    Ok(json!({"shortcut": "", "error": null}))
 }

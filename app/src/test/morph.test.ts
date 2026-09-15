@@ -34,3 +34,20 @@ test("closing to the compact pill still cross-fades back", () => {
   morph(200);
   expect(morph(46)).toBe("0.000");
 });
+
+test("only the active view exposes its controls to keyboard and accessibility", async () => {
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const compact = document.getElementById("compact-view")!;
+  const expanded = document.getElementById("expanded-view")!;
+  expect(compact.getAttribute("aria-hidden")).toBe("false");
+  expect(compact.inert).toBe(false); expect(expanded.inert).toBe(true);
+  const hiddenInput = document.createElement("input"); expanded.append(hiddenInput);
+  hiddenInput.focus(); expect(document.activeElement === hiddenInput).toBe(false);
+  tauri.emit("island-toggle", {});
+  expect(compact.getAttribute("aria-hidden")).toBe("true");
+  expect(compact.inert).toBe(true); expect(expanded.inert).toBe(false);
+  hiddenInput.focus(); expect(document.activeElement === hiddenInput).toBe(true);
+  tauri.emit("island-toggle", {});
+  expect(compact.inert).toBe(false); expect(expanded.inert).toBe(true);
+  hiddenInput.remove();
+});

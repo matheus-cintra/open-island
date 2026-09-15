@@ -12,7 +12,7 @@ mountIsland({ reducedMotion: true });
 const main = await import("../main");
 
 function display(values: Record<string, unknown>): void {
-  tauri.emit("config-changed", { config: { display: values } });
+  tauri.state.config({ display: values });
 }
 
 const session = {

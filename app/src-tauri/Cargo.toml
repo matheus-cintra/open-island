@@ -15,15 +15,25 @@ license = "MIT"
 name = "open_island_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+qa-harness = ["open-island-core/qa-harness"]
+qa-webdriver = ["qa-harness", "dep:tauri-plugin-wdio-webdriver"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 cc = "1"
 
 [dependencies]
+cpal = { version = "=0.18.2", default-features = false }
+whisper-rs = { version = "=0.16.0", default-features = false }
+rubato = { version = "=4.0.0", default-features = true }
+audioadapter-buffers = "=4.0.0"
+libc = "0.2"
 open-island-core = { path = "../crates/open-island-core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-wdio-webdriver = { version = "=1.4.0", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

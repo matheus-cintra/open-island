@@ -20,47 +20,45 @@ const tauri = tauriMock((call) => {
   if (call.command === "get_update") return null;
   return {};
 });
+tauri.state.sessions([base]);
 mock.module("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 mock.module("@tauri-apps/api/event", () => ({ listen: tauri.listen }));
 
 mountIsland({ reducedMotion: true });
 await import("../main");
 const questions = await import("../question");
-beforeEach(() => { while (questions.pendingQuestion) questions.closeQuestion(); });
+beforeEach(() => { tauri.state.clearQuestions(); while (questions.pendingQuestion) questions.closeQuestion(); });
 await new Promise((resolve) => setTimeout(resolve, 30));
 
 const island = document.getElementById("island")!;
 
 test("the baseline and content-only updates stay compact, then a new known-session completion opens", () => {
   expect(island.classList.contains("expanded")).toBe(false);
-  tauri.emit("sessions-updated", [{ ...base, summary: "fresh content" }]);
+  tauri.state.sessions([{ ...base, summary: "fresh content" }]);
   expect(island.classList.contains("expanded")).toBe(false);
-  tauri.emit("sessions-updated", [{ ...base, completion_id: "daemon-a-2" }]);
+  tauri.state.sessions([{ ...base, completion_id: "daemon-a-2" }]);
   expect(island.classList.contains("expanded")).toBe(true);
 });
 
-test("duplicate approval delivery after resolution neither reopens the card nor the island", () => {
-  tauri.emit("approval-requested", {
+test("stale snapshot after resolution neither reopens the card nor the island", () => {
+  tauri.state.approval({
     approval_id: "approval-1", session_id: "claude:one", tool_name: "Bash",
   });
-  tauri.emit("approval-resolved", {
-    approval_id: "approval-1", session_id: "claude:one", decision: "allow",
-  });
+  const stale = tauri.state.read();
+  tauri.state.resolveApproval("approval-1");
   tauri.emit("island-toggle", {});
   expect(island.classList.contains("expanded")).toBe(false);
-  tauri.emit("approval-requested", {
-    approval_id: "approval-1", session_id: "claude:one", tool_name: "Bash",
-  });
+  tauri.emit("daemon-ui-state", stale);
   expect(island.classList.contains("expanded")).toBe(false);
   expect(document.getElementById("approval-card")!.hidden).toBe(true);
 });
 
 test("a pending card is indicated compactly before there is a session row", () => {
-  tauri.emit("question-asked", {
+  tauri.state.question({
     question_id: "question-1", session_id: "claude:missing", agent: "claude",
     answerable: false, questions: [{ question: "Continue?", options: [] }],
   });
-  tauri.emit("sessions-updated", []);
+  tauri.state.sessions([]);
   const pending = document.querySelector<HTMLElement>(".compact-pending");
   expect(pending?.hidden).toBe(false);
   expect(document.querySelector(".compact-count")?.textContent).toBe("");
@@ -72,31 +70,43 @@ test("a custom question draft and its focus survive duplicate delivery and ordin
     question_id: "question-custom", session_id: "claude:one", agent: "claude",
     answerable: true, questions: [{ question: "Describe it", custom: true, options: [] }],
   };
-  tauri.emit("question-asked", payload);
+  tauri.state.question(payload);
   const input = document.querySelector<HTMLInputElement>(".question-custom")!;
   input.value = "keep this draft";
   input.dispatchEvent(new window.Event("input", { bubbles: true }));
   input.focus();
 
-  tauri.emit("question-asked", payload);
+  tauri.state.question(payload);
   let restored = document.querySelector<HTMLInputElement>(".question-custom")!;
   expect(restored.value).toBe("keep this draft");
   expect(document.activeElement).toBe(restored);
 
-  tauri.emit("sessions-updated", [base]);
+  tauri.state.sessions([base]);
   restored = document.querySelector<HTMLInputElement>(".question-custom")!;
   expect(restored.value).toBe("keep this draft");
   expect(document.activeElement).toBe(restored);
 });
 
 test("a focused question option survives an ordinary session snapshot", () => {
-  tauri.emit("question-asked", {
+  tauri.state.question({
     question_id: "question-option", session_id: "claude:one", agent: "claude",
     answerable: true,
     questions: [{ question: "Continue?", options: [{ label: "Yes" }, { label: "No" }] }],
   });
   const option = document.querySelector<HTMLButtonElement>(".question-option")!;
   option.focus();
-  tauri.emit("sessions-updated", [base]);
+  tauri.state.sessions([base]);
   expect(document.activeElement).toBe(option);
+});
+
+test("reusing a session ID starts a new activity baseline instead of inheriting its completion history", () => {
+  const identity = { daemon_epoch: "fixture-epoch", session_instance_id: "before" };
+  tauri.state.sessions([{ ...base, attention: "working", completion_id: undefined, action_identity: identity }]);
+  if (island.classList.contains("expanded")) tauri.emit("island-toggle", {});
+  const replacement = { ...base, action_identity: { ...identity, session_instance_id: "after" }, completion_id: "replacement-initial" };
+  tauri.state.sessions([replacement]);
+  expect(island.classList.contains("expanded")).toBe(false);
+  tauri.state.sessions([{ ...replacement, attention: "working", completion_id: undefined }]);
+  tauri.state.sessions([{ ...replacement, completion_id: "replacement-next" }]);
+  expect(island.classList.contains("expanded")).toBe(true);
 });

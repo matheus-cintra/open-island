@@ -12,10 +12,11 @@ export type PaneId =
   | "integrations"
   | "display"
   | "sound"
+  | "voice"
   | "usage"
   | "filters"
   | "about";
-export type ActionName = "removeAutoConfig" | "quit" | "checkUpdate";
+export type ActionName = "removeAutoConfig" | "quit" | "checkUpdate" | "refreshDiagnostics" | "copyDiagnostics" | "pickVoiceModel" | "clearVoiceModel" | "refreshVoiceModel" | "voicePrivacy";
 export type DurationUnit = "ms" | "s" | "min";
 export type RuleField = "cwd" | "prompt";
 export type MatchType = "contains" | "prefix" | "equals";

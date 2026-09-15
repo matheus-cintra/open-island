@@ -134,6 +134,9 @@ fn descendant(mut pid: u32, root: u32) -> bool {
 }
 
 fn write_pty(fd: i32, bytes: &[u8]) -> io::Result<()> {
+    write_pty_tracked(fd, bytes, &mut 0)
+}
+fn write_pty_tracked(fd: i32, bytes: &[u8], written: &mut usize) -> io::Result<()> {
     let mut rest = bytes;
     let deadline = Instant::now() + Duration::from_secs(2);
     while !rest.is_empty() {
@@ -145,6 +148,7 @@ fn write_pty(fd: i32, bytes: &[u8]) -> io::Result<()> {
         }
         let count = unsafe { libc::write(fd, rest.as_ptr().cast(), rest.len()) };
         if count > 0 {
+            *written += count as usize;
             rest = &rest[count as usize..];
             continue;
         }
@@ -167,39 +171,77 @@ fn write_pty(fd: i32, bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-fn deliver(request: Request, root: u32, fd: i32, device: u64, paste: bool) -> Result<(), String> {
-    wire::validate_text(&request.text)?;
+fn deliver(request: Request, root: u32, fd: i32, device: u64, paste: bool) -> Result<(), Response> {
+    use wire::Outcome::{Rejected, Unconfirmed};
+    let reject = |message: &str| Response::failure(Rejected, "target_changed", message.to_owned());
+    wire::validate_text(&request.text)
+        .map_err(|error| Response::failure(Rejected, "invalid_text", error))?;
     if request.pid <= 1 || request.pid > i32::MAX as u32 || !descendant(request.pid, root) {
-        return Err("A sessão não pertence a esta conexão de entrada.".into());
+        return Err(reject("A sessão não pertence a esta conexão de entrada."));
+    }
+    let birth = open_island_core::process::birth_identity(request.pid)
+        .ok_or_else(|| reject("A sessão encerrou."))?;
+    if request
+        .expected_process_identity
+        .is_some_and(|identity| identity.birth != birth || identity.stdin_device != device)
+    {
+        return Err(reject("A identidade da sessão mudou."));
     }
     let foreground = unsafe { libc::tcgetpgrp(fd) };
     let target = unsafe { libc::getpgid(request.pid as i32) };
     if foreground <= 1 || target != foreground {
-        return Err("O agente não está em primeiro plano neste terminal.".into());
+        return Err(reject(
+            "O agente não está em primeiro plano neste terminal.",
+        ));
     }
     if open_island_core::process::stdin_device(request.pid) != Some(device) {
-        return Err("O processo selecionado não lê a entrada deste terminal.".into());
+        return Err(reject(
+            "O processo selecionado não lê a entrada deste terminal.",
+        ));
     }
     if !paste && request.text.contains(['\n', '\t']) {
-        return Err("O agente ainda não habilitou colagem de texto. Aguarde o prompt antes de enviar várias linhas.".into());
+        return Err(Response::failure(Rejected, "paste_unavailable", "O agente ainda não habilitou colagem de texto. Aguarde o prompt antes de enviar várias linhas.".into()));
     }
     let bytes = if paste {
         format!("\x1b[200~{}\x1b[201~", request.text)
     } else {
         request.text
     };
-    write_pty(fd, bytes.as_bytes()).map_err(|e| e.to_string())?;
+    let mut written = 0;
+    write_pty_tracked(fd, bytes.as_bytes(), &mut written).map_err(|error| {
+        Response::failure(
+            if written == 0 { Rejected } else { Unconfirmed },
+            "pty_write_failed",
+            error.to_string(),
+        )
+    })?;
     if paste {
         std::thread::sleep(Duration::from_millis(50));
     }
-    // Recheck after paste so an exiting agent cannot hand Enter to another process group.
     if unsafe { libc::tcgetpgrp(fd) } != target
-        || !open_island_core::process::exists(request.pid)
+        || open_island_core::process::birth_identity(request.pid) != Some(birth)
         || open_island_core::process::stdin_device(request.pid) != Some(device)
     {
-        return Err("A sessão encerrou durante a colagem. O Enter não foi enviado.".into());
+        return Err(Response::failure(
+            Unconfirmed,
+            "target_changed_after_paste",
+            "A sessão encerrou durante a colagem. O Enter não foi enviado.".into(),
+        ));
     }
-    write_pty(fd, b"\r").map_err(|e| e.to_string())
+    write_pty(fd, b"\r")
+        .map_err(|error| Response::failure(Unconfirmed, "enter_unconfirmed", error.to_string()))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Probe {
+    probe: String,
+}
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum InputRequest {
+    Probe(Probe),
+    Message(Request),
 }
 
 pub fn run(args: Vec<OsString>) -> Result<i32, String> {
@@ -327,11 +369,31 @@ fn run_inner(args: Vec<OsString>) -> Result<i32, Box<dyn std::error::Error>> {
                 connection.set_nonblocking(false)?;
                 connection.set_read_timeout(Some(Duration::from_millis(500)))?;
                 connection.set_write_timeout(Some(Duration::from_millis(500)))?;
-                let error = match wire::read_frame::<Request>(&connection) {
-                    Ok(request) => deliver(request, root, fd, device, paste.enabled).err(),
-                    Err(error) => Some(error.to_string()),
+                let response = match wire::read_frame::<InputRequest>(&connection) {
+                    Ok(InputRequest::Probe(probe)) if probe.probe == "capabilities" => {
+                        let _ = wire::write_frame(
+                            &mut connection,
+                            &serde_json::json!({"capabilities": ["outcome_v1", "expected_process_identity_v1"]}),
+                        );
+                        continue;
+                    }
+                    Ok(InputRequest::Probe(_)) => Response::failure(
+                        wire::Outcome::Rejected,
+                        "unknown_probe",
+                        "Unknown probe".into(),
+                    ),
+                    Ok(InputRequest::Message(request)) => {
+                        deliver(request, root, fd, device, paste.enabled)
+                            .err()
+                            .unwrap_or_else(Response::success)
+                    }
+                    Err(_) => Response::failure(
+                        wire::Outcome::Rejected,
+                        "invalid_request",
+                        "Invalid input request".into(),
+                    ),
                 };
-                let _ = wire::write_frame(&mut connection, &Response { error });
+                let _ = wire::write_frame(&mut connection, &response);
             }
         }
     }

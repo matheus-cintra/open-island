@@ -11,18 +11,14 @@ use crate::update::{self, cache::CachedCheck};
 use crate::usage;
 use open_island_core::{
     config::{self, SoundEvent},
-    discovery,
-    jump::JumpPlanner,
     protocol::{EventData, QuietScenes, UpdateAvailable},
-    runner::SystemRunner,
     send,
-    session::{QueuedMessage, Session},
     store::ReminderScopes,
 };
 use serde_json::{json, Value};
 use std::{
     env,
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -36,12 +32,14 @@ pub fn poller(ctx: DaemonContext, flag: ShutdownFlag) {
         .unwrap_or(2000);
     let state = Arc::clone(&ctx.state);
     let mut previous = None;
+    let mut first = true;
     let config_file = config::path();
     let mut stamp = config_file.as_deref().and_then(config_stamp);
     loop {
-        if !shutdown::wait_for_interval(&flag, Duration::from_millis(interval)) {
+        if !first && !shutdown::wait_for_interval(&flag, Duration::from_millis(interval)) {
             return;
         }
+        first = false;
         if let Some(path) = config_file.as_deref() {
             let current = config_stamp(path);
             if current != stamp {
@@ -55,31 +53,28 @@ pub fn poller(ctx: DaemonContext, flag: ShutdownFlag) {
             make_broadcast(Arc::clone(&state)),
         );
         announce_quiet_scenes(&ctx, &mut source);
-        let sessions = discovery::scan();
-        let (mut reconciled, due) = state
+        let hooks = state
+            .lock()
+            .map(|state| state.store.discovery_targets())
+            .unwrap_or_default();
+        let before = ctx.discovery.read();
+        let cached = ctx.discovery.refresh(&hooks).unwrap_or(before.clone());
+        let reconciled = state
             .lock()
             .map(|mut state| {
-                let reconciled = state.store.snapshot(&sessions);
-                let due = state.store.take_due_messages(&reconciled);
-                (reconciled, due)
+                let reconciled = state.store.snapshot_cached(&cached.observation, true).0;
+                state.store.observe_deliveries(&reconciled, usage::now_ms());
+                reconciled
             })
             .unwrap_or_default();
-        if !due.is_empty() {
-            for (session, message) in &due {
-                if let Err(error) = deliver_message(session, message) {
-                    eprintln!(
-                        "open-islandd: message {} to {}: {error}",
-                        message.id, session.id
-                    );
-                }
-            }
-            reconciled = state
-                .lock()
-                .map(|mut state| state.store.snapshot(&sessions))
-                .unwrap_or_default();
+        for session in &reconciled {
+            let _ = ctx.messages.schedule(&state, session, false);
         }
         announce_idle_reminders(&ctx);
-        if previous.as_ref() != Some(&reconciled) {
+        if (!before.ready && cached.ready)
+            || cached.identities_changed(&before, &hooks)
+            || previous.as_ref() != Some(&reconciled)
+        {
             let delivered = broadcast(
                 &state,
                 event_message("sessions-updated", EventData::Sessions(reconciled.clone())),
@@ -204,79 +199,104 @@ pub fn refresh_update(
 }
 
 pub fn send_message(ctx: &DaemonContext, session_id: &str, text: &str) -> Result<Value, String> {
+    admit_message(ctx, session_id, text, None)
+}
+pub fn send_message_guarded(
+    ctx: &DaemonContext,
+    request: crate::server::guarded_actions::Send,
+) -> Result<Value, String> {
+    if request.identity.daemon_epoch != ctx.messages.epoch {
+        return Err("stale_epoch".into());
+    }
+    if request.client_submission_id.0.is_empty() || request.client_submission_id.0.len() > 128 {
+        return Err("invalid_submission_id".into());
+    }
+    admit_message(
+        ctx,
+        &request.id,
+        &request.text,
+        Some((&request.identity, request.client_submission_id)),
+    )
+}
+fn admit_message(
+    ctx: &DaemonContext,
+    session_id: &str,
+    text: &str,
+    guard: Option<(
+        &open_island_core::message_delivery::DeliveryIdentity,
+        open_island_core::message_delivery::ClientSubmissionId,
+    )>,
+) -> Result<Value, String> {
     let text = send::normalize(text);
     if text.trim().is_empty() {
         return Err("empty message".to_owned());
     }
     open_island_core::input_bridge::validate_text(&text)?;
-    let processes = discovery::scan();
-    let (message, due) = {
-        let mut state = ctx
-            .state
-            .lock()
-            .map_err(|_| "daemon state unavailable".to_owned())?;
-        let sessions = state.store.snapshot(&processes);
-        let session = sessions
-            .iter()
-            .find(|session| session.id == session_id)
-            .cloned()
-            .ok_or_else(|| format!("session '{session_id}' not found"))?;
-        if let Some(code) = session.send_blocked.as_deref() {
-            return Err(code.to_owned());
-        }
-        let message =
-            state
-                .store
-                .enqueue_message(&session.id, text, usage::now_ms(), session.attention);
-        let due = state
-            .store
-            .take_due_messages(std::slice::from_ref(&session))
+    let session = if guard.is_some() {
+        crate::ui_state::freeze(ctx)?
+            .targets()
+            .find(|target| target.session.id == session_id)
+            .map(|target| target.session.clone())
+            .ok_or("stale_session".to_owned())?
+    } else {
+        crate::discovery_cache::sessions(ctx)?
             .into_iter()
-            .find(|(_, candidate)| candidate.id == message.id)
-            .map(|(_, candidate)| candidate);
-        (message, due)
+            .find(|session| session.id == session_id)
+            .ok_or_else(|| format!("session '{session_id}' not found"))?
     };
-    let delivered = match due {
-        Some(message) => {
-            let target = {
-                let processes = discovery::scan();
-                ctx.state
-                    .lock()
-                    .map_err(|_| "daemon state unavailable".to_owned())?
-                    .store
-                    .snapshot(&processes)
-                    .into_iter()
-                    .find(|candidate| candidate.id == session_id)
-                    .ok_or_else(|| format!("session '{session_id}' not found"))?
-            };
-            deliver_message(&target, &message)?;
-            true
-        }
-        None => false,
-    };
-    broadcast_sessions(ctx);
-    Ok(json!({"message_id": message.id, "delivered": delivered}))
-}
-
-pub fn deliver_message(session: &Session, message: &QueuedMessage) -> Result<(), String> {
-    let host = discovery::terminal_for_session(session)
-        .ok_or_else(|| format!("session '{}' is no longer running", session.id))?;
-    if let Some(socket) = host.env.get(open_island_core::input_bridge::ENV) {
-        return open_island_core::input_bridge::send(
-            std::path::Path::new(socket),
-            host.agent_pid,
-            &message.text,
-        );
+    let birth =
+        open_island_core::process::birth_identity(session.pid).ok_or(if guard.is_some() {
+            "stale_session"
+        } else {
+            "target_changed"
+        })?;
+    let identity = crate::message_executor::identity(&session, birth, &ctx.messages.epoch);
+    if guard
+        .as_ref()
+        .is_some_and(|(expected, _)| **expected != identity)
+    {
+        return Err("stale_session".into());
     }
-    let runner = SystemRunner;
-    let plan =
-        JumpPlanner::new(open_island_core::resolvers::default_resolvers()).plan(&host, &runner);
-    let runtime_dir = env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
-    let channel = send::channel_for(&host, &plan.steps, runtime_dir.as_deref(), &|path| {
-        path.exists()
-    })
-    .map_err(|blocked| blocked.code().to_owned())?;
-    send::execute(&send::plan(&channel, &message.text), &runner)
+    if let Some(code) = &session.send_blocked {
+        return Err(code.clone());
+    }
+    let message = {
+        let mut state = ctx.state.lock().map_err(|_| "daemon_unavailable")?;
+        if let Some((expected, _)) = &guard {
+            if expected.daemon_epoch != ctx.messages.epoch {
+                return Err("stale_epoch".into());
+            }
+            if **expected != identity || !state.store.delivery_target_current(&session) {
+                return Err("stale_session".into());
+            }
+        }
+        if !state.store.delivery_target_current(&session) {
+            return Err("target_changed".to_owned());
+        }
+        let stopped = !matches!(
+            session.attention,
+            Some(
+                open_island_core::session::Attention::Working
+                    | open_island_core::session::Attention::NeedsAttention
+            )
+        );
+        state
+            .store
+            .deliveries
+            .admit(
+                &session.id,
+                text,
+                usage::now_ms(),
+                stopped,
+                Some(identity),
+                guard.as_ref().map(|(_, id)| id.clone()),
+            )
+            .map_err(str::to_owned)?
+    };
+    let _ = ctx.messages.schedule(&ctx.state, &session, false);
+    crate::message_executor::publish(&ctx.state);
+    broadcast_sessions(ctx);
+    Ok(json!({"message_id": message.message_id, "delivered": false}))
 }
 
 pub fn announce_idle_reminders(ctx: &DaemonContext) {

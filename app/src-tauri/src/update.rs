@@ -1,8 +1,10 @@
+#[cfg(all(not(target_os = "macos"), not(feature = "qa-harness")))]
 use crate::terminal;
 
+#[cfg(any(test, all(not(target_os = "macos"), not(feature = "qa-harness"))))]
 const INSTALL_SCRIPT: &str = "curl -fsSL https://raw.githubusercontent.com/matheus-cintra/open-island/master/install.sh | sh && systemctl --user restart open-islandd.service open-island.service; printf '\\n%s' \"$1\"; read dummy";
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), not(feature = "qa-harness")))]
 pub fn run(prompt: &str) -> Result<(), String> {
     let program =
         terminal::pick().ok_or_else(|| "no terminal emulator found on PATH".to_owned())?;

@@ -17,6 +17,8 @@ use std::{
 pub type DecisionCell = Arc<OnceLock<ApprovalDecision>>;
 
 pub struct PendingApproval {
+    pub session_generation: u64,
+    pub request: open_island_core::protocol::ApprovalRequest,
     pub connection_id: u64,
     pub session_id: HookId,
     pub approval_generation: u64,
@@ -25,8 +27,11 @@ pub struct PendingApproval {
 }
 
 pub struct Subscriber {
+    pub receives_actions: bool,
+    pub diagnostic_only: bool,
+    pub ui_epoch: Option<open_island_core::message_delivery::DaemonEpoch>,
     pub connection_id: u64,
-    pub sender: mpsc::Sender<String>,
+    pub sender: crate::server::outbox::Outbox,
 }
 
 /// How a pending question left the island. Everything that is not `Answered` sends no
@@ -61,6 +66,8 @@ impl QuestionSettlement {
 pub type AnswerCell = Arc<OnceLock<QuestionSettlement>>;
 
 pub struct PendingQuestion {
+    pub session_generation: u64,
+    pub request: open_island_core::protocol::QuestionRequest,
     /// `None` for a question the hook cannot answer: Codex sends its `PreToolUse` and exits,
     /// so tying the card to that connection would cancel it the moment the hook returns.
     pub connection_id: Option<u64>,
@@ -73,6 +80,8 @@ pub struct PendingQuestion {
 }
 
 pub struct DaemonState {
+    pub publication_revision: u64,
+    pub no_island: u64,
     pub store: SessionStore,
     pub pending: HashMap<String, PendingApproval>,
     pub pending_questions: HashMap<String, PendingQuestion>,

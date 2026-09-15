@@ -1,12 +1,139 @@
-//! Best-effort process queries shared by discovery and terminal resolvers.
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
-#[cfg(target_os = "linux")]
-pub use linux::*;
+#[cfg(feature = "qa-harness")]
+mod qa;
+
+use std::path::PathBuf;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct ProcessBirthIdentity(pub u64);
+impl ProcessBirthIdentity {
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+}
+pub fn birth_identity(pid: u32) -> Option<ProcessBirthIdentity> {
+    if pid <= 1 || pid > i32::MAX as u32 {
+        return None;
+    }
+    #[cfg(feature = "qa-harness")]
+    {
+        qa::route(pid, None, |source| source.birth_identity(pid))
+    }
+    #[cfg(all(not(feature = "qa-harness"), target_os = "linux"))]
+    {
+        linux::birth_identity(pid)
+    }
+    #[cfg(all(not(feature = "qa-harness"), target_os = "macos"))]
+    {
+        macos::birth_identity(pid)
+    }
+}
+
+#[cfg(feature = "qa-harness")]
+pub use qa::{
+    install_process_source_for_qa, register_process_for_qa, ProcessSource, ProcessSourceGuard,
+};
+
+#[cfg(feature = "qa-harness")]
+pub fn system_process_source_for_qa() -> std::sync::Arc<dyn ProcessSource> {
+    #[cfg(target_os = "linux")]
+    let source = linux::SystemProcessSource;
+    #[cfg(target_os = "macos")]
+    let source = macos::SystemProcessSource;
+    std::sync::Arc::new(source)
+}
+
+pub fn pids() -> Vec<u32> {
+    #[cfg(feature = "qa-harness")]
+    {
+        qa::pids()
+    }
+    #[cfg(not(feature = "qa-harness"))]
+    platform_pids()
+}
+
+pub fn parent_and_comm(pid: u32) -> Option<(u32, String)> {
+    #[cfg(feature = "qa-harness")]
+    {
+        qa::route(pid, None, |source| source.parent_and_comm(pid))
+    }
+    #[cfg(not(feature = "qa-harness"))]
+    platform_parent_and_comm(pid)
+}
+
+pub fn command(pid: u32) -> Option<Vec<u8>> {
+    #[cfg(feature = "qa-harness")]
+    {
+        qa::route(pid, None, |source| source.command(pid))
+    }
+    #[cfg(not(feature = "qa-harness"))]
+    platform_command(pid)
+}
+
+pub fn environment(pid: u32) -> Vec<u8> {
+    #[cfg(feature = "qa-harness")]
+    {
+        qa::route(pid, Vec::new(), |source| source.environment(pid))
+    }
+    #[cfg(not(feature = "qa-harness"))]
+    platform_environment(pid)
+}
+
+pub fn cwd(pid: u32) -> Option<PathBuf> {
+    #[cfg(feature = "qa-harness")]
+    {
+        qa::route(pid, None, |source| source.cwd(pid))
+    }
+    #[cfg(not(feature = "qa-harness"))]
+    platform_cwd(pid)
+}
+
+pub fn stdin_device(pid: u32) -> Option<u64> {
+    #[cfg(feature = "qa-harness")]
+    {
+        qa::route(pid, None, |source| source.stdin_device(pid))
+    }
+    #[cfg(not(feature = "qa-harness"))]
+    platform_stdin_device(pid)
+}
+
+pub fn exists(pid: u32) -> bool {
+    if pid <= 1 || pid > i32::MAX as u32 {
+        return false;
+    }
+    #[cfg(feature = "qa-harness")]
+    {
+        qa::route(pid, false, |source| source.exists(pid))
+    }
+    #[cfg(not(feature = "qa-harness"))]
+    system_exists(pid)
+}
+
+fn system_exists(pid: u32) -> bool {
+    unsafe {
+        libc::kill(pid as i32, 0) == 0
+            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+}
+
+#[cfg(all(target_os = "linux", not(feature = "qa-harness")))]
+use linux::{
+    command as platform_command, cwd as platform_cwd, environment as platform_environment,
+    parent_and_comm as platform_parent_and_comm, pids as platform_pids,
+    stdin_device as platform_stdin_device,
+};
 #[cfg(target_os = "macos")]
-pub use macos::*;
+pub use macos::{activate, displays_asleep, session_unavailable};
+#[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
+use macos::{
+    command as platform_command, cwd as platform_cwd, environment as platform_environment,
+    parent_and_comm as platform_parent_and_comm, pids as platform_pids,
+    stdin_device as platform_stdin_device,
+};
 
 #[cfg(any(test, target_os = "macos"))]
 fn session_unavailable_from(on_console: Option<bool>, locked: Option<bool>) -> Option<bool> {
@@ -34,19 +161,6 @@ fn session_lock_and_user_switch_are_distinct_from_unknown_session_state() {
     assert_eq!(session_unavailable_from(None, Some(true)), Some(true));
 }
 
-pub fn exists(pid: u32) -> bool {
-    if pid <= 1 || pid > i32::MAX as u32 {
-        return false;
-    }
-    // EPERM means the process exists but belongs to another security context.
-    unsafe {
-        libc::kill(pid as i32, 0) == 0
-            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-    }
-}
-
-/// Skip CLI/helper processes, but never switch to another app if the owning GUI
-/// application was found and macOS refused its activation.
 #[cfg(any(target_os = "macos", test))]
 fn activate_ancestor(
     pid: u32,
@@ -61,9 +175,11 @@ fn activate_ancestor(
         }
         match activate(current) {
             Some(true) => return Ok(()),
-            Some(false) => return Err(format!(
-                "O macOS recusou ativar o aplicativo do processo {current}. Verifique se ele ainda está aberto."
-            )),
+            Some(false) => {
+                return Err(format!(
+                    "O macOS recusou ativar o aplicativo do processo {current}. Verifique se ele ainda está aberto."
+                ))
+            }
             None => {}
         }
         let Some(next) = parent(current) else { break };

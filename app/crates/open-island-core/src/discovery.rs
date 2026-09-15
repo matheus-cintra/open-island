@@ -5,7 +5,89 @@ use crate::{
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
+    time::Instant,
 };
+
+/// One immutable process-table observation. Publication never probes the OS.
+#[derive(Clone)]
+pub struct Observation {
+    pub complete: bool,
+    pub started: Instant,
+    pub sessions: Vec<Session>,
+    pub births: HashMap<u32, crate::process::ProcessBirthIdentity>,
+    pub alive: HashSet<u32>,
+    pub hosts: HashMap<u32, crate::terminal::TerminalInfo>,
+    pub branches: HashMap<String, Option<String>>,
+}
+impl Observation {
+    pub fn empty() -> Self {
+        Self {
+            complete: false,
+            started: Instant::now(),
+            sessions: Vec::new(),
+            births: HashMap::new(),
+            alive: HashSet::new(),
+            hosts: HashMap::new(),
+            branches: HashMap::new(),
+        }
+    }
+}
+
+pub fn observe(hooks: &[Session]) -> Result<Observation, &'static str> {
+    let mut observation = Observation::empty();
+    let pids = crate::process::pids();
+    #[cfg(not(feature = "qa-harness"))]
+    if pids.is_empty() {
+        return Err("discovery_unavailable");
+    }
+    observation.alive = pids.iter().copied().collect();
+    let requested: HashSet<_> = hooks.iter().map(|session| session.pid).collect();
+    let snapshots: Vec<_> = pids
+        .into_iter()
+        .filter_map(|pid| {
+            let birth = crate::process::birth_identity(pid);
+            let snapshot = read_snapshot(pid, requested.contains(&pid))?;
+            if birth != crate::process::birth_identity(pid) {
+                return None;
+            }
+            if let Some(birth) = birth {
+                observation.births.insert(pid, birth);
+            }
+            Some(snapshot)
+        })
+        .collect();
+    let self_pid = std::process::id();
+    observation.sessions = classify_processes(&snapshots, self_pid, &ancestor_pids(self_pid));
+    let targets: HashSet<_> = requested
+        .into_iter()
+        .chain(observation.sessions.iter().map(|s| s.pid))
+        .collect();
+    observation.hosts = snapshots
+        .iter()
+        .filter(|s| targets.contains(&s.pid))
+        .map(|s| (s.pid, classify(s, &snapshots)))
+        .collect();
+    // A hook can arrive in the same tick in which the process table is changing.  In that
+    // window the full scan may omit the requested PID even though its short ancestry is still
+    // readable.  Recover only those missing hook hosts here so the cached projection does not
+    // publish a transient `send_channel: null` and then leave the row unresolved until another
+    // event arrives.
+    for hook in hooks {
+        if !observation.hosts.contains_key(&hook.pid) {
+            if let Some(host) = terminal_for_delivery(hook, || true) {
+                observation.hosts.insert(hook.pid, host);
+            }
+        }
+    }
+    for session in hooks.iter().chain(&observation.sessions) {
+        observation
+            .branches
+            .entry(session.cwd.clone())
+            .or_insert_with(|| crate::naming::branch_of(Path::new(&session.cwd)));
+    }
+    observation.complete = true;
+    Ok(observation)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AgentSpec {
@@ -112,7 +194,7 @@ pub fn scan() -> Vec<Session> {
 }
 
 pub fn terminal_for_session(session: &Session) -> Option<crate::terminal::TerminalInfo> {
-    terminal_for_sessions(&[session]).remove(&session.pid)
+    terminal_for_delivery(session, || true)
 }
 
 /// Resolve terminal metadata from one process table snapshot. A reconciliation
@@ -184,28 +266,28 @@ pub fn classify_processes(
 fn read_snapshots() -> Vec<ProcessSnapshot> {
     crate::process::pids()
         .into_iter()
-        .filter_map(|pid| {
-            let (ppid, comm) = crate::process::parent_and_comm(pid)?;
-            let agent =
-                crate::process::command(pid).and_then(|command| agent_for_cmdline(&command));
-            let (cwd, env) = if agent.is_some() {
-                (
-                    crate::process::cwd(pid)?.to_string_lossy().into_owned(),
-                    parse_environment(&crate::process::environment(pid)),
-                )
-            } else {
-                (String::new(), HashMap::new())
-            };
-            Some(ProcessSnapshot {
-                pid,
-                ppid,
-                comm,
-                agent,
-                cwd,
-                env,
-            })
-        })
+        .filter_map(|pid| read_snapshot(pid, false))
         .collect()
+}
+fn read_snapshot(pid: u32, requested: bool) -> Option<ProcessSnapshot> {
+    let (ppid, comm) = crate::process::parent_and_comm(pid)?;
+    let agent = crate::process::command(pid).and_then(|command| agent_for_cmdline(&command));
+    let (cwd, env) = if agent.is_some() || requested {
+        (
+            crate::process::cwd(pid)?.to_string_lossy().into_owned(),
+            parse_environment(&crate::process::environment(pid)),
+        )
+    } else {
+        (String::new(), HashMap::new())
+    };
+    Some(ProcessSnapshot {
+        pid,
+        ppid,
+        comm,
+        agent,
+        cwd,
+        env,
+    })
 }
 
 pub(crate) fn parse_environment(bytes: &[u8]) -> HashMap<String, String> {
@@ -254,6 +336,52 @@ fn ancestor_pids(mut pid: u32) -> HashSet<u32> {
         pid = ppid;
     }
     result
+}
+
+pub fn terminal_for_delivery(
+    session: &Session,
+    mut within_deadline: impl FnMut() -> bool,
+) -> Option<crate::terminal::TerminalInfo> {
+    let mut snapshots = Vec::new();
+    let mut visited = HashSet::new();
+    let mut pid = session.pid;
+    for _ in 0..64 {
+        if pid <= 1 || !visited.insert(pid) || !within_deadline() {
+            break;
+        }
+        let Some((ppid, comm)) = crate::process::parent_and_comm(pid) else {
+            break;
+        };
+        let selected = pid == session.pid;
+        snapshots.push(ProcessSnapshot {
+            pid,
+            ppid,
+            comm,
+            agent: if selected {
+                Some(session.agent.clone())
+            } else {
+                None
+            },
+            cwd: if selected {
+                session.cwd.clone()
+            } else {
+                String::new()
+            },
+            env: if selected {
+                parse_environment(&crate::process::environment(pid))
+            } else {
+                HashMap::new()
+            },
+        });
+        pid = ppid;
+    }
+    if !within_deadline() {
+        return None;
+    }
+    snapshots
+        .first()
+        .filter(|first| first.pid == session.pid)
+        .map(|first| classify(first, &snapshots))
 }
 
 #[cfg(test)]

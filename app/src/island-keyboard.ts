@@ -14,7 +14,7 @@ export function bindIslandKeyboard(
   };
   const editable = (target: EventTarget | null): target is HTMLElement =>
     target instanceof HTMLElement && root.contains(target) &&
-    target.matches('textarea:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), [contenteditable="true"]');
+    target.matches('textarea:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), [contenteditable="true"], button.voice-toggle:not(:disabled), .voice-panel button:not(:disabled), .voice-panel summary');
   const release = () => {
     if (editable(document.activeElement)) document.activeElement.blur();
     set(false);

@@ -224,14 +224,25 @@ pub fn classify(snapshot: &ProcessSnapshot, processes: &[ProcessSnapshot]) -> Te
     } else {
         None
     };
-    let terminal = terminal_pid.map(|pid| {
-        let kind = walk_kind.or(env_kind).unwrap_or("unknown");
-        TerminalLayer {
-            kind: kind.to_owned(),
-            pid,
-            window_id: window_id_for(kind, &env),
-        }
-    });
+    let terminal = terminal_pid
+        .map(|pid| {
+            let kind = walk_kind.or(env_kind).unwrap_or("unknown");
+            TerminalLayer {
+                kind: kind.to_owned(),
+                pid,
+                window_id: window_id_for(kind, &env),
+            }
+        })
+        // macOS can hide the ancestry of a hardened terminal helper while still exposing
+        // the agent's terminal variables. Keep the transport capability in that case and
+        // use the agent as the conservative focus target until a terminal PID is known.
+        .or_else(|| {
+            env_kind.map(|kind| TerminalLayer {
+                kind: kind.to_owned(),
+                pid: snapshot.pid,
+                window_id: window_id_for(kind, &env),
+            })
+        });
     let multiplexer = multiplexer_kind.map(|kind| MultiplexerLayer {
         kind,
         pane_id: match kind {
@@ -346,6 +357,21 @@ mod tests {
                 .as_ref()
                 .and_then(|layer| layer.window_id.as_deref()),
             Some("1")
+        );
+    }
+
+    #[test]
+    fn terminal_environment_survives_without_a_visible_terminal_ancestor() {
+        let agent = with_env(
+            process(30, 20, "bun", Some("claude")),
+            &[("KITTY_WINDOW_ID", "1"), ("KITTY_LISTEN_ON", "unix:/tmp/k")],
+        );
+        let info = classify(&agent, &[agent.clone()]);
+        assert_eq!(info.kind, "kitty");
+        assert_eq!(info.raise_pid, 30);
+        assert_eq!(
+            info.terminal.as_ref().map(|layer| layer.kind.as_str()),
+            Some("kitty")
         );
     }
 

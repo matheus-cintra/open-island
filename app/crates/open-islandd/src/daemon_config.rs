@@ -1,3 +1,4 @@
+#[cfg(not(feature = "qa-harness"))]
 use crate::installer;
 use crate::notifications::lifecycle::{self, DaemonContext};
 use open_island_core::config::{self, Config};
@@ -51,6 +52,7 @@ pub fn config_stamp(path: &Path) -> Option<(std::time::SystemTime, u64)> {
     Some((metadata.modified().ok()?, metadata.len()))
 }
 
+#[cfg(not(feature = "qa-harness"))]
 pub fn configure_detected_agents(config: &mut Config) {
     if !config.integrations.auto_configure {
         return;
@@ -121,4 +123,9 @@ pub fn reload_config(ctx: &DaemonContext, broadcast: impl Fn(String) -> bool) {
         state.store.set_filter_rules(rules, launchers);
     }
     broadcast(lifecycle::config_changed_message(payload));
+}
+
+#[cfg(feature = "qa-harness")]
+pub fn configure_detected_agents(config: &mut Config) {
+    config.integrations.auto_configure = false;
 }

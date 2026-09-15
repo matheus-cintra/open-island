@@ -230,21 +230,36 @@ O `--uninstall` desfaz o que a instalação fez. Para tirar os hooks dos agentes
 
 <br>
 
+Consulte [entrega, recuperação e ditado local](docs/post-mvp-evolution.md) para os
+novos estados, limites de memória, configuração do modelo e validações pendentes.
+Para investigar uma instalação sem iniciar ou reiniciar serviços, execute
+`open-islandd doctor --json`; o relatório é somente leitura e redige caminhos,
+credenciais, prompts e transcrições.
+
 ## Compilar do código-fonte
 
-Precisa de Bun, da toolchain do Rust e das dependências de build do Tauri v2 (`webkit2gtk-4.1`, `gtk3`) mais o `gtk-layer-shell`.
+Precisa de Bun, da toolchain do Rust e das dependências de build do Tauri v2 (`webkit2gtk-4.1`, `gtk3`) mais `gtk-layer-shell`, headers ALSA, Clang, pkg-config e CMake 3.31.6.
+O áudio local usa CPU; o build normal não inclui modelo de transcrição.
 
 ```sh
 git clone https://github.com/matheus-cintra/open-island.git
 cd open-island/app
 bun install
-bun run prebundle
 bun run tauri build
 ```
 
 O `bun run prebundle` compila o daemon e coloca ele em `app/src-tauri/binaries/`, que não vem no repositório; o `bun run tauri dev` e o `cargo test` não fazem esse passo sozinhos e falham na compilação sem ele.
 
-O `bun run tauri build` recompila o daemon antes de empacotar, e os pacotes saem em `app/target/release/bundle/`.
+O `bun run tauri build` usa a política portátil e recompila o daemon antes de
+empacotar. Não instala o resultado nem reinicia o daemon em execução. Os artefatos
+ficam em `app/target/portable/<target>/<política>/<target>/release/bundle/`.
+Em `app`, `node scripts/portable-build.mjs paths` informa o diretório exato.
+Builds com `qa-harness`/`qa-webdriver` usam `target/portable-qa` separado.
+
+No Linux x86-64, a base é x86-64-v1/SSE2; no Mac ARM, ARMv8-A/NEON. O wrapper
+recusa opções incompatíveis de CPU/GPU e verifica o código nativo compilado.
+Isso não substitui a validação de inferência em cada CPU suportada, ainda pendente.
+Consulte [QA nativa](docs/native-qa.md) para o escopo comprovado.
 
 <details>
 <summary><b>Desenvolver e rodar os testes</b></summary>
@@ -258,7 +273,7 @@ bun run tauri dev
 ```sh
 cd app
 bun run test
-cargo test
+python3 ../scripts/test-processes.py bun scripts/portable-build.mjs cargo test --workspace
 ```
 
 `cargo test` sobe o `open-islandd` e um `dbus-daemon`; leia [`AGENTS.md`](AGENTS.md) antes de rodar com pipe, porque os netos herdam o stdout e o comando não retorna.

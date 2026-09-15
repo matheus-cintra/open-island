@@ -3,14 +3,17 @@ mod appicon;
 mod client;
 mod commands;
 mod compositor;
+mod daemon_transport;
 mod geometry;
 mod launch;
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(any(test, all(target_os = "macos", not(feature = "qa-harness"))))]
 mod launch_macos;
 #[cfg(target_os = "linux")]
 mod layershell;
 mod platform;
 mod pointer;
+#[cfg(feature = "qa-harness")]
+pub mod qa;
 #[cfg(any(test, target_os = "macos"))]
 mod screen_geometry;
 mod settings;
@@ -33,7 +36,13 @@ use tauri::{Listener, Manager};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
-    #[cfg(target_os = "macos")]
+    #[cfg(feature = "qa-webdriver")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init_with_port(
+        qa::webdriver_port().expect("private QA environment and explicit WebDriver port required"),
+    ));
+    #[cfg(feature = "qa-harness")]
+    let builder = builder.plugin(qa::plugin());
+    #[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
     let builder = builder
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if args.iter().any(|arg| arg == "--settings") {
@@ -43,6 +52,7 @@ pub fn run() {
         .plugin(shortcut::plugin())
         .plugin(tauri_plugin_updater::Builder::new().build());
     builder
+        .plugin(voice::commands::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -52,6 +62,16 @@ pub fn run() {
             shortcut::get_shortcut,
             shortcut::set_shortcut,
             commands::list_sessions,
+            commands::get_ui_state,
+            commands::get_daemon_ui_state,
+            commands::diagnostic_report,
+            commands::get_message_recovery,
+            commands::discard_message_recovery,
+            commands::send_message_v2,
+            commands::cancel_message_v2,
+            commands::jump_v2,
+            commands::resolve_approval_v2,
+            commands::answer_question_v2,
             commands::jump,
             commands::resolve_approval,
             commands::answer_question,
@@ -84,10 +104,13 @@ pub fn run() {
             commands::quit_app
         ])
         .setup(|app| {
+            #[cfg(feature = "qa-harness")]
+            app.manage(qa::activate().map_err(std::io::Error::other)?);
             #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
                 platform::setup_menu(app.handle())?;
+                #[cfg(not(feature = "qa-harness"))]
                 shortcut::restore(app.handle());
             }
             let client =
@@ -132,3 +155,7 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+pub mod message_recovery;
+
+pub mod voice;

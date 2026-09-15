@@ -1,5 +1,6 @@
 use crate::{
     filters::{self, LauncherRule, SilenceRule, Subject},
+    message_delivery::{DeliveryStore, MessageDelivery},
     naming,
     protocol::{ApprovalDecision, HookEvent, HookEventKind, QuestionOutcome},
     session::{
@@ -63,7 +64,6 @@ struct HookState {
     reminded_at: Option<Instant>,
     waiting_since: Option<Instant>,
     waiting_reminded_at: Option<Instant>,
-    branch_cwd: String,
     first_prompt: Option<String>,
     launcher: Option<String>,
     filtered: bool,
@@ -143,16 +143,10 @@ pub struct SessionStore {
     rules: Vec<SilenceRule>,
     launchers: Vec<LauncherRule>,
     prompts: VecDeque<Instant>,
-    queues: HashMap<String, MessageQueue>,
-    next_message_id: u64,
+    pub deliveries: DeliveryStore,
     completion_instance: String,
     next_completion_id: u64,
-}
-
-#[derive(Clone, Debug, Default)]
-struct MessageQueue {
-    messages: VecDeque<QueuedMessage>,
-    armed: bool,
+    next_hook_generation: u64,
 }
 
 fn stopped(attention: Option<Attention>) -> bool {
@@ -177,10 +171,10 @@ impl Default for SessionStore {
             rules: Vec::new(),
             launchers: Vec::new(),
             prompts: VecDeque::new(),
-            queues: HashMap::new(),
-            next_message_id: 1,
+            deliveries: DeliveryStore::default(),
             completion_instance: daemon_instance_nonce(),
             next_completion_id: 1,
+            next_hook_generation: 1,
         }
     }
 }
@@ -200,56 +194,55 @@ impl SessionStore {
         text: String,
         now_ms: u64,
         attention: Option<Attention>,
-    ) -> QueuedMessage {
-        let message = QueuedMessage {
-            id: self.next_message_id,
-            text,
-            queued_at_ms: now_ms,
-        };
-        self.next_message_id += 1;
-        let queue = self.queues.entry(session_id.to_owned()).or_default();
-        queue.messages.push_back(message.clone());
-        while queue.messages.len() > MAX_QUEUED_MESSAGES {
-            queue.messages.pop_front();
-        }
-        if stopped(attention) {
-            queue.armed = true;
-        }
-        message
+    ) -> Result<QueuedMessage, String> {
+        self.deliveries
+            .admit(session_id, text, now_ms, stopped(attention), None, None)
+            .map(|delivery| QueuedMessage {
+                id: delivery.message_id,
+                text: delivery.text,
+                queued_at_ms: delivery.queued_at_ms,
+            })
+            .map_err(str::to_owned)
     }
 
-    pub fn cancel_message(&mut self, session_id: &str, message_id: u64) -> bool {
-        let Some(queue) = self.queues.get_mut(session_id) else {
-            return false;
-        };
-        let before = queue.messages.len();
-        queue.messages.retain(|message| message.id != message_id);
-        let removed = queue.messages.len() != before;
-        if queue.messages.is_empty() {
-            self.queues.remove(session_id);
+    pub fn cancel_message(&mut self, session_id: &str, message_id: u64) -> Result<bool, String> {
+        self.deliveries
+            .cancel(session_id, message_id)
+            .map_err(str::to_owned)
+    }
+
+    pub fn observe_deliveries(&mut self, sessions: &[Session], now_ms: u64) {
+        let active = sessions
+            .iter()
+            .map(|session| (session.id.as_str(), stopped(session.attention)))
+            .collect::<Vec<_>>();
+        self.deliveries.observe(&active, now_ms);
+    }
+
+    pub fn reserve_message(
+        &mut self,
+        session: &Session,
+    ) -> Result<Option<MessageDelivery>, String> {
+        if !stopped(session.attention) {
+            return Ok(None);
         }
-        removed
+        self.deliveries.reserve(&session.id).map_err(str::to_owned)
     }
 
-    pub fn take_due_messages(&mut self, sessions: &[Session]) -> Vec<(Session, QueuedMessage)> {
-        let mut due = Vec::new();
-        self.queues.retain(|session_id, queue| {
-            let Some(session) = sessions.iter().find(|session| session.id == *session_id) else {
-                return false;
-            };
-            if !stopped(session.attention) {
-                queue.armed = true;
-            } else if queue.armed {
-                if let Some(message) = queue.messages.pop_front() {
-                    queue.armed = false;
-                    due.push((session.clone(), message));
-                }
-            }
-            !queue.messages.is_empty()
-        });
-        due
+    pub fn delivery_target_current(&self, session: &Session) -> bool {
+        session.hook_id.as_ref().is_none_or(|id| {
+            self.hooks.get(id).is_some_and(|state| {
+                state.session.pid == session.pid
+                    && state.session.hook_generation == session.hook_generation
+            })
+        })
     }
 
+    pub fn hook_generation(&self, id: &HookId) -> Option<u64> {
+        self.hooks
+            .get(id)
+            .map(|state| state.session.hook_generation)
+    }
     pub fn prior_mode(&self, hook_id: &HookId) -> Option<String> {
         self.hooks.get(hook_id)?.prior_mode.clone()
     }
@@ -408,6 +401,18 @@ impl SessionStore {
         }
 
         let hook_id = event.session_id.clone();
+        let hook_generation =
+            if event.event == HookEventKind::SessionStart || !self.hooks.contains_key(&hook_id) {
+                let Some(next) = self.next_hook_generation.checked_add(1) else {
+                    self.remove_hook(&hook_id);
+                    return;
+                };
+                let current = self.next_hook_generation;
+                self.next_hook_generation = next;
+                Some(current)
+            } else {
+                None
+            };
         let approval_id = event.approval_id.clone();
         let prompt = event.prompt.clone();
         let opened_question = match question_intent(&event) {
@@ -438,7 +443,6 @@ impl SessionStore {
                     reminded_at: None,
                     waiting_since: None,
                     waiting_reminded_at: None,
-                    branch_cwd: String::new(),
                     first_prompt: None,
                     launcher: None,
                     filtered: false,
@@ -448,6 +452,10 @@ impl SessionStore {
                     // always report. Once accepted, another one needs real primary activity.
                     legacy_stop_armed: true,
                 });
+
+            if let Some(generation) = hook_generation {
+                state.session.hook_generation = generation;
+            }
 
             let from_subagent = event.agent_id.is_some()
                 && matches!(
@@ -477,9 +485,8 @@ impl SessionStore {
                 state.legacy_stop_armed = true;
             }
             if let Some(cwd) = event.cwd {
-                if state.branch_cwd != cwd {
-                    state.branch_cwd = cwd.clone();
-                    state.session.branch = naming::branch_of(Path::new(&cwd));
+                if state.session.cwd != cwd {
+                    state.session.branch = None;
                 }
                 state.session.cwd = cwd;
             }
@@ -581,11 +588,11 @@ impl SessionStore {
                         .turn_id
                         .as_ref()
                         .is_some_and(|turn| !state.seen_completion_turns.contains(turn));
-                    let accept = event
-                        .turn_id
-                        .is_some()
-                        .then_some(fresh_turn)
-                        .unwrap_or(state.legacy_stop_armed);
+                    let accept = if event.turn_id.is_some() {
+                        fresh_turn
+                    } else {
+                        state.legacy_stop_armed
+                    };
                     if accept {
                         accepted_stop = true;
                         state.session.current_tool = None;
@@ -807,12 +814,87 @@ impl SessionStore {
 
     pub fn snapshot(&mut self, processes: &[Session]) -> Vec<Session> {
         let mut sessions = self.snapshot_at(processes, Instant::now());
+        Self::fill_hosts(&mut sessions);
+        sessions
+    }
+
+    pub fn discovery_targets(&self) -> Vec<Session> {
+        self.hooks
+            .values()
+            .map(|hook| hook.session.clone())
+            .collect()
+    }
+
+    /// Reconcile using only the immutable observation and in-memory hook state.
+    pub fn snapshot_cached(
+        &mut self,
+        observation: &crate::discovery::Observation,
+        grouped: bool,
+    ) -> (Vec<Session>, Vec<Session>) {
+        let recent: HashSet<_> = self
+            .hooks
+            .values()
+            .filter(|hook| hook.last_seen >= observation.started)
+            .map(|hook| hook.session.pid)
+            .collect();
+        let mut sessions = self.snapshot_projection(
+            &observation.sessions,
+            Instant::now(),
+            |pid| {
+                !observation.complete || observation.alive.contains(&pid) || recent.contains(&pid)
+            },
+            grouped,
+        );
+        for session in &mut sessions {
+            if let Some(branch) = observation.branches.get(&session.cwd) {
+                session.branch = branch.clone();
+            }
+            if session.send_channel.is_none() && session.send_blocked.is_none() {
+                if let Some(host) = observation.hosts.get(&session.pid) {
+                    if host.kind != "unknown" {
+                        session.terminal = host.kind.clone();
+                    }
+                    session.raise_pid = Some(host.raise_pid);
+                    match crate::send::capability(host) {
+                        Ok(channel) => session.send_channel = Some(channel.into()),
+                        Err(blocked) => session.send_blocked = Some(blocked.code().into()),
+                    }
+                }
+            }
+        }
+        if grouped {
+            return (sessions, Vec::new());
+        }
+        let mut roots = sessions.clone();
+        self.group_children(&mut roots);
+        Self::sort_sessions(&mut roots);
+        sessions.retain(|session| !roots.iter().any(|root| root.id == session.id));
+        (roots, sessions)
+    }
+
+    /// Keep child action targets even though the visual projection groups families.
+    pub fn snapshot_with_children(
+        &mut self,
+        processes: &[Session],
+    ) -> (Vec<Session>, Vec<Session>) {
+        let mut all =
+            self.snapshot_projection(processes, Instant::now(), crate::process::exists, false);
+        Self::fill_hosts(&mut all);
+        Self::fill_branches(&mut all);
+        let mut roots = all.clone();
+        self.group_children(&mut roots);
+        Self::sort_sessions(&mut roots);
+        all.retain(|session| !roots.iter().any(|root| root.id == session.id));
+        (roots, all)
+    }
+
+    fn fill_hosts(sessions: &mut [Session]) {
         let unresolved = sessions
             .iter()
             .filter(|session| session.send_channel.is_none() && session.send_blocked.is_none())
             .collect::<Vec<_>>();
         let hosts = crate::discovery::terminal_for_sessions(&unresolved);
-        for session in &mut sessions {
+        for session in sessions {
             // Interpreters may expose a different argv0 on macOS. Hooks still
             // identify their PID, so recover terminal/input metadata for those
             // live sessions instead of requiring generic process discovery.
@@ -829,11 +911,17 @@ impl SessionStore {
                 }
             }
         }
-        sessions
     }
 
     pub fn snapshot_at(&mut self, processes: &[Session], now: Instant) -> Vec<Session> {
-        self.snapshot_with_liveness(processes, now, crate::process::exists)
+        let mut sessions = self.snapshot_with_liveness(processes, now, crate::process::exists);
+        Self::fill_branches(&mut sessions);
+        sessions
+    }
+    fn fill_branches(sessions: &mut [Session]) {
+        for session in sessions {
+            session.branch = naming::branch_of(Path::new(&session.cwd));
+        }
     }
 
     fn snapshot_with_liveness(
@@ -841,6 +929,16 @@ impl SessionStore {
         processes: &[Session],
         now: Instant,
         alive: impl Fn(u32) -> bool,
+    ) -> Vec<Session> {
+        self.snapshot_projection(processes, now, alive, true)
+    }
+
+    fn snapshot_projection(
+        &mut self,
+        processes: &[Session],
+        now: Instant,
+        alive: impl Fn(u32) -> bool,
+        grouped: bool,
     ) -> Vec<Session> {
         let mut used = vec![false; processes.len()];
         let mut missing_hooks = Vec::new();
@@ -857,7 +955,7 @@ impl SessionStore {
                 process.agent == state.session.agent && process.pid == state.session.pid
             })
             .or_else(|| {
-                if shared {
+                if shared || !grouped {
                     return None;
                 }
                 find_process(&used, processes, |process| {
@@ -865,10 +963,13 @@ impl SessionStore {
                 })
             });
             let Some(index) = process_index else {
-                if alive(state.session.pid) {
+                if (!grouped && state.session.pid == 0) || alive(state.session.pid) {
                     if !state.filtered && !self.stale(hook_id, state, now) {
                         let mut session = state.session.clone();
                         session.attention = Some(self.attention_of(hook_id, state, now));
+                        if session.pid == 0 {
+                            session.send_blocked = Some("unverified_target".into());
+                        }
                         sessions.push(session);
                     }
                 } else {
@@ -935,13 +1036,17 @@ impl SessionStore {
                 .cloned(),
         );
         for session in &mut sessions {
-            session.queued_messages = self
-                .queues
-                .get(&session.id)
-                .filter(|queue| !queue.messages.is_empty())
-                .map(|queue| queue.messages.iter().cloned().collect());
+            let queued = self.deliveries.queued(&session.id);
+            session.queued_messages = (!queued.is_empty()).then_some(queued);
         }
-        self.group_children(&mut sessions);
+        if grouped {
+            self.group_children(&mut sessions);
+        }
+        Self::sort_sessions(&mut sessions);
+        sessions
+    }
+
+    fn sort_sessions(sessions: &mut [Session]) {
         sessions.sort_by(|left, right| {
             left.attention
                 .unwrap_or(Attention::Working)
@@ -951,7 +1056,6 @@ impl SessionStore {
                 .then_with(|| left.cwd.cmp(&right.cwd))
                 .then_with(|| left.pid.cmp(&right.pid))
         });
-        sessions
     }
 
     fn is_descendant_of(&self, id: &HookId, ancestor: &HookId) -> bool {
@@ -1110,12 +1214,13 @@ impl SessionStore {
             self.parents.remove(&id);
             self.retired_children.remove(&id);
             self.drop_pending(&id);
-            self.queues.remove(id.as_str());
+            self.deliveries.orphan_session(id.as_str(), wall_clock_ms());
         }
         self.hooks.remove(hook_id);
         self.parents.remove(hook_id);
         self.retired_children.remove(hook_id);
-        self.queues.remove(hook_id.as_str());
+        self.deliveries
+            .orphan_session(hook_id.as_str(), wall_clock_ms());
         self.drop_pending(hook_id);
     }
 
@@ -1287,6 +1392,7 @@ fn merge_session(hook: &Session, process: &Session, attention: Attention) -> Ses
     let mut merged = process.clone();
     merged.id = hook.id.clone();
     merged.hook_id = hook.hook_id.clone();
+    merged.hook_generation = hook.hook_generation;
     merged.status = hook.status.clone();
     merged.current_tool = hook.current_tool.clone();
     merged.summary = hook.summary.clone();

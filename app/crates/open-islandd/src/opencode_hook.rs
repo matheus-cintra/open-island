@@ -69,6 +69,11 @@ pub fn run(
         });
     }
     if !approval {
+        // Keep the connection alive until the daemon has consumed the frame. Without this
+        // short acknowledgement, a fast hook process can close immediately after `write` and
+        // Darwin may deliver EOF before the daemon's framed reader observes the bytes.
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
+        let _ = read_matching_response(stream, REQUEST_ID);
         return Ok(String::new());
     }
     let response = match read_matching_response(stream, REQUEST_ID) {

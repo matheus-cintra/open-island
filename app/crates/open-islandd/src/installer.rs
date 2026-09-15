@@ -633,13 +633,8 @@ pub fn install_notes(agents: &[&str]) -> Vec<String> {
     ]
 }
 
-const DAEMON_RESOLVER: &str = include_str!("../templates/resolve-daemon.sh");
-
 fn command(_executable: &Path, agent: &str) -> String {
-    format!(
-        "/bin/sh -c {} open-island-hook hook --agent {agent} {MANAGED_MARKER}",
-        shell_quote(DAEMON_RESOLVER)
-    )
+    open_island_core::hook_templates::command(agent)
 }
 
 fn shell_quote(value: &str) -> String {
@@ -803,10 +798,7 @@ fn merge_opencode_plugin(
 }
 
 fn opencode_plugin(_executable: &Path) -> Result<String, String> {
-    let argv = serde_json::to_string(&["/bin/sh", "-c", DAEMON_RESOLVER, "open-island-hook"])
-        .map_err(|error| format!("encode daemon resolver: {error}"))?;
-    let template = include_str!("../templates/open-island-opencode.ts.template");
-    Ok(template.replace("__OPEN_ISLANDD_ARGV__", &argv))
+    open_island_core::hook_templates::opencode_plugin()
 }
 
 fn write_json_atomic(path: &Path, value: &Value) -> Result<(), String> {

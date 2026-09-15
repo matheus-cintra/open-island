@@ -1,33 +1,20 @@
-use open_island_core::{
-    protocol::{ApprovalDecision, Request, Response},
-    session::Session,
-};
+use crate::daemon_transport::Transport;
+use open_island_core::{protocol::ApprovalDecision, session::Session};
 use serde_json::{json, Value};
-use std::{
-    collections::HashMap,
-    env,
-    io::{BufRead, BufReader, Write},
-    os::unix::net::UnixStream,
-    path::PathBuf,
-    process::Command,
-    sync::{mpsc, Arc, Mutex},
-    thread,
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
+#[cfg(any(test, not(feature = "qa-harness")))]
+use std::{env, path::PathBuf};
 use tauri::{AppHandle, Emitter};
 
-type Pending = Arc<Mutex<HashMap<u64, mpsc::Sender<Result<Value, String>>>>>;
-
 pub struct DaemonClient {
-    stream: Arc<Mutex<UnixStream>>,
-    pending: Pending,
-    next_id: Mutex<u64>,
+    app: AppHandle,
+    _refresh_worker: crate::daemon_transport::refresh::Worker,
+    refresh: Arc<crate::daemon_transport::refresh::Refresh>,
+    recovery: Arc<Mutex<crate::message_recovery::MessageRecovery>>,
+    transport: Arc<Transport>,
 }
 
-fn socket_path() -> PathBuf {
-    open_island_core::paths::socket()
-}
-
+#[cfg(any(test, not(feature = "qa-harness")))]
 pub fn daemon_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(path) = env::var_os("OPEN_ISLANDD") {
@@ -42,104 +29,78 @@ pub fn daemon_candidates() -> Vec<PathBuf> {
     candidates
 }
 
-fn connect(path: &PathBuf) -> Result<UnixStream, String> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    let mut spawned = false;
-    loop {
-        if let Ok(stream) = UnixStream::connect(path) {
-            return Ok(stream);
-        }
-        if !spawned {
-            for candidate in daemon_candidates() {
-                if Command::new(candidate)
-                    .arg("--socket")
-                    .arg(path)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()
-                    .is_ok()
-                {
-                    break;
-                }
-            }
-            spawned = true;
-        }
-        if std::time::Instant::now() >= deadline {
-            return Err(format!(
-                "unable to connect to open-islandd at {}",
-                path.display()
-            ));
-        }
-        thread::sleep(Duration::from_millis(100));
-    }
-}
-
 impl DaemonClient {
     pub fn start(app: AppHandle) -> Result<Self, String> {
-        let path = socket_path();
-        let stream = connect(&path)?;
-        let reader_stream = stream
-            .try_clone()
-            .map_err(|error| format!("clone daemon socket: {error}"))?;
-        let pending = Arc::new(Mutex::new(HashMap::new()));
-        let shared_stream = Arc::new(Mutex::new(stream));
-        let event_pending = Arc::clone(&pending);
-        let reader_stream_ref = Arc::clone(&shared_stream);
-        let reader_path = path.clone();
-        thread::spawn(move || {
-            reader_loop(
-                reader_stream,
-                reader_stream_ref,
-                reader_path,
-                event_pending,
-                app,
+        let path = open_island_core::paths::socket();
+        let spawn_path = path.clone();
+        let refresh = Arc::new(crate::daemon_transport::refresh::Refresh::default());
+        let recovery = Arc::new(Mutex::new(
+            crate::message_recovery::MessageRecovery::new().map_err(|e| e.to_string())?,
+        ));
+        let events_refresh = refresh.clone();
+        let events_app = app.clone();
+        let transport = Arc::new(Transport::start(
+            path,
+            Arc::new(move |event, data| {
+                events_refresh.event(event, &data);
+                let _ = events_app.emit(event, data);
+                if event == "daemon-connection" {
+                    let _ = events_app.emit("daemon-ui-state", events_refresh.cache());
+                }
+            }),
+            Box::new(move || {
+                #[cfg(not(feature = "qa-harness"))]
+                for candidate in daemon_candidates() {
+                    if std::process::Command::new(candidate)
+                        .arg("--socket")
+                        .arg(&spawn_path)
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .spawn()
+                        .is_ok()
+                    {
+                        break;
+                    }
+                }
+                #[cfg(feature = "qa-harness")]
+                let _ = spawn_path;
+            }),
+        )?);
+        let updates = recovery.clone();
+        let client_app = app.clone();
+        let worker = refresh
+            .start(
+                transport.clone(),
+                Arc::new(move |cache| {
+                    if cache.phase == crate::daemon_transport::refresh::Phase::Connected {
+                        if let Some(snapshot) = &cache.snapshot {
+                            if let Ok(mut recovery) = updates.lock() {
+                                recovery.reconcile(
+                                    &snapshot.snapshot.daemon_epoch,
+                                    &snapshot.snapshot.message_deliveries,
+                                );
+                            }
+                        }
+                    }
+                    let _ = app.emit("daemon-ui-state", cache);
+                    if let Ok(recovery) = updates.lock() {
+                        let _ = app.emit("message-recovery", recovery.snapshot());
+                    }
+                }),
             )
-        });
+            .map_err(|e| e.to_string())?;
         Ok(Self {
-            stream: shared_stream,
-            pending,
-            next_id: Mutex::new(1),
+            app: client_app,
+            _refresh_worker: worker,
+            refresh,
+            transport,
+            recovery,
         })
     }
 
     fn request(&self, method: &str, params: Value) -> Result<Value, String> {
-        let mut id = self
-            .next_id
-            .lock()
-            .map_err(|_| "request id lock poisoned".to_owned())?;
-        let request_id = *id;
-        *id = id.saturating_add(1);
-        let (sender, receiver) = mpsc::channel();
-        self.pending
-            .lock()
-            .map_err(|_| "pending lock poisoned".to_owned())?
-            .insert(request_id, sender);
-        let request = Request {
-            v: 1,
-            id: json!(request_id),
-            method: method.to_owned(),
-            params: Some(params),
-        };
-        let write_result = {
-            let mut stream = self
-                .stream
-                .lock()
-                .map_err(|_| "socket lock poisoned".to_owned())?;
-            writeln!(
-                stream,
-                "{}",
-                serde_json::to_string(&request).map_err(|error| error.to_string())?
-            )
-            .and_then(|_| stream.flush())
-        };
-        if let Err(error) = write_result {
-            let _ = self.pending.lock().map(|mut map| map.remove(&request_id));
-            return Err(format!("write daemon request: {error}"));
-        }
-        receiver
-            .recv_timeout(Duration::from_secs(5))
-            .map_err(|error| format!("daemon response timeout: {error}"))?
+        self.transport.request(method, params)
     }
 
     #[cfg(target_os = "macos")]
@@ -151,6 +112,16 @@ impl DaemonClient {
     pub fn play_sound(&self, path: &str) -> Result<(), String> {
         self.request("play_sound", json!({ "path": path }))
             .map(|_| ())
+    }
+
+    pub fn get_ui_state(&self) -> Result<crate::daemon_transport::sync::SyncedSnapshot, String> {
+        self.refresh
+            .cache()
+            .snapshot
+            .ok_or("daemon_state_unavailable".into())
+    }
+    pub fn get_daemon_ui_state(&self) -> crate::daemon_transport::refresh::UiCache {
+        self.refresh.cache()
     }
 
     pub fn list_sessions(&self) -> Result<Vec<Session>, String> {
@@ -175,10 +146,137 @@ impl DaemonClient {
         self.request("check_update", json!({}))
     }
 
+    fn require_ready(
+        &self,
+        identity: &open_island_core::message_delivery::DeliveryIdentity,
+    ) -> Result<(), String> {
+        let cache = self.refresh.cache();
+        if cache.phase == crate::daemon_transport::refresh::Phase::Incompatible {
+            return Err("daemon_incompatible".into());
+        }
+        if cache.phase != crate::daemon_transport::refresh::Phase::Connected {
+            return Err("daemon_unavailable".into());
+        }
+        let snapshot = cache.snapshot.ok_or("daemon_unavailable")?;
+        if snapshot.snapshot.daemon_epoch != identity.daemon_epoch {
+            return Err("stale_epoch".into());
+        }
+        Ok(())
+    }
+
+    pub fn message_recovery(&self) -> Result<Vec<crate::message_recovery::RecoveryRecord>, String> {
+        Ok(self
+            .recovery
+            .lock()
+            .map_err(|_| "recovery_unavailable")?
+            .snapshot())
+    }
+    fn publish_recovery(&self) {
+        if let Ok(records) = self.message_recovery() {
+            let _ = self.app.emit("message-recovery", records);
+        }
+    }
+    pub fn discard_message_recovery(
+        &self,
+        id: open_island_core::message_delivery::ClientSubmissionId,
+    ) -> Result<bool, String> {
+        let removed = self
+            .recovery
+            .lock()
+            .map_err(|_| "recovery_unavailable")?
+            .discard(&id);
+        self.publish_recovery();
+        Ok(removed)
+    }
+    pub fn send_message_v2(
+        &self,
+        id: &str,
+        text: &str,
+        identity: open_island_core::message_delivery::DeliveryIdentity,
+    ) -> Result<Value, String> {
+        self.require_ready(&identity)?;
+        let submission = self
+            .recovery
+            .lock()
+            .map_err(|_| "recovery_unavailable")?
+            .reserve(&identity, text.to_owned())?;
+        let result = self.request("send_message_v2", json!({"id":id,"text":text,"daemon_epoch":identity.daemon_epoch,"session_instance_id":identity.session_instance_id,"client_submission_id":submission}));
+        let mut recovery = self.recovery.lock().map_err(|_| "recovery_unavailable")?;
+        let outcome = match result {
+            Ok(mut receipt) => {
+                let Some(message_id) = receipt.get("message_id").and_then(Value::as_u64) else {
+                    recovery.failed(&submission, true);
+                    drop(recovery);
+                    self.publish_recovery();
+                    return Err("invalid_admission_receipt".into());
+                };
+                recovery.admitted(&submission, &identity.daemon_epoch, message_id);
+                receipt["client_submission_id"] = json!(submission);
+                Ok(receipt)
+            }
+            Err(error) => {
+                recovery.failed(
+                    &submission,
+                    matches!(
+                        error.as_str(),
+                        "daemon_unavailable" | "daemon_response_timeout" | "transport_unavailable"
+                    ),
+                );
+                Err(error)
+            }
+        };
+        drop(recovery);
+        self.publish_recovery();
+        outcome
+    }
+
     pub fn send_message(&self, id: &str, text: &str) -> Result<Value, String> {
         self.request("send_message", json!({"id": id, "text": text}))
     }
 
+    pub fn jump_v2(
+        &self,
+        id: &str,
+        identity: open_island_core::message_delivery::DeliveryIdentity,
+    ) -> Result<(), String> {
+        self.require_ready(&identity)?;
+        self.request("jump_v2", json!({"id":id,"daemon_epoch":identity.daemon_epoch,"session_instance_id":identity.session_instance_id})).map(|_| ())
+    }
+    pub fn resolve_approval_v2(
+        &self,
+        approval_id: &str,
+        pending_generation: u64,
+        decision: ApprovalDecision,
+        identity: open_island_core::message_delivery::DeliveryIdentity,
+    ) -> Result<(), String> {
+        self.require_ready(&identity)?;
+        self.request("resolve_approval_v2", json!({"approval_id":approval_id,"pending_generation":pending_generation,"decision":decision,"daemon_epoch":identity.daemon_epoch,"session_instance_id":identity.session_instance_id})).map(|_| ())
+    }
+    pub fn answer_question_v2(
+        &self,
+        question_id: &str,
+        pending_generation: u64,
+        answers: Vec<Vec<String>>,
+        identity: open_island_core::message_delivery::DeliveryIdentity,
+    ) -> Result<(), String> {
+        self.require_ready(&identity)?;
+        self.request("answer_question_v2", json!({"question_id":question_id,"pending_generation":pending_generation,"answers":answers,"daemon_epoch":identity.daemon_epoch,"session_instance_id":identity.session_instance_id})).map(|_| ())
+    }
+    pub fn cancel_message_v2(
+        &self,
+        id: &str,
+        message_id: u64,
+        identity: open_island_core::message_delivery::DeliveryIdentity,
+    ) -> Result<(), String> {
+        self.require_ready(&identity)?;
+        self.request("cancel_message_v2", json!({"id":id,"message_id":message_id,"daemon_epoch":identity.daemon_epoch,"session_instance_id":identity.session_instance_id}))?;
+        self.recovery
+            .lock()
+            .map_err(|_| "recovery_unavailable")?
+            .confirmed_cancel(&identity, message_id);
+        self.publish_recovery();
+        Ok(())
+    }
     pub fn cancel_message(&self, id: &str, message_id: u64) -> Result<(), String> {
         let _ = self.request(
             "cancel_message",
@@ -214,72 +312,5 @@ impl DaemonClient {
             json!({"approval_id": approval_id, "decision": decision}),
         )?;
         Ok(())
-    }
-}
-
-fn reader_loop(
-    mut stream: UnixStream,
-    shared_stream: Arc<Mutex<UnixStream>>,
-    path: PathBuf,
-    pending: Pending,
-    app: AppHandle,
-) {
-    loop {
-        let mut disconnected = true;
-        for line in BufReader::new(stream).lines() {
-            let Ok(line) = line else {
-                disconnected = true;
-                break;
-            };
-            let Ok(value) = serde_json::from_str::<Value>(&line) else {
-                continue;
-            };
-            if let Some(event) = value.get("event").and_then(Value::as_str) {
-                if let Some(data) = value.get("data") {
-                    let _ = app.emit(event, data);
-                }
-                continue;
-            }
-            let Ok(response) = serde_json::from_value::<Response>(value) else {
-                continue;
-            };
-            let result = if response.ok {
-                Ok(response.data.unwrap_or(Value::Null))
-            } else {
-                Err(response
-                    .error
-                    .unwrap_or_else(|| "daemon request failed".to_owned()))
-            };
-            if let Some(id) = response.id.as_u64() {
-                if let Ok(mut waiting) = pending.lock() {
-                    if let Some(sender) = waiting.remove(&id) {
-                        let _ = sender.send(result);
-                    }
-                }
-            }
-        }
-        if !disconnected {
-            return;
-        }
-        let mut delay = Duration::from_millis(100);
-        loop {
-            match UnixStream::connect(&path) {
-                Ok(new_stream) => {
-                    let replacement = match new_stream.try_clone() {
-                        Ok(clone) => clone,
-                        Err(_) => continue,
-                    };
-                    if let Ok(mut current) = shared_stream.lock() {
-                        *current = replacement;
-                    }
-                    stream = new_stream;
-                    break;
-                }
-                Err(_) => {
-                    thread::sleep(delay);
-                    delay = (delay * 2).min(Duration::from_secs(2));
-                }
-            }
-        }
     }
 }

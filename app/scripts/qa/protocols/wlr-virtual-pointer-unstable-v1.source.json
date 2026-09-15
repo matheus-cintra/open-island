@@ -1,0 +1,6 @@
+{
+  "source": "https://raw.githubusercontent.com/swaywm/wlr-protocols/master/unstable/wlr-virtual-pointer-unstable-v1.xml",
+  "sha256": "3ff6d540be0bc5228195bf072bde42117ea17945a5c2061add5d3cf97d6bb524",
+  "license": "MIT; full license retained in protocol XML",
+  "usage": "private Linux QA pointer only; not bundled with the app"
+}

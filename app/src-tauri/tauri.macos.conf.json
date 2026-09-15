@@ -3,6 +3,9 @@
     "macOSPrivateApi": true
   },
   "bundle": {
+    "resources": {
+      "pt-BR.lproj/InfoPlist.strings": "pt-BR.lproj/InfoPlist.strings"
+    },
     "targets": [
       "dmg"
     ],

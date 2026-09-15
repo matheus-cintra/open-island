@@ -1,8 +1,10 @@
 use open_island_core::config::{self, Config, SOUND_THEME_DIR};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+#[cfg(not(feature = "qa-harness"))]
 use std::process::Command;
 
+#[cfg(not(feature = "qa-harness"))]
 use crate::client::daemon_candidates;
 
 pub fn save(config: Value) -> Result<(), String> {
@@ -91,6 +93,8 @@ pub fn set_integration(name: &str, enabled: bool) -> Result<Value, String> {
 }
 
 pub fn remove_auto_configuration() -> Result<Vec<String>, String> {
+    #[cfg(feature = "qa-harness")]
+    crate::qa::service_control::authorize_autoconfigure()?;
     if let Some(path) = config::path() {
         let mut config = Config::from_json_str(&std::fs::read_to_string(&path).unwrap_or_default());
         config.integrations.auto_configure = false;
@@ -110,7 +114,7 @@ pub fn remove_auto_configuration() -> Result<Vec<String>, String> {
     Ok(removed)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(feature = "qa-harness")))]
 pub fn stop_daemon_unit() -> Result<(), String> {
     let status = Command::new("systemctl")
         .args(["--user", "stop", "open-islandd.service"])
@@ -122,7 +126,12 @@ pub fn stop_daemon_unit() -> Result<(), String> {
     Err(format!("systemctl stop exited with {status}"))
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(feature = "qa-harness")]
+pub fn stop_daemon_unit() -> Result<(), String> {
+    crate::qa::service_control::stop_daemon_unit()
+}
+
+#[cfg(all(target_os = "linux", not(feature = "qa-harness")))]
 fn detach_daemon(args: &[&str]) -> Result<(), String> {
     let executable = executables()
         .into_iter()
@@ -138,6 +147,11 @@ fn detach_daemon(args: &[&str]) -> Result<(), String> {
         return Ok(());
     }
     Err(format!("systemd-run exited with {status}"))
+}
+
+#[cfg(feature = "qa-harness")]
+fn detach_daemon(args: &[&str]) -> Result<(), String> {
+    crate::qa::service_control::detach_daemon(args)
 }
 
 fn always_detected(installed: bool) -> Value {
@@ -168,6 +182,7 @@ fn is_installed(args: &[&str]) -> Result<bool, String> {
     Ok(reply["installed"] == Value::Bool(true))
 }
 
+#[cfg(not(feature = "qa-harness"))]
 fn run_daemon(args: &[&str]) -> Result<String, String> {
     let mut last = "open-islandd not found".to_owned();
     for candidate in executables() {
@@ -186,18 +201,24 @@ fn run_daemon(args: &[&str]) -> Result<String, String> {
     Err(last)
 }
 
+#[cfg(feature = "qa-harness")]
+fn run_daemon(args: &[&str]) -> Result<String, String> {
+    crate::qa::service_control::run_daemon(args)
+}
+
+#[cfg(not(feature = "qa-harness"))]
 fn executables() -> Vec<PathBuf> {
     let mut candidates = daemon_candidates();
     candidates.push(PathBuf::from("open-islandd"));
     candidates
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
 pub fn stop_daemon_unit() -> Result<(), String> {
     // Resolve the daemon through its private socket.
     run_daemon(&["stop"]).map(|_| ())
 }
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
 fn detach_daemon(args: &[&str]) -> Result<(), String> {
     let executable = executables()
         .into_iter()

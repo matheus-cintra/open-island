@@ -26,9 +26,13 @@ pub use super::approval::{DaemonState, PendingApproval, PendingQuestion, SharedS
 
 #[derive(Clone)]
 pub struct DaemonContext {
+    pub discovery: Arc<crate::discovery_cache::DiscoveryCache>,
+    pub admission: Arc<crate::server::admission::Admission>,
+    pub snapshots: Arc<crate::ui_state::UiSnapshots>,
     pub state: SharedState,
     pub config: ConfigHandle,
     pub sound: SoundPlayer,
+    pub messages: Arc<crate::message_executor::MessageExecutor>,
 }
 
 pub fn announce_hook_event(ctx: &DaemonContext, kind: HookEventKind) {
@@ -61,11 +65,29 @@ pub fn resolve_if_current(
     decision: ApprovalDecision,
     broadcast: impl Fn(String) -> bool,
 ) -> Result<approval::Resolution, String> {
+    resolve_if_current_checked(
+        ctx,
+        approval_id,
+        expected_generation,
+        decision,
+        broadcast,
+        |_| Ok(()),
+    )
+}
+pub fn resolve_if_current_checked(
+    ctx: &DaemonContext,
+    approval_id: &str,
+    expected_generation: Option<u64>,
+    decision: ApprovalDecision,
+    broadcast: impl Fn(String) -> bool,
+    validate: impl FnOnce(&DaemonState) -> Result<(), String>,
+) -> Result<approval::Resolution, String> {
     let (outcome, wake) = {
         let mut state = ctx
             .state
             .lock()
             .map_err(|_| "daemon state unavailable".to_owned())?;
+        validate(&state)?;
         let Some(pending) = state.pending.get(approval_id) else {
             return Err(format!("approval '{approval_id}' not found"));
         };
@@ -112,7 +134,7 @@ fn admit_locked(state: &mut DaemonState, request: AdmissionRequest) -> Admission
     if state.pending.contains_key(&request.approval_id) {
         return Admission::Duplicate;
     }
-    if state.pending.len() >= MAX_PENDING_APPROVALS {
+    if state.pending.len() >= MAX_PENDING_APPROVALS || state.approval_generation == u64::MAX {
         let resolved = ApprovalResolved {
             approval_id: request.approval_id.clone(),
             session_id: request.event.session_id.clone(),
@@ -137,6 +159,11 @@ fn admit_locked(state: &mut DaemonState, request: AdmissionRequest) -> Admission
     state.pending.insert(
         request.approval_id.clone(),
         PendingApproval {
+            session_generation: state
+                .store
+                .hook_generation(&approval.session_id)
+                .unwrap_or(0),
+            request: approval.clone(),
             connection_id: request.connection_id,
             session_id: approval.session_id.clone(),
             approval_generation: generation,
@@ -169,7 +196,9 @@ fn admit_question_locked(
     if state.pending_questions.contains_key(&question_id) {
         return QuestionAdmission::Duplicate;
     }
-    if state.pending_questions.len() >= MAX_PENDING_APPROVALS {
+    if state.pending_questions.len() >= MAX_PENDING_APPROVALS
+        || state.approval_generation == u64::MAX
+    {
         let resolved = QuestionResolved {
             question_id: question_id.clone(),
             session_id: request.question.session_id.clone(),
@@ -195,6 +224,11 @@ fn admit_question_locked(
     state.pending_questions.insert(
         question_id.clone(),
         PendingQuestion {
+            session_generation: state
+                .store
+                .hook_generation(&announced.session_id)
+                .unwrap_or(0),
+            request: announced.clone(),
             connection_id: request.question.answerable.then_some(request.connection_id),
             session_id: request.question.session_id,
             question_generation: generation,
@@ -250,10 +284,23 @@ fn question_event(
             return Ok(settled_response(&QuestionSettlement::Cancelled));
         }
         QuestionAdmission::Accepted(generation, announced) => {
-            broadcast(event_message(
+            let reached_an_island = broadcast(event_message(
                 "question-asked",
                 EventData::QuestionRequested(announced),
             ));
+            if !reached_an_island && answerable {
+                if let Ok(mut state) = ctx.state.lock() {
+                    state.no_island = state.no_island.saturating_add(1);
+                }
+                settle_question(
+                    &ctx,
+                    &question_id,
+                    Some(generation),
+                    QuestionSettlement::Cancelled,
+                    broadcast,
+                )?;
+                return Ok(settled_response(&QuestionSettlement::Cancelled));
+            }
             ctx.sound.play(SoundEvent::ApprovalNeeded);
             generation
         }
@@ -363,6 +410,9 @@ pub fn hook_event(
                     EventData::ApprovalRequested(request),
                 ));
                 if !reached_an_island {
+                    if let Ok(mut state) = ctx.state.lock() {
+                        state.no_island = state.no_island.saturating_add(1);
+                    }
                     withdraw(&ctx, &approval_id);
                     return Ok(json!({"accepted": false}));
                 }
@@ -483,11 +533,29 @@ pub fn settle_question(
     settlement: QuestionSettlement,
     broadcast: impl Fn(String) -> bool,
 ) -> Result<QuestionSettlement, String> {
+    settle_question_checked(
+        ctx,
+        question_id,
+        expected_generation,
+        settlement,
+        broadcast,
+        |_| Ok(()),
+    )
+}
+pub fn settle_question_checked(
+    ctx: &DaemonContext,
+    question_id: &str,
+    expected_generation: Option<u64>,
+    settlement: QuestionSettlement,
+    broadcast: impl Fn(String) -> bool,
+    validate: impl FnOnce(&DaemonState) -> Result<(), String>,
+) -> Result<QuestionSettlement, String> {
     let (session_id, wake_sender, winner) = {
         let mut state = ctx
             .state
             .lock()
             .map_err(|_| "daemon state unavailable".to_owned())?;
+        validate(&state)?;
         let Some(pending) = state.pending_questions.get(question_id) else {
             return Err(format!("question '{question_id}' not found"));
         };

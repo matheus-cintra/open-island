@@ -96,8 +96,24 @@ impl<'a> JumpExecutor<'a> {
     }
 
     pub fn execute(&self, steps: &[JumpStep]) -> Result<(), String> {
+        self.execute_inner(steps, false, || Ok(()))
+    }
+    pub fn execute_guarded(
+        &self,
+        steps: &[JumpStep],
+        validate: impl Fn() -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.execute_inner(steps, true, validate)
+    }
+    fn execute_inner(
+        &self,
+        steps: &[JumpStep],
+        guarded: bool,
+        validate: impl Fn() -> Result<(), String>,
+    ) -> Result<(), String> {
         let mut inner_error = None;
         for step in steps {
+            validate()?;
             let result = match step {
                 JumpStep::TmuxNoAttachedClient | JumpStep::TmuxPaneGone => Ok(()),
                 JumpStep::TmuxSelectPane { socket, pane } => {
@@ -122,15 +138,28 @@ impl<'a> JumpExecutor<'a> {
                     "kitty",
                     &["@", "focus-window", "--match", &format!("id:{window_id}")],
                 ),
-                JumpStep::FocusWindowAddress { address } => self.run(
-                    "hyprctl",
-                    &["dispatch", "focuswindow", &format!("address:{address}")],
-                ),
+                JumpStep::FocusWindowAddress { address } => {
+                    if guarded {
+                        crate::focus_guarded::focus_address(address, self.runner)
+                    } else {
+                        self.run(
+                            "hyprctl",
+                            &["dispatch", "focuswindow", &format!("address:{address}")],
+                        )
+                    }
+                }
                 JumpStep::RaiseWindow { pid } | JumpStep::ActivateApp { pid } => {
-                    focus::focus_pid(*pid)
+                    if guarded {
+                        crate::focus_guarded::focus_pid(*pid, self.runner)
+                    } else {
+                        focus::focus_pid(*pid)
+                    }
                 }
             };
             if let Err(error) = result {
+                if guarded {
+                    return Err(error);
+                }
                 if matches!(
                     step,
                     JumpStep::RaiseWindow { .. } | JumpStep::ActivateApp { .. }
@@ -203,6 +232,46 @@ mod tests {
             editor: None,
             env: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn guarded_navigation_stops_before_effect_when_identity_changes() {
+        let runner = FakeRunner::new();
+        runner.push_ok("zellij", "");
+        let checks = std::cell::Cell::new(0);
+        let steps = [
+            JumpStep::ZellijFocusPane {
+                session: "one".into(),
+                pane_id: "1".into(),
+            },
+            JumpStep::RaiseWindow { pid: 42 },
+        ];
+        let result = JumpExecutor::new(&runner).execute_guarded(&steps, || {
+            let previous = checks.replace(checks.get() + 1);
+            if previous == 0 {
+                Ok(())
+            } else {
+                Err("stale_session".into())
+            }
+        });
+        assert_eq!(result.unwrap_err(), "stale_session");
+        assert_eq!(runner.calls().len(), 1);
+    }
+    #[test]
+    fn guarded_navigation_does_not_raise_a_window_after_inner_failure() {
+        let runner = FakeRunner::new();
+        runner.push_status("zellij", 1, "no pane", "");
+        let steps = [
+            JumpStep::ZellijFocusPane {
+                session: "one".into(),
+                pane_id: "1".into(),
+            },
+            JumpStep::RaiseWindow { pid: 42 },
+        ];
+        assert!(JumpExecutor::new(&runner)
+            .execute_guarded(&steps, || Ok(()))
+            .is_err());
+        assert_eq!(runner.calls().len(), 1);
     }
 
     #[test]

@@ -48,3 +48,12 @@ test("a row on its way out does not hold the floor up", () => {
   expect(main.expandedSize().h).toBe(158);
   list.replaceChildren();
 });
+
+test("voice and recovery content contributes bounded height to the native window", () => {
+  const support = document.querySelector<HTMLElement>(".island-support")!;
+  Object.defineProperty(support, "scrollHeight", { value: 1000, configurable: true });
+  setScreenHeight(1080);
+  expect(main.expandedSize()).toEqual({ w: 664, h: 216 });
+  Object.defineProperty(support, "scrollHeight", { value: 0, configurable: true });
+  expect(main.expandedSize()).toEqual({ w: 664, h: 158 });
+});

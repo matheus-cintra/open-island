@@ -35,18 +35,26 @@ leaks. See `Daemon` in `app/crates/open-islandd/tests/socket.rs` and `TestBus` i
 pgrep -af "open-islandd --socket /tmp/open-island-test" || echo clean
 ```
 
-## `bun run tauri build` does not rebuild the daemon
+## Build do sidecar e daemon ativo
 
-The Tauri CLI compiles `src-tauri` and its dependencies, and `open-islandd` is a separate binary
-crate. A change in `open-island-core` that the daemon must see — a config field, a session field,
-a protocol change — is invisible until the daemon itself is rebuilt and the unit restarted:
+`bun run tauri build` usa `scripts/portable-build.mjs` e seu prebundle recompila
+`open-islandd` para o mesmo target antes de empacotar. O build não instala o
+resultado nem reinicia o daemon ativo. `cargo build` do app sozinho não recompila
+o crate binário do daemon.
+
+Para compilar apenas o daemon, em `app`:
 
 ```sh
-cd app && cargo build --release -p open-islandd
-systemctl --user restart open-islandd.service
+bun scripts/portable-build.mjs cargo build --release -p open-islandd
+node scripts/portable-build.mjs paths
 ```
 
-Proof it bites: the release daemon on this machine ran for four hours past the commit that added
-`display.ui_scale`, parsing the key away on every reload, while every front-end test against it
-failed for no visible reason. When something the daemon owns does not arrive, compare the binary's
-mtime with the commit before reading any more code.
+Compare versão, PID e data do binário ativo ao diagnosticar comportamento antigo.
+Reiniciar ou substituir um serviço instalado é uma ação separada, dependente do
+pedido do usuário. QA usa daemon próprio, socket privado e processo com guard.
+Nunca reinicie o serviço do usuário como etapa automática de teste.
+
+Builds com `qa-harness`/`qa-webdriver` usam `target/portable-qa`; builds normais
+usam `target/portable`. O prebundle Tauri também copia um daemon normal para o
+diretório de QA: recompile explicitamente `open-islandd --features qa-harness`
+antes de executar o runner nativo. Consulte `docs/native-qa.md`.

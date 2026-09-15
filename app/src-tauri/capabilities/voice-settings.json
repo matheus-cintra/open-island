@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "voice-settings",
+  "description": "Local voice model configuration and microphone privacy settings",
+  "windows": ["settings"],
+  "permissions": [
+    "voice:allow-voice-model-status",
+    "voice:allow-voice-select-model",
+    "voice:allow-voice-clear-model",
+    "voice:allow-voice-open-microphone-settings"
+  ]
+}

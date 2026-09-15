@@ -2,6 +2,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("open-island {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     // WebKitGTK's DMABUF renderer crashes on transparent windows under some
     // GPU/Hyprland setups: "Error 71 (Protocol error) dispatching to Wayland
     // display" (native Wayland) or "Failed to create GBM buffer ... Invalid

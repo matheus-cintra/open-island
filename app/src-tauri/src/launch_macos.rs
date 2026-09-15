@@ -1,5 +1,5 @@
 //! Launch into a new terminal surface; never inject into the active user's tab.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
 use std::path::Path;
 
 pub fn quote_shell(text: &str) -> String {
@@ -55,7 +55,7 @@ pub fn warp_uri(configuration_name: &str) -> String {
     format!("warp://launch/{encoded}")
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
 pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
     use std::{
         fs,

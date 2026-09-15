@@ -3,6 +3,9 @@ name = "open-islandd"
 version.workspace = true
 edition.workspace = true
 
+[features]
+qa-harness = ["open-island-core/qa-harness"]
+
 [dependencies]
 open-island-core = { path = "../open-island-core" }
 serde = { version = "1", features = ["derive"] }
@@ -12,5 +15,9 @@ libc = "0.2"
 portable-pty = "0.9"
 tempfile = "3"
 ureq = { version = "3.4.1", default-features = false, features = ["rustls"] }
+
+[[test]]
+name = "qa_isolation_cli"
+required-features = ["qa-harness"]
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"

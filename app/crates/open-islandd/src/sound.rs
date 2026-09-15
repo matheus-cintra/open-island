@@ -10,6 +10,9 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 use crate::config_handle::ConfigHandle;
 use crate::notifications::shutdown::BoundedThread;
 
@@ -109,6 +112,11 @@ pub fn command(path: &Path, volume: f32) -> Command {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    // Audio playback is owned by the daemon.  Put each player in its own
+    // process group so shutdown can reclaim helpers that a player may have
+    // forked instead of waiting indefinitely for them.
+    #[cfg(unix)]
+    command.process_group(0);
     command
 }
 
@@ -210,8 +218,19 @@ fn run(config: &ConfigHandle, receiver: Receiver<PathBuf>, quiet_scene: &AtomicB
         }
     }
     for mut child in live {
-        let _ = child.wait();
+        terminate_child(&mut child);
     }
+}
+
+fn terminate_child(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        // The group may already have exited; in that case the direct wait
+        // below still reaps the child owned by this worker.
+        let _ = unsafe { libc::kill(-(child.id() as i32), libc::SIGTERM) };
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 #[cfg(target_os = "linux")]

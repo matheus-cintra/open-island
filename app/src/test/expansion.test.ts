@@ -52,11 +52,11 @@ test("the completion and question switches gate their own path and never the app
 test("a quiet scene stops every path, approvals included", () => {
   configure({});
   expect(main.admitsExpansion("approval")).toBe(true);
-  tauri.emit("quiet-scenes", { active: true });
+  tauri.state.quiet(true);
   expect(main.admitsExpansion("completion")).toBe(false);
   expect(main.admitsExpansion("question")).toBe(false);
   expect(main.admitsExpansion("approval")).toBe(false);
-  tauri.emit("quiet-scenes", { active: false });
+  tauri.state.quiet(false);
   expect(main.admitsExpansion("approval")).toBe(true);
 });
 

@@ -8,6 +8,7 @@ let pendingUpdate: Promise<unknown> | null = null;
 const tauri = tauriMock(({ command }) => {
   if (command === "get_config") return { config: {} };
   if (command === "island_metrics") return { scale: 1, compact_height: null };
+  if (command === "get_message_recovery") return [];
   if (command === "list_sessions") return [];
   if (command === "get_usage") return { providers: [] };
   if (command === "get_update") return null;
@@ -26,13 +27,14 @@ await new Promise((resolve) => setTimeout(resolve, 50));
 const button = document.getElementById("header-update") as HTMLButtonElement;
 const error = document.getElementById("jump-error")!;
 
-test("the island asks the daemon for a pending update at start and keeps the icon hidden when there is none", () => {
-  expect(tauri.calls.some((call) => call.command === "get_update")).toBe(true);
+test("the island reads the shell snapshot at start and keeps the icon hidden without an update", () => {
+  expect(tauri.calls.some((call) => call.command === "get_daemon_ui_state")).toBe(true);
+  expect(tauri.calls.some((call) => call.command === "get_update")).toBe(false);
   expect(button.hidden).toBe(true);
 });
 
 test("an update-available event reveals the icon with the version in its tooltip", () => {
-  tauri.emit("update-available", { version: "v0.9.9" });
+  tauri.state.update({ version: "v0.9.9" });
   expect(button.hidden).toBe(false);
   expect(button.title).toContain("v0.9.9");
   expect(button.getAttribute("aria-label")).toBe(button.title);

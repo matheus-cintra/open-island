@@ -74,3 +74,49 @@ a atualização assinada com reinício real do daemon. Os checksums dos dois DMG
 foram conferidos após o download. O teste físico no Mac falhou: o usuário informou abertura no Terminal.app em vez
 do Warp e falha no envio. A aprovação automatizada não comprova a integração
 funcionando no ambiente do usuário; investigação pendente.
+
+## Estados de entrega na implementação pós-MVP
+
+O daemon admite mensagens antes de executar o envio. A resposta legada
+`send_message` conserva `{message_id, delivered}`, mas `delivered: false` no recibo
+significa que a execução ainda não foi confirmada. Não use esse recibo como prova
+que o terminal recebeu o texto.
+
+Os registros em memória distinguem `queued`, `sending`, `delivered`, `failed` e
+`unconfirmed`. `delivered` confirma a entrada pelo canal; não confirma a execução
+pelo agente. Falhas e resultados incertos mantêm o texto e não são reenviados
+automaticamente. Um envio em execução não pode ser cancelado pela fila.
+
+Há até 32 registros não entregues por sessão, 256 no total e 4 MiB de texto bruto.
+O daemon recusa novas admissões quando não há espaço. Registros órfãos expiram
+após dez minutos; confirmações sem texto ficam por até cinco minutos. Não há
+persistência desses registros após reiniciar o daemon.
+
+A API `get_ui_state` inicia um documento imutável; `get_ui_state_page` lê páginas
+sequenciais de até 32768 bytes, usando `snapshot_id` e `expected_page`. O token
+pertence à conexão e expira após 30 segundos sem progresso. Respostas legadas
+agregadas maiores que 256 KiB retornam `snapshot_requires_paging`.
+
+A interface nova vincula navegação, envio e respostas ao epoch do daemon e à
+instância exibida. Filhos agrupados mantêm identidade própria em `child_sessions`;
+responder uma pendência do filho não usa a identidade do pai. A entrada pelo
+terminal compartilhado não endereça a conversa do filho e fica bloqueada para
+esse destino. Uma sessão sem PID verificável mantém a identidade do hook para
+responder pendências, com envio bloqueado; o snapshot novo não adota um processo
+apenas porque ele usa o mesmo diretório.
+
+O shell conserva em memória até 256 submissões/4 MiB antes de enviá-las. Após uma
+mudança de epoch, textos sem confirmação aparecem na recuperação para copiar ou
+descartar, sem reenvio automático. Esse ledger sobrevive ao reload do WebView,
+mas não ao fechamento/crash do app e não é sincronizado entre máquinas.
+
+O servidor reserva 32 conexões para UI (`subscribe_ui`) e 32 para legado/handshake.
+Um coletor somente leitura se identifica no primeiro `ping` com
+`{client_role: "diagnostic"}`: não recebe eventos de sessões nem conta como ilha
+disponível. Hooks também não contam como espectadores. Sem interface, aprovações
+saem sem decisão e perguntas respondíveis retornam ao terminal imediatamente.
+
+A integração pós-MVP ainda está em implementação: o daemon não anuncia o conjunto
+final de capabilities, portanto o shell de produção permanece incompatível até
+a conclusão dos contratos. Os testes automatizados da UI conectada usam fixtures;
+isso não comprova foco, envio ou recuperação em uma WebView nativa.

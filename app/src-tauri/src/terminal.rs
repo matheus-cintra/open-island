@@ -1,10 +1,10 @@
-use std::{
-    env,
-    ffi::OsStr,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::path::PathBuf;
+#[cfg(not(feature = "qa-harness"))]
+use std::process::Command;
+#[cfg(any(test, not(feature = "qa-harness")))]
+use std::{env, ffi::OsStr, path::Path};
 
+#[cfg(any(test, not(feature = "qa-harness")))]
 const TERMINALS: [&str; 8] = [
     "kitty",
     "alacritty",
@@ -16,11 +16,13 @@ const TERMINALS: [&str; 8] = [
     "xterm",
 ];
 
+#[cfg(any(test, not(feature = "qa-harness")))]
 pub fn pick() -> Option<PathBuf> {
     let preferred = env::var("TERMINAL").ok();
     pick_terminal(preferred.as_deref(), on_path)
 }
 
+#[cfg(not(feature = "qa-harness"))]
 pub fn spawn_detached(argv: Vec<String>) -> Result<(), String> {
     let status = Command::new("systemd-run")
         .args(["--user", "--collect", "--quiet", "--"])
@@ -33,6 +35,7 @@ pub fn spawn_detached(argv: Vec<String>) -> Result<(), String> {
     Err(format!("systemd-run exited with {status}"))
 }
 
+#[cfg(any(test, not(feature = "qa-harness")))]
 fn pick_terminal(
     preferred: Option<&str>,
     lookup: impl Fn(&str) -> Option<PathBuf>,
@@ -47,6 +50,7 @@ pub(crate) fn on_path(name: &str) -> Option<PathBuf> {
     open_island_core::paths::executable(name)
 }
 
+#[cfg(any(test, not(feature = "qa-harness")))]
 pub fn terminal_argv(program: &Path, script: &str, args: &[&str]) -> Vec<String> {
     let kind = program
         .file_name()
@@ -67,3 +71,8 @@ pub fn terminal_argv(program: &Path, script: &str, args: &[&str]) -> Vec<String>
 #[cfg(test)]
 #[path = "terminal_tests.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "qa-harness"))]
+pub fn spawn_detached(_argv: Vec<String>) -> Result<(), String> {
+    crate::qa::service_control::deny_launch()
+}

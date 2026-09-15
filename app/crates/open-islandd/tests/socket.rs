@@ -364,27 +364,43 @@ fn approval_timeout_denies_without_unbounded_wait() {
 #[test]
 fn thirty_third_pending_approval_is_denied_immediately() {
     let path = socket();
-    let _daemon = spawn_daemon(&path, &[("OPEN_ISLAND_APPROVAL_TIMEOUT_MS", "5000")]);
+    let _daemon = spawn_daemon(&path, &[("OPEN_ISLAND_APPROVAL_TIMEOUT_MS", "30000")]);
+    let (mut island, mut island_reader) = connect(&path);
+    island
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    request(&mut island_reader, &mut island, 99, "ping", Value::Null);
     let mut clients = Vec::new();
-    for index in 0..33 {
+    for _ in 0..31 {
         let (stream, reader) = connect(&path);
-        clients.push((stream, reader, index));
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        clients.push((stream, reader));
     }
-    for (stream, _, index) in &mut clients {
+    // Thirty-two pending requests fit within the legacy connection budget;
+    // one socket owns two requests. Only the separate island counts as a UI.
+    for index in 0..32 {
         send_request(
-            stream,
-            *index as i64,
+            &mut clients[index % 31].0,
+            index as i64,
             "hook_event",
             hook(&format!("cap-{index}"), Some(&format!("cap-{index}"))),
         );
+        let event = read_event(&mut island_reader, "approval-requested");
+        assert_eq!(event["data"]["approval_id"], format!("cap-{index}"));
     }
-    let (stream, reader, index) = &mut clients[32];
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .expect("timeout");
-    let response = read_until_id(reader, *index as i64);
+    let started = Instant::now();
+    let (stream, reader) = &mut clients[0];
+    let response = request(
+        reader,
+        stream,
+        32,
+        "hook_event",
+        hook("cap-32", Some("cap-32")),
+    );
     assert_eq!(response["data"]["decision"], "deny");
-    drop(clients);
+    assert!(started.elapsed() < Duration::from_secs(2));
 }
 
 #[test]
@@ -409,4 +425,282 @@ fn disconnect_denies_originating_approval_and_notifies_other_client() {
     assert_eq!(resolved["event"], "approval-resolved");
     assert_eq!(resolved["data"]["decision"], "deny");
     let _ = gui_stream.shutdown(std::net::Shutdown::Both);
+}
+
+#[test]
+fn oversized_input_closes_connection_and_daemon_still_answers_ping() {
+    let path = socket();
+    let _daemon = spawn_daemon(&path, &[]);
+    let (mut stream, _) = connect(&path);
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    send_request(&mut stream, 1, "ping", json!({}));
+    let _ = stream.write_all(&vec![b'x'; 1024 * 1024 + 8192]);
+    let mut bytes = [0; 8192];
+    use std::io::Read;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut received = 0;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        assert!(!remaining.is_zero(), "oversized connection did not close");
+        stream.set_read_timeout(Some(remaining)).unwrap();
+        match stream.read(&mut bytes) {
+            Ok(0) => break,
+            Ok(count) => {
+                received += count;
+                assert!(received <= 4 * 1024 * 1024 + 256 * 1024);
+            }
+            Err(error) if error.kind() == ErrorKind::ConnectionReset => break,
+            Err(error) => panic!("oversized connection did not close: {error}"),
+        }
+    }
+    let (mut stream, mut reader) = connect(&path);
+    assert_eq!(
+        request(&mut reader, &mut stream, 1, "ping", json!({}))["ok"],
+        true
+    );
+}
+
+#[test]
+fn incomplete_first_frame_expires_even_while_peer_remains_open() {
+    let path = socket();
+    let _daemon = spawn_daemon(&path, &[]);
+    let (mut stream, _) = connect(&path);
+    stream
+        .set_read_timeout(Some(Duration::from_secs(7)))
+        .unwrap();
+    stream.write_all(b"{\"v\":1").unwrap();
+    use std::io::Read;
+    let started = Instant::now();
+    while stream.read(&mut [0; 8192]).unwrap() != 0 {
+        assert!(started.elapsed() < Duration::from_secs(7));
+    }
+    assert!(started.elapsed() < Duration::from_secs(7));
+    let (mut stream, mut reader) = connect(&path);
+    assert_eq!(
+        request(&mut reader, &mut stream, 1, "ping", json!({}))["ok"],
+        true
+    );
+}
+
+#[test]
+fn paged_snapshot_roundtrips_over_socket_and_is_connection_owned() {
+    let path = socket();
+    let _daemon = spawn_daemon(&path, &[]);
+    let (mut stream, mut reader) = connect(&path);
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let ping = request(&mut reader, &mut stream, 1, "ping", json!({}));
+    assert_eq!(
+        ping["data"]["capabilities"],
+        json!(open_island_core::diagnostics::CAPABILITIES)
+    );
+    let begin = request(&mut reader, &mut stream, 2, "get_ui_state", json!({}));
+    assert_eq!(begin["ok"], true);
+    let id = begin["data"]["snapshot_id"].as_u64().unwrap();
+    let (mut stranger, mut stranger_reader) = connect(&path);
+    let denied = request(
+        &mut stranger_reader,
+        &mut stranger,
+        1,
+        "get_ui_state_page",
+        json!({"snapshot_id":id,"expected_page":0}),
+    );
+    assert_eq!(denied["error"], "snapshot_not_found");
+    let snapshot: open_island_core::ui_state::UiSnapshot =
+        open_island_core::snapshot_page::decode(id, |page| {
+            let reply = request(
+                &mut reader,
+                &mut stream,
+                10 + page as i64,
+                "get_ui_state_page",
+                json!({"snapshot_id":id,"expected_page":page}),
+            );
+            if reply["ok"] != true {
+                return Err(reply.to_string());
+            }
+            serde_json::from_value(reply["data"].clone()).map_err(|e| e.to_string())
+        })
+        .unwrap();
+    assert_eq!(snapshot.schema_version, 1);
+    assert_eq!(
+        snapshot.daemon_epoch.0,
+        ping["data"]["daemon_epoch"].as_str().unwrap()
+    );
+    assert!(snapshot
+        .sessions
+        .iter()
+        .all(|s| s.session.queued_messages.is_none()));
+    assert!(snapshot.approvals.is_empty());
+    assert!(snapshot.questions.is_empty());
+}
+
+#[test]
+fn ui_subscription_receives_invalidation_and_transient_commands() {
+    let path = socket();
+    let _daemon = spawn_daemon(&path, &[]);
+    let (mut stream, mut reader) = connect(&path);
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let subscription = request(&mut reader, &mut stream, 1, "subscribe_ui", json!({}));
+    assert_eq!(subscription["ok"], true);
+    assert_eq!(
+        subscription["data"]["capabilities"],
+        json!(open_island_core::diagnostics::CAPABILITIES)
+    );
+    let (mut hook, mut hook_reader) = connect(&path);
+    assert_eq!(
+        request(
+            &mut hook_reader,
+            &mut hook,
+            1,
+            "hook_event",
+            json!({"agent":"claude","session_id":"snapshot-test","event":"session-start","pid":std::process::id()})
+        )["ok"],
+        true
+    );
+    let mut line = String::new();
+    loop {
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        let event: Value = serde_json::from_str(&line).unwrap();
+        if event["event"] == "ui-state-invalidated" {
+            assert!(event["data"]["publication_revision"].as_u64().unwrap() > 0);
+            assert!(event["data"]["daemon_epoch"].as_str().is_some());
+            break;
+        }
+        assert_ne!(event["event"], "sessions-updated");
+    }
+    request(&mut hook_reader, &mut hook, 2, "settings", json!({}));
+    loop {
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        let event: Value = serde_json::from_str(&line).unwrap();
+        if event["event"] == "open-settings" {
+            break;
+        }
+    }
+}
+
+#[test]
+fn a_diagnostic_connection_neither_holds_approval_nor_receives_prompt_events() {
+    let path = socket();
+    let _daemon = spawn_daemon(&path, &[("OPEN_ISLAND_POLL_MS", "1000")]);
+    let (mut doctor, mut doctor_reader) = connect(&path);
+    doctor
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    assert_eq!(
+        request(
+            &mut doctor_reader,
+            &mut doctor,
+            1,
+            "ping",
+            json!({"client_role":"diagnostic"})
+        )["ok"],
+        true
+    );
+    let (mut source, mut source_reader) = connect(&path);
+    source
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let started = Instant::now();
+    let result = request(
+        &mut source_reader,
+        &mut source,
+        2,
+        "hook_event",
+        hook("private-prompt", Some("diagnostic-alone")),
+    );
+    assert_eq!(result["data"]["accepted"], false);
+    assert!(result["data"].get("decision").is_none());
+    assert!(started.elapsed() < Duration::from_secs(2));
+    // The next frame on the doctor socket must be its own reply, not a session event.
+    send_request(&mut doctor, 3, "ping", json!({"client_role":"diagnostic"}));
+    let next = read_message(
+        &mut doctor_reader,
+        Instant::now() + Duration::from_secs(2),
+        "doctor reply",
+    );
+    assert_eq!(next["id"], 3);
+    assert_eq!(next["data"]["counters"]["no_island"], 1);
+    assert!(next.get("event").is_none());
+}
+
+#[test]
+fn managed_and_legacy_connections_have_separate_32_slot_budgets() {
+    let path = socket();
+    let _daemon = spawn_daemon(&path, &[("OPEN_ISLAND_POLL_MS", "10000")]);
+    let mut managed = Vec::new();
+    for _ in 0..32 {
+        let (mut stream, mut reader) = connect(&path);
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        assert_eq!(
+            request(&mut reader, &mut stream, 1, "subscribe_ui", json!({}))["ok"],
+            true
+        );
+        managed.push((stream, reader));
+    }
+    let mut legacy = Vec::new();
+    for _ in 0..32 {
+        let (mut stream, mut reader) = connect(&path);
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        assert_eq!(
+            request(
+                &mut reader,
+                &mut stream,
+                2,
+                "ping",
+                json!({"client_role":"diagnostic"})
+            )["ok"],
+            true
+        );
+        legacy.push((stream, reader));
+    }
+    let (stream, reader) = &mut legacy[0];
+    assert_eq!(
+        request(reader, stream, 3, "subscribe_ui", json!({}))["error"],
+        "server_busy"
+    );
+    let mut excess = UnixStream::connect(&path).unwrap();
+    excess
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let mut byte = [0u8];
+    match std::io::Read::read(&mut excess, &mut byte) {
+        Ok(0) => {}
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::ConnectionReset | ErrorKind::BrokenPipe
+            ) => {}
+        other => panic!("connection 65 must close: {other:?}"),
+    }
+    // Saturation does not prevent replies on a previously admitted UI connection.
+    let (stream, reader) = &mut managed[0];
+    assert_eq!(request(reader, stream, 4, "ping", json!({}))["ok"], true);
+    let (stream, reader) = &mut legacy[0];
+    let report = request(
+        reader,
+        stream,
+        5,
+        "ping",
+        json!({"client_role":"diagnostic"}),
+    );
+    let counters = &report["data"]["counters"];
+    assert_eq!(counters["connections_legacy"]["active"], 32);
+    assert_eq!(counters["connections_managed"]["active"], 32);
+    assert_eq!(counters["connections_legacy"]["rejected"], 1);
+    assert_eq!(counters["connections_managed"]["rejected"], 1);
+    assert_eq!(counters["connections_managed"]["high_water"], 32);
 }

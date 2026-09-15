@@ -1,3 +1,6 @@
+import { diagnostics } from "./settings-diagnostics";
+import { voiceSettings } from "./settings-voice";
+import { reasonOf } from "./json";
 import { focusPermissionSection, type FocusStatus } from "./settings-focus";
 import { linuxCapabilities, supportsRow, type PlatformCapabilities } from "./platform-capabilities";
 import { invoke } from "@tauri-apps/api/core";
@@ -83,6 +86,29 @@ export function refreshDependencies(): void {
 }
 
 export const ACTIONS: Record<ActionName, () => Promise<void>> = {
+  pickVoiceModel: async () => {
+    const message = await voiceSettings.change("voice_select_model");
+    if (activePane === "voice") renderPane();
+    if (message) showToast(message);
+  },
+  clearVoiceModel: async () => {
+    const message = await voiceSettings.change("voice_clear_model");
+    if (activePane === "voice") renderPane();
+    if (message) showToast(message);
+  },
+  refreshVoiceModel: async () => {
+    await voiceSettings.refresh();
+    if (activePane === "voice") renderPane();
+  },
+  voicePrivacy: async () => {
+    try { await invoke("plugin:voice|voice_open_microphone_settings"); }
+    catch (error) { showToast(strings.voice.error(reasonOf(error))); }
+  },
+  refreshDiagnostics: async () => {
+    await diagnostics.refresh();
+    if (activePane === "about") renderPane();
+  },
+  copyDiagnostics: async () => { showToast(await diagnostics.copy()); },
   removeAutoConfig: async () => {
     const removed = await invoke<string[]>("remove_auto_configuration");
     showToast(copy.about.removeDone(removed.length));
@@ -306,6 +332,7 @@ function selectPane(id: PaneId): void {
   moveMarker();
   renderPane();
   contentEl.scrollTop = 0;
+  if (id === "voice") void ACTIONS.refreshVoiceModel();
   for (const item of sidebarEl.querySelectorAll<HTMLElement>(".sidebar-item")) {
     item.setAttribute("aria-selected", String(item.dataset.pane === id));
   }

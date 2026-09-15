@@ -6,6 +6,12 @@
 #include <unistd.h>
 
 int oi_pids(int *out, int bytes) { return proc_listallpids(out, bytes); }
+int oi_process_birth(int pid, uint64_t *birth) {
+    struct proc_bsdinfo info = {0};
+    if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info)) != sizeof(info)) return 0;
+    *birth = info.pbi_start_tvsec * 1000000ULL + info.pbi_start_tvusec;
+    return 1;
+}
 int oi_process(int pid, unsigned *parent, char *name, int capacity) {
     struct proc_bsdinfo info = {0};
     if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info)) != sizeof(info)) return 0;

@@ -1,4 +1,14 @@
 import "./styles.css";
+import { FrameLoop } from "./frame-loop";
+import { RenderFrame } from "./render-frame";
+import { CompletionEdges, SubagentEdges } from "./activity-edges";
+import { UsageLane, type UsagePart } from "./usage-lane";
+import { IslandWindow, NativeResize } from "./island-window";
+import { snapshotSessions, snapshotApprovals, snapshotQuestions, pendingKey, detachedDeliveries } from "./island-state";
+import { DeliveryView } from "./message-deliveries";
+import { bindRecovery, RecoveryView, type RecoveryRecord } from "./message-recovery";
+import { initializeVoice, voice } from "./voice";
+import { bindDaemonState, type ActionIdentity, type Delivery, type UiCache } from "./daemon-state";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { bindIslandKeyboard } from "./island-keyboard";
@@ -7,11 +17,9 @@ import { strings } from "./strings";
 import {
   ApprovalDecision,
   ApprovalRequest,
-  ApprovalResolved,
   DiffLine,
   FocusState,
   PointerState,
-  QuietScenes,
   RowVisibility,
   Session,
   Size,
@@ -50,12 +58,11 @@ import {
   muteWavesEl,
   muteCrossEl,
 } from "./elements";
-import { renderCompact, renderList, tickElapsed } from "./row";
+import { initializeRows, renderCompact, renderList, tickElapsed } from "./row";
 import {
-  closeQuestion,
-  openQuestion,
-  parseQuestion,
-  parseQuestionResolution,
+  initializeQuestions,
+  setQuestionConnection,
+  replaceQuestions,
   pendingQuestion,
   renderQuestion,
 } from "./question";
@@ -107,11 +114,8 @@ const COMPACT_OVERHANG = 4;
 const MIN_COMPACT_W = 120;
 const MIN_COMPACT_H = 16;
 const CARD_SLACK = 24;
-const TWEEN_MS = 320;
 export const LEAVE_MS = 200;
 
-const SPRING_DAMPING = 0.7;
-const SPRING_OMEGA = 10;
 
 let dwellMs = 250;
 let autoCollapseMs = 2500;
@@ -128,8 +132,16 @@ let expandOnCompletion = true;
 let expandOnQuestion = true;
 let subagentTiming: SubagentTiming = "root_responses";
 let quietScene = false;
+let screenOff = false;
+let daemonConnected = false;
+let configPaintPending = false;
+let resetScalePending = false;
+let configRevision = 0;
+let metricsRevision = 0;
+let activityPending = false;
 let focusedPid: number | null = null;
-let doneSubagents = new Map<string, Set<string>>();
+const completionEdges = new CompletionEdges();
+const subagentEdges = new SubagentEdges();
 let fullscreenActive = false;
 let agentsIdle = false;
 let agentIdleTimer = 0;
@@ -152,13 +164,9 @@ const islandKeyboard = bindIslandKeyboard(
   (active) => invoke("island_keyboard", { active }),
 );
 export let sessions: Session[] = [];
-let receivedSessionSnapshot = false;
-const seenCompletionIds = new Set<string>();
-const seenApprovalIds = new Set<string>();
-const seenQuestionIds = new Set<string>();
-const knownSessionIds = new Set<string>();
-const previousAttention = new Map<string, string>();
+let childSessions: Session[] = [];
 let pendingApproval: ApprovalRequest | null = null;
+let displayedApprovalKey = "";
 let resolvingApproval = false;
 let launchOpen = false;
 let config: Record<string, unknown> = {};
@@ -176,25 +184,23 @@ let usageOptions = {
 };
 let quiet = false;
 
+function setHidden(element: HTMLElement, hidden: boolean): void {
+  if (element.hidden !== hidden) element.hidden = hidden;
+}
+initializeRows({
+  get compactClean(): boolean { return compactClean; },
+  get expanded(): boolean { return expanded; },
+  get visible(): boolean { return visualVisible(); },
+  get sessions(): Session[] { return sessions; },
+  get show(): RowVisibility { return show; },
+  LEAVE_MS, jumpTo, reducedMotion, render, syncExpandedSize, showError,
+  canUseTarget,
+});
+initializeQuestions({ childLabel, jumpToId, render, resetIdle, showCard, showError });
+
 /* ------------------------------------------------------------------ */
 /* Window morph                                                        */
 /* ------------------------------------------------------------------ */
-
-let morphRaf = 0;
-let morphStart = 0;
-let morphFrom: Size = { ...COMPACT };
-let morphGoal: Size = { ...COMPACT };
-let curSize: Size = { ...COMPACT };
-
-function spring(t: number): number {
-  if (t >= 1) return 1;
-  const damped = SPRING_OMEGA * Math.sqrt(1 - SPRING_DAMPING * SPRING_DAMPING);
-  const decay = Math.exp(-SPRING_DAMPING * SPRING_OMEGA * t);
-  const phase =
-    Math.cos(damped * t) +
-    (SPRING_DAMPING / Math.sqrt(1 - SPRING_DAMPING * SPRING_DAMPING)) * Math.sin(damped * t);
-  return 1 - decay * phase;
-}
 
 const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -206,7 +212,7 @@ const CARD_LEAVE_MS = 110;
 
 export function showCard(card: HTMLElement, visible: boolean, onHidden?: () => void): void {
   if (visible) {
-    card.classList.remove("is-leaving");
+    if (card.classList.contains("is-leaving")) card.classList.remove("is-leaving");
     if (card.hidden) {
       card.hidden = false;
       card.classList.remove("is-entering");
@@ -217,11 +223,7 @@ export function showCard(card: HTMLElement, visible: boolean, onHidden?: () => v
   }
   const focused = document.activeElement;
   if (focused instanceof HTMLElement && card.contains(focused)) focused.blur();
-  if (card.hidden || card.classList.contains("is-leaving")) {
-    if (card.hidden) onHidden?.();
-    card.hidden = true;
-    return;
-  }
+  if (card.hidden || card.classList.contains("is-leaving")) return;
   if (reducedMotion()) {
     card.hidden = true;
     onHidden?.();
@@ -267,12 +269,11 @@ function applyUiScale(scale: number, compactHeight?: number): void {
   islandEl.style.zoom = String(next);
   islandEl.style.setProperty("--badge-icon", `${Math.round(BADGE_ICON * next)}px`);
   if (expanded) {
-    islandEl.style.backgroundImage = expandedShape(EXPANDED.w, curSize.h);
+    islandEl.style.backgroundImage = expandedShape(EXPANDED.w, windowMorph.current.h);
     syncExpandedSize();
   } else {
     islandEl.style.backgroundImage = compactShape(COMPACT.w, COMPACT.h);
-    curSize = { ...COMPACT };
-    void setIslandSize(COMPACT.w, COMPACT.h);
+    windowMorph.snap(COMPACT);
   }
 }
 
@@ -294,7 +295,7 @@ function compactShape(w: number, h: number): string {
   return pillShape(w, h, Math.round(BASE_SCOOP * uiScale), Math.round(8 * uiScale));
 }
 
-function setMorph(h: number): void {
+function setMorph(h: number, morphFrom: Size, morphGoal: Size): void {
   if (Math.min(morphFrom.h, morphGoal.h) > COMPACT.h) {
     islandEl.style.setProperty("--morph", "1");
     return;
@@ -304,58 +305,16 @@ function setMorph(h: number): void {
   islandEl.style.setProperty("--morph", open.toFixed(3));
 }
 
-async function setIslandSize(w: number, h: number): Promise<void> {
-  try {
-    await invoke("set_island_size", { width: w, height: h });
-  } catch {
-    // Positioning is best-effort; the window still renders.
-  }
+const windowMorph = new IslandWindow(COMPACT,
+  new NativeResize((size) => invoke<void>("set_island_size", { width: size.w, height: size.h })),
+  reducedMotion, setMorph);
+
+function setIslandSize(w: number, h: number): Promise<void> {
+  return windowMorph.resize.request({ w, h });
 }
 
 export function morphTo(target: Size, onStart: () => void, onEnd: () => void): void {
-  cancelAnimationFrame(morphRaf);
-  if (curSize.w === target.w && curSize.h === target.h) {
-    morphGoal = target;
-    // curSize is only what we last *asked* for: set_island_size is async and
-    // best-effort, so the window can already disagree with it. Re-assert the
-    // size instead of assuming the previous request stuck, otherwise a dropped
-    // resize leaves the island permanently compact while we believe otherwise.
-    setMorph(target.h);
-    void setIslandSize(target.w, target.h);
-    onEnd();
-    return;
-  }
-  morphFrom = { ...curSize };
-  morphGoal = target;
-  morphStart = performance.now();
-  onStart();
-
-  if (reducedMotion()) {
-    curSize = { ...morphGoal };
-    setMorph(morphGoal.h);
-    void setIslandSize(morphGoal.w, morphGoal.h);
-    onEnd();
-    return;
-  }
-
-  const step = (now: number): void => {
-    const t = Math.min(1, (now - morphStart) / TWEEN_MS);
-    const e = spring(t);
-    const w = Math.round(morphFrom.w + (morphGoal.w - morphFrom.w) * e);
-    const h = Math.round(morphFrom.h + (morphGoal.h - morphFrom.h) * e);
-    curSize = { w, h };
-    setMorph(h);
-    void setIslandSize(w, h);
-    if (t < 1) {
-      morphRaf = requestAnimationFrame(step);
-    } else {
-      curSize = { ...morphGoal };
-      setMorph(morphGoal.h);
-      void setIslandSize(morphGoal.w, morphGoal.h);
-      onEnd();
-    }
-  };
-  morphRaf = requestAnimationFrame(step);
+  windowMorph.morph(target, onStart, onEnd);
 }
 
 function noop(): void {}
@@ -365,7 +324,9 @@ function setView(which: "compact" | "expanded"): void {
   if (compactActive) islandEl.style.backgroundImage = compactShape(COMPACT.w, COMPACT.h);
   compactViewEl.classList.toggle("visible", compactActive);
   expandedViewEl.classList.toggle("visible", !compactActive);
-  compactViewEl.setAttribute("aria-hidden", String(compactActive));
+  compactViewEl.setAttribute("aria-hidden", String(!compactActive));
+  compactViewEl.inert = !compactActive;
+  expandedViewEl.inert = compactActive;
   expandedViewEl.setAttribute("aria-hidden", String(!compactActive));
 }
 
@@ -404,7 +365,8 @@ export function expandedSize(): Size {
   const cardBottom = pendingQuestion
     ? expandedViewEl.scrollHeight + CARD_SLACK
     : 0;
-  const needed = Math.ceil(Math.max(listBottom, cardBottom) * uiScale);
+  const supportHeight = Math.min(supportEl.scrollHeight, maxExpandedHeight() * 55 / (100 * uiScale));
+  const needed = Math.ceil(Math.max(listBottom + supportHeight, cardBottom) * uiScale);
   const staying = sessionListEl.querySelectorAll("li:not(.is-leaving)").length;
   const floor = staying === 0 ? EXPANDED.h : COMPACT.h;
   return {
@@ -414,18 +376,22 @@ export function expandedSize(): Size {
 }
 
 function expand(interactive = false): void {
+  renderFrame.flush();
   expanded = true;
   if (interactive && !macosPanel) islandKeyboard.activate();
   // Swap SVG + content at tween START (expanding).
   islandEl.classList.add("expanded");
   setView("expanded");
+  paintHidden();
   const target = expandedSize();
   islandEl.style.backgroundImage = expandedShape(target.w, target.h);
   morphTo(target, noop, noop);
 }
 
 function collapse(): void {
+  if (voice.active()) return;
   expanded = false;
+  paintHidden();
   activity.collapsed();
   islandKeyboard.release();
   // Keep the expanded SVG during the shrink; swap at tween END.
@@ -440,7 +406,10 @@ function collapse(): void {
 export function syncExpandedSize(): void {
   if (!expanded) return;
   const target = expandedSize();
-  if (target.w === morphGoal.w && target.h === morphGoal.h) return;
+  if (target.w === windowMorph.goal.w && target.h === windowMorph.goal.h) {
+    if (windowMorph.resize.needsRetry()) void windowMorph.resize.request(target);
+    return;
+  }
   islandEl.style.backgroundImage = expandedShape(target.w, target.h);
   morphTo(target, noop, noop);
 }
@@ -467,7 +436,7 @@ const activity = new ActivityController({
   open: () => expand(false),
   collapse,
   isExpanded: () => expanded,
-  isEditing: () => launchOpen || islandHasEditor(),
+  isEditing: () => launchOpen || voice.active() || islandHasEditor(),
   expandOnHover: () => expandOnHover,
   collapseOnLeave: () => collapseOnLeave,
   dwellMs: () => dwellMs,
@@ -502,68 +471,41 @@ export function terminalIsFocused(list: Session[]): boolean {
 }
 
 export function subagentEdge(list: Session[]): boolean {
-  const next = new Map<string, Set<string>>();
-  let fired = false;
-  for (const session of list) {
-    const done = new Set(
-      (session.subagents ?? []).filter((agent) => agent.done).map((agent) => agent.id),
-    );
-    next.set(session.id, done);
-    if (subagentTiming === "root_responses") continue;
-    const before = doneSubagents.get(session.id);
-    if (before === undefined) continue;
-    const arrived = [...done].filter((id) => !before.has(id));
-    if (arrived.length === 0) continue;
-    if (subagentTiming === "every_completion") {
-      fired = true;
-      continue;
-    }
-    if (done.size === (session.subagents ?? []).length) fired = true;
-  }
-  doneSubagents = next;
-  return fired;
+  return subagentEdges.observe(list, subagentTiming);
 }
 
-function onSessions(list: Session[]): void {
+function onSessions(list: Session[], hydrate = false): void {
   sessions = list;
   trackAgentIdle(list);
-  const subagentDone = subagentEdge(list);
-  const initial = !receivedSessionSnapshot;
-  receivedSessionSnapshot = true;
-  let completion = false;
-  for (const session of list) {
-    const known = knownSessionIds.has(session.id);
-    knownSessionIds.add(session.id);
-    const completionId = session.completion_id;
-    if (completionId) {
-      const unseen = !seenCompletionIds.has(completionId);
-      seenCompletionIds.add(completionId);
-      if (unseen && !initial && known && session.attention !== "working") completion = true;
-    } else if (!initial && known && previousAttention.get(session.id) === "working" && session.attention === "needs_attention") {
-      completion = true;
-    }
-    previousAttention.set(session.id, session.attention ?? "working");
-  }
-  const activeSessions = new Set(list.map((session) => session.id));
-  for (const id of previousAttention.keys()) if (!activeSessions.has(id)) previousAttention.delete(id);
-  for (const id of knownSessionIds) if (!activeSessions.has(id)) knownSessionIds.delete(id);
+  const subagentDone = subagentEdges.observe(list, subagentTiming, hydrate);
+  const completion = completionEdges.observe(list, hydrate);
   render();
   const suppressed = smartSuppression && terminalIsFocused(list);
   if ((completion || subagentDone) && admitsExpansion("completion") && !suppressed) {
-    activity.relevantEvent();
+    activityPending = true;
   }
   resetIdle();
 }
 
-export function render(): void {
+const renderFrame = new RenderFrame(paint);
+export function render(): void { renderFrame.invalidate(); }
+function paint(): void {
+  if (configPaintPending) { configPaintPending = false; paintConfig(); }
   const n = sessions.length;
+  paintMute();
+  paintUpdate();
+  detachedView.update(detachedRecords, daemonConnected);
+  if (connectionStatusEl.hidden !== connectionStatusHidden) connectionStatusEl.hidden = connectionStatusHidden;
+  if (connectionStatusEl.textContent !== connectionLabel) connectionStatusEl.textContent = connectionLabel;
   renderCompact(n, pendingApproval !== null || pendingQuestion !== null);
-  headerLabelEl.textContent = strings.island.sessions(n);
+  const headerLabel = strings.island.sessions(n);
+  if (headerLabelEl.textContent !== headerLabel) headerLabelEl.textContent = headerLabel;
   renderUsage();
   renderList();
   renderApproval();
   renderQuestion();
   syncExpandedSize();
+  if (activityPending) { activityPending = false; activity.relevantEvent(); }
 }
 
 
@@ -593,26 +535,10 @@ function usageSeverity(percent: number): string {
   return "";
 }
 
-function usageWindowEl(name: string, percent: number, resetsAt: number | undefined): HTMLElement {
-  const wrapper = document.createElement("span");
-  wrapper.className = "usage-window";
-  const label = document.createElement("span");
-  label.className = "usage-name";
-  label.textContent = name;
-  const value = document.createElement("span");
-  value.className = `usage-percent ${usageSeverity(percent)}`.trim();
-  value.textContent = strings.usage.percent(usageValue(percent));
-  wrapper.append(label, value);
-  if (resetsAt !== undefined) {
-    const remaining = resetsAt - Date.now();
-    if (remaining > 0) {
-      const reset = document.createElement("span");
-      reset.className = "usage-reset";
-      reset.textContent = strings.usage.resetIn(remaining);
-      wrapper.append(reset);
-    }
-  }
-  return wrapper;
+function usageWindow(key: string, name: string, percent: number, resetsAt: number | undefined, now: number): UsagePart {
+  const remaining = resetsAt === undefined ? 0 : resetsAt - now;
+  return { key, label: name, value: strings.usage.percent(usageValue(percent)), severity: usageSeverity(percent),
+    ...(remaining > 0 ? { reset: strings.usage.resetIn(remaining) } : {}) };
 }
 
 function creditText(credits: { balance: number; unlimited: boolean }): string | null {
@@ -623,68 +549,28 @@ function creditText(credits: { balance: number; unlimited: boolean }): string | 
     : strings.usage.credits(credits.balance);
 }
 
-function usageBadgeEl(text: string): HTMLElement {
-  const badge = document.createElement("span");
-  badge.className = "usage-window";
-  const label = document.createElement("span");
-  label.className = "usage-name";
-  label.textContent = text;
-  badge.append(label);
-  return badge;
-}
-
-function appendModelPiece(piece: HTMLElement): void {
-  if (headerUsageModelEl.childElementCount > 0) {
-    const separator = document.createElement("span");
-    separator.className = "usage-separator";
-    separator.textContent = strings.usage.separator;
-    headerUsageModelEl.append(separator);
-  }
-  headerUsageModelEl.append(piece);
-}
-
+const usageLane = new UsageLane(headerUsageEl);
+const modelLane = new UsageLane(headerUsageModelEl);
 function renderUsage(): void {
   const snapshot = usageOptions.showLimits ? usageProvider() : null;
-  headerUsageEl.replaceChildren();
-  headerUsageModelEl.replaceChildren();
-  headerUsageEl.hidden = snapshot === null;
-  headerUsageModelEl.hidden = snapshot === null;
-  headerLabelEl.hidden = snapshot !== null;
-  if (snapshot === null) return;
-
-  const stale = Date.now() - snapshot.fetched_at_ms > USAGE_STALE_AFTER_MS;
-  headerUsageEl.classList.toggle("is-stale", stale);
-  headerUsageModelEl.classList.toggle("is-stale", stale);
-
-  snapshot.windows.forEach((window, index) => {
-    if (index > 0) {
-      const separator = document.createElement("span");
-      separator.className = "usage-separator";
-      separator.textContent = strings.usage.separator;
-      headerUsageEl.append(separator);
-    }
-    headerUsageEl.append(usageWindowEl(window.label, window.percent, window.resets_at_ms));
-  });
-  if (stale) {
-    const marker = document.createElement("span");
-    marker.className = "usage-stale";
-    marker.textContent = strings.usage.stale;
-    headerUsageEl.append(marker);
-  }
-
+  if (headerLabelEl.hidden !== (snapshot !== null)) headerLabelEl.hidden = snapshot !== null;
+  if (snapshot === null) { usageLane.update([], false); modelLane.update([], false); return; }
+  const now = Date.now();
+  const stale = now - snapshot.fetched_at_ms > USAGE_STALE_AFTER_MS;
+  const windows = snapshot.windows.map((window): UsagePart => usageWindow(JSON.stringify([snapshot.provider, window.key]), window.label, window.percent, window.resets_at_ms, now));
+  if (stale) windows.push({ key: "stale", label: strings.usage.stale, marker: true });
+  usageLane.update(windows, stale);
+  const parts: UsagePart[] = [];
   const codex = usage.providers.find((provider) => provider.provider === "codex")?.snapshot;
   const cards = usageOptions.showResetCards ? (codex?.reset_cards ?? []) : [];
-  if (cards.length > 0) appendModelPiece(usageBadgeEl(strings.usage.resetCards(cards.length)));
+  if (cards.length > 0) parts.push({ key: "cards", label: strings.usage.resetCards(cards.length) });
   const credits = codex?.credits === undefined ? null : creditText(codex.credits);
-  if (credits !== null) appendModelPiece(usageBadgeEl(credits));
+  if (credits !== null) parts.push({ key: "credits", label: credits });
   const model = snapshot.models?.[0];
-  if (model !== undefined) {
-    appendModelPiece(usageWindowEl(model.model, model.percent, model.resets_at_ms));
-  }
-  headerUsageModelEl.hidden = headerUsageModelEl.childElementCount === 0;
+  if (model !== undefined) parts.push(usageWindow(JSON.stringify([snapshot.provider, model.model]), model.model, model.percent, model.resets_at_ms, now));
+  modelLane.update(parts, stale);
 }
 
-window.setInterval(tickElapsed, 1000);
 
 /* ------------------------------------------------------------------ */
 /* Jump interaction (must NOT collapse the island)                     */
@@ -702,7 +588,7 @@ export function showError(message: string): void {
 }
 
 export function jumpTo(session: Session, row: HTMLButtonElement): void {
-  if (!clickToJump) return;
+  if (!clickToJump || !session.action_identity || !canUseTarget(session.id, session.action_identity)) return;
   jumpErrorEl.hidden = true;
   clearTimeout(errTimer);
 
@@ -710,9 +596,15 @@ export function jumpTo(session: Session, row: HTMLButtonElement): void {
   void row.offsetWidth; // restart animation on repeated clicks
   row.classList.add("flash");
 
-  invoke("jump", { id: session.id }).catch((err: unknown) => {
+  invoke("jump_v2", { id: session.id, identity: session.action_identity }).catch((err: unknown) => {
     showError(strings.jump.failed(session.title, String(err)));
   });
+}
+
+function canUseTarget(id: string, identity: ActionIdentity, writing = false): boolean {
+  const current = [...sessions, ...childSessions].find((session): boolean => session.id === id);
+  return daemonConnected && (!writing || current?.send_blocked === undefined) && current?.action_identity?.daemon_epoch === identity.daemon_epoch &&
+    current.action_identity.session_instance_id === identity.session_instance_id;
 }
 
 export function familySession(id: string): Session | undefined {
@@ -727,35 +619,14 @@ export function childLabel(id: string): string {
   return child?.description ?? id;
 }
 
-export function jumpToId(id: string): void {
+export function jumpToId(id: string, expected?: ActionIdentity): void {
   if (!id) return;
-  const session = familySession(id);
-  invoke("jump", { id: session?.id ?? id }).catch((err: unknown) => {
+  const session = [...sessions, ...childSessions].find((entry) => entry.id === id);
+  if (!daemonConnected || !session?.action_identity) return;
+  if (expected && (expected.daemon_epoch !== session.action_identity.daemon_epoch || expected.session_instance_id !== session.action_identity.session_instance_id)) return;
+  invoke("jump_v2", { id: session.id, identity: expected ?? session.action_identity }).catch((err: unknown) => {
     showError(strings.jump.failed(session?.title ?? id, String(err)));
   });
-}
-
-function parseApproval(value: unknown): ApprovalRequest | null {
-  const approvalId = stringField(value, "approval_id");
-  const sessionId = stringField(value, "session_id");
-  if (!approvalId || !sessionId) return null;
-  const toolName = stringField(value, "tool_name");
-  const reason = stringField(value, "reason");
-  return {
-    approval_id: approvalId,
-    session_id: sessionId,
-    ...(toolName ? { tool_name: toolName } : {}),
-    ...(reason ? { reason } : {}),
-    ...(isRecord(value) && "tool_input" in value ? { tool_input: value.tool_input } : {}),
-  };
-}
-
-function parseResolution(value: unknown): ApprovalResolved | null {
-  const approvalId = stringField(value, "approval_id");
-  const sessionId = stringField(value, "session_id");
-  const decision = stringField(value, "decision");
-  if (!approvalId || !sessionId || (decision !== "allow" && decision !== "deny")) return null;
-  return { approval_id: approvalId, session_id: sessionId, decision };
 }
 
 function approvalDescription(approval: ApprovalRequest): string {
@@ -806,10 +677,15 @@ function approvalDiff(approval: ApprovalRequest): DiffLine[] {
 
 function renderApprovalDiff(approval: ApprovalRequest): void {
   const lines = approvalDiff(approval);
+  const key = JSON.stringify(lines);
+  if (approvalDiffEl.dataset.renderKey === key) return;
+  approvalDiffEl.dataset.renderKey = key;
   approvalDiffEl.replaceChildren();
-  approvalDiffEl.hidden = lines.length === 0;
+  setHidden(approvalDiffEl, lines.length === 0);
   if (lines.length === 0) return;
-  approvalDiffEl.setAttribute("aria-label", strings.approval.diffLabel);
+  if (approvalDiffEl.getAttribute("aria-label") !== strings.approval.diffLabel) {
+    approvalDiffEl.setAttribute("aria-label", strings.approval.diffLabel);
+  }
   for (const line of lines) {
     const element = document.createElement("span");
     element.className = line.sign === "-" ? "diff-line diff-removed" : "diff-line diff-added";
@@ -829,12 +705,13 @@ function closeApproval(id: string): void {
 }
 
 function renderApproval(): void {
+  displayedApprovalKey = pendingKey(pendingApproval);
   if (!pendingApproval) {
     showCard(approvalCardEl, false);
-    approvalDiffEl.hidden = true;
-    approvalAllowEl.disabled = false;
-    approvalAlwaysEl.disabled = false;
-    approvalDenyEl.disabled = false;
+    setHidden(approvalDiffEl, true);
+    if (approvalAllowEl.disabled) approvalAllowEl.disabled = false;
+    if (approvalAlwaysEl.disabled) approvalAlwaysEl.disabled = false;
+    if (approvalDenyEl.disabled) approvalDenyEl.disabled = false;
     return;
   }
   showCard(approvalCardEl, true);
@@ -845,28 +722,32 @@ function renderApproval(): void {
   const owner = childLabel(pendingApproval.session_id);
   approvalSummaryEl.textContent = (owner ? `${owner} · ` : "") + approvalDescription(pendingApproval);
   renderApprovalDiff(pendingApproval);
-  approvalAlwaysEl.hidden = !supportsAlways(pendingApproval);
-  approvalAllowEl.disabled = resolvingApproval;
-  approvalAlwaysEl.disabled = resolvingApproval;
-  approvalDenyEl.disabled = resolvingApproval;
+  setHidden(approvalAlwaysEl, !supportsAlways(pendingApproval));
+  const disabled = resolvingApproval || !daemonConnected || !pendingApproval.action_identity || pendingApproval.pending_generation === undefined;
+  if (approvalAllowEl.disabled !== disabled) approvalAllowEl.disabled = disabled;
+  if (approvalAlwaysEl.disabled !== disabled) approvalAlwaysEl.disabled = disabled;
+  if (approvalDenyEl.disabled !== disabled) approvalDenyEl.disabled = disabled;
 }
 
 function resolveApproval(decision: ApprovalDecision): void {
   if (!pendingApproval || resolvingApproval) return;
+  if (displayedApprovalKey !== pendingKey(pendingApproval)) return;
   const approval = pendingApproval;
+  if (!daemonConnected || !approval.action_identity || approval.pending_generation === undefined) return;
   resolvingApproval = true;
   renderApproval();
-  void invoke("resolve_approval", {
+  void invoke("resolve_approval_v2", {
     approvalId: approval.approval_id,
     decision,
+    identity: approval.action_identity, pendingGeneration: approval.pending_generation,
   })
     .then(() => {
-      closeApproval(approval.approval_id);
+      if (pendingKey(pendingApproval) === pendingKey(approval)) closeApproval(approval.approval_id);
       render();
       resetIdle();
     })
     .catch((error: unknown) => {
-      if (pendingApproval?.approval_id !== approval.approval_id) return;
+      if (pendingKey(pendingApproval) !== pendingKey(approval)) return;
       resolvingApproval = false;
       renderApproval();
       showError(strings.approval.failed(decision, String(error)));
@@ -891,34 +772,38 @@ approvalDenyEl.addEventListener("click", () => resolveApproval("deny"));
 let idle = false;
 let idleTimer = 0;
 
-function driftLoop(now: number): void {
-  if (reducedMotion()) {
-    islandEl.style.removeProperty("transform");
-    return;
-  }
-  if (!idle) {
-    const ex =
-      0.5 - 0.5 * Math.cos((2 * Math.PI * (now % PIXEL_PERIOD_X)) / PIXEL_PERIOD_X);
-    const ey =
-      0.5 - 0.5 * Math.cos((2 * Math.PI * (now % PIXEL_PERIOD_Y)) / PIXEL_PERIOD_Y);
-    const x = -2 + 4 * ex; // -2 .. +2
-    // Drifts UP only: downward opened a visible gap above the notch. Upward is
-    // clipped by the screen edge instead, so burn-in mitigation still happens.
-    const y = -2 * ey; // 0 .. -2
-    islandEl.style.transform = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px)`;
-  }
-  requestAnimationFrame(driftLoop);
+function visualVisible(): boolean {
+  return !document.hidden && !(daemonConnected && screenOff) && !idle && !(hideInFullscreen && fullscreenActive) && !(hideWhenIdle && agentsIdle);
 }
-requestAnimationFrame(driftLoop);
-motionQuery.addEventListener("change", () => {
-  if (reducedMotion()) islandEl.style.removeProperty("transform");
-  else requestAnimationFrame(driftLoop);
+const drift = new FrameLoop((now): void => {
+  const ex = 0.5 - 0.5 * Math.cos((2 * Math.PI * (now % PIXEL_PERIOD_X)) / PIXEL_PERIOD_X);
+  const ey = 0.5 - 0.5 * Math.cos((2 * Math.PI * (now % PIXEL_PERIOD_Y)) / PIXEL_PERIOD_Y);
+  const transform = `translate(${(-2 + 4 * ex).toFixed(2)}px, ${(-2 * ey).toFixed(2)}px)`;
+  if (islandEl.style.transform !== transform) islandEl.style.transform = transform;
 });
+const elapsedWork = new FrameLoop(tickElapsed, {
+  request: (callback): number => window.setTimeout((): void => callback(performance.now()), 1000),
+  cancel: (id): void => window.clearTimeout(id),
+});
+motionQuery.addEventListener("change", (): void => {
+  if (reducedMotion()) islandEl.style.removeProperty("transform");
+  paintHidden();
+});
+document.addEventListener("visibilitychange", paintHidden);
+let elapsedVisible = false;
+paintHidden();
 
 function paintHidden(): void {
+  drift.setEnabled(visualVisible() && !reducedMotion());
+  const nextElapsedVisible = visualVisible() && expanded;
+  if (nextElapsedVisible && !elapsedVisible) tickElapsed();
+  elapsedVisible = nextElapsedVisible;
+  elapsedWork.setEnabled(nextElapsedVisible);
   const hidden = (hideInFullscreen && fullscreenActive) || (hideWhenIdle && agentsIdle);
-  islandEl.style.opacity = hidden || idle ? "0" : "1";
-  islandEl.style.pointerEvents = hidden ? "none" : "";
+  const opacity = hidden || idle ? "0" : "1";
+  const pointerEvents = hidden ? "none" : "";
+  if (islandEl.style.opacity !== opacity) islandEl.style.opacity = opacity;
+  if (islandEl.style.pointerEvents !== pointerEvents) islandEl.style.pointerEvents = pointerEvents;
 }
 
 function trackAgentIdle(list: Session[]): void {
@@ -946,7 +831,7 @@ export function resetIdle(): void {
   if (idleFadeEnabled) {
     idleTimer = window.setTimeout(() => {
       idle = true;
-      islandEl.style.opacity = "0";
+      paintHidden();
     }, idleMs);
   }
   paintHidden();
@@ -959,68 +844,102 @@ window.addEventListener("pointerdown", resetIdle);
 /* Boot                                                                */
 /* ------------------------------------------------------------------ */
 
-async function refresh(): Promise<void> {
-  try {
-    const list = await invoke<Session[]>("list_sessions");
-    onSessions(Array.isArray(list) ? list : []);
-  } catch {
-    onSessions([]);
-  }
+let authoritativeApprovalKeys = new Set<string>();
+let authoritativeQuestionKeys = new Set<string>();
+const recoveryEl = document.createElement("section");
+const voiceEl = document.createElement("section");
+const supportEl = document.createElement("div");
+supportEl.className = "island-support";
+expandedViewEl.append(supportEl);
+supportEl.append(voiceEl);
+initializeVoice(voiceEl, { resize: (): void => { if (voice.active() && !expanded) expand(false); else syncExpandedSize(); }, error: showError, isMac: () => macosPanel });
+supportEl.append(recoveryEl);
+const detachedEl = document.createElement("section");
+const detachedTitle = document.createElement("h3"); detachedTitle.textContent = strings.session.deliveryDetached;
+const detachedList = document.createElement("ul"); detachedEl.append(detachedTitle, detachedList); detachedEl.hidden = true;
+supportEl.append(detachedEl);
+let detachedRecords: Delivery[] = [];
+const detachedView = new DeliveryView(detachedList, {
+  showOrigin: true,
+  cancel: (record): Promise<unknown> => {
+    if (!daemonConnected || !record.identity || !detachedRecords.some((entry): boolean => entry.session_id === record.session_id && entry.message_id === record.message_id && entry.identity?.daemon_epoch === record.identity?.daemon_epoch && entry.identity?.session_instance_id === record.identity?.session_instance_id)) return Promise.reject(new Error("stale_session"));
+    return invoke("cancel_message_v2", { id: record.session_id, messageId: record.message_id, identity: record.identity });
+  },
+  copy: (text): Promise<void> => navigator.clipboard.writeText(text), error: showError,
+  changed: (): void => { detachedEl.hidden = detachedList.hidden; syncExpandedSize(); },
+});
+const recoveryView = new RecoveryView(recoveryEl, {
+  copy: (text): Promise<void> => navigator.clipboard.writeText(text),
+  discard: (id): Promise<boolean> => invoke<boolean>("discard_message_recovery", { id }),
+  error: showError,
+  changed: syncExpandedSize,
+});
+void bindRecovery({
+  listen: (callback): Promise<() => void> => listen<RecoveryRecord[]>("message-recovery", (event): void => callback(event.payload)),
+  read: (): Promise<RecoveryRecord[]> => invoke<RecoveryRecord[]>("get_message_recovery"),
+}, recoveryView, (): void => { showError(strings.recovery.loadFailed); }).catch((): void => { showError(strings.recovery.loadFailed); });
+
+const connectionStatusEl = document.createElement("div");
+let connectionLabel: string = strings.connection.connecting;
+let connectionStatusHidden = false;
+connectionStatusEl.className = "daemon-connection-status";
+connectionStatusEl.setAttribute("role", "status");
+connectionStatusEl.setAttribute("aria-live", "polite");
+connectionStatusEl.textContent = strings.connection.connecting;
+supportEl.append(connectionStatusEl);
+function connectionFailed(): void {
+  daemonConnected = false;
+  activityPending = false;
+  paintHidden();
+  setQuestionConnection(false);
+  sessions = sessions.map((session): Session => ({ ...session, send_blocked: "daemon_unavailable" }));
+  render();
+  connectionStatusHidden = false;
+  connectionLabel = strings.connection.reconnecting;
 }
-
-void listen<Session[]>("sessions-updated", (event) => {
-  onSessions(Array.isArray(event.payload) ? event.payload : []);
-}).catch(() => {
-  resetIdle();
-});
-
-void listen<unknown>("approval-requested", (event) => {
-  const approval = parseApproval(event.payload);
-  if (!approval) {
-    showError(strings.approval.invalid);
-    return;
+void bindDaemonState({
+  listen: (callback): Promise<() => void> => listen<UiCache>("daemon-ui-state", (event): void => callback(event.payload)),
+  read: (): Promise<UiCache> => invoke<UiCache>("get_daemon_ui_state"),
+}, (update): void => {
+  daemonConnected = update.phase === "connected";
+  if (!daemonConnected || update.hydrate) activityPending = false;
+  if (daemonConnected && update.snapshot) screenOff = update.snapshot.quiet_scenes.screen_off;
+  paintHidden();
+  if (update.snapshot) detachedRecords = detachedDeliveries(update.snapshot);
+  setQuestionConnection(daemonConnected);
+  const discovering = update.phase === "connected" && update.snapshot?.discovering === true;
+  connectionStatusHidden = update.phase === "connected" && !discovering;
+  connectionLabel = discovering ? strings.connection.discovering : strings.connection[update.phase];
+  if (update.phase !== "connected") {
+    sessions = sessions.map((session): Session => ({ ...session, send_blocked: "daemon_unavailable" }));
+    render();
   }
-  const isNew = !seenApprovalIds.has(approval.approval_id);
-  seenApprovalIds.add(approval.approval_id);
-  if (!isNew && pendingApproval?.approval_id !== approval.approval_id) return;
-  if (pendingApproval && pendingApproval.approval_id !== approval.approval_id) {
-    if (!approvalQueue.some((entry) => entry.approval_id === approval.approval_id)) approvalQueue.push(approval);
-  } else pendingApproval = approval;
-  if (isNew && admitsExpansion("approval")) activity.relevantEvent();
-  render();
-  resetIdle();
-});
-
-void listen<unknown>("approval-resolved", (event) => {
-  const resolution = parseResolution(event.payload);
-  if (!resolution) return;
-  closeApproval(resolution.approval_id);
-  render();
-  resetIdle();
-});
-
-void listen<unknown>("question-asked", (event) => {
-  const question = parseQuestion(event.payload);
-  if (!question) {
-    showError(strings.question.invalid);
-    return;
+  if (update.phase === "connected" && update.snapshot) {
+    const snapshot = update.snapshot;
+    const approvals = snapshotApprovals(snapshot);
+    const questions = snapshotQuestions(snapshot);
+    const newApproval = approvals.some((approval): boolean => !authoritativeApprovalKeys.has(pendingKey(approval)));
+    const newQuestion = questions.some((question): boolean => !authoritativeQuestionKeys.has(pendingKey(question)));
+    authoritativeApprovalKeys = new Set(approvals.map(pendingKey));
+    authoritativeQuestionKeys = new Set(questions.map(pendingKey));
+    const next = approvals.find((approval): boolean => pendingKey(approval) === pendingKey(pendingApproval)) ?? approvals[0] ?? null;
+    if (pendingKey(next) !== pendingKey(pendingApproval)) resolvingApproval = false;
+    pendingApproval = next;
+    approvalQueue.splice(0, approvalQueue.length, ...approvals.filter((approval): boolean => approval !== next));
+    replaceQuestions(questions);
+    const configKey = JSON.stringify(snapshot.config);
+    if (update.hydrate || configKey !== JSON.stringify(config)) {
+      applyConfig(snapshot.config);
+    }
+    usage = snapshot.usage;
+    availableUpdate = snapshot.update?.version ?? null;
+    quietScene = snapshot.quiet_scenes.active;
+    childSessions = snapshotSessions(snapshot, true);
+    onSessions(snapshotSessions(snapshot), update.hydrate);
+    if (!update.hydrate && ((newApproval && admitsExpansion("approval")) || (newQuestion && admitsExpansion("question")))) activityPending = true;
   }
-  const isNew = !seenQuestionIds.has(question.question_id);
-  seenQuestionIds.add(question.question_id);
-  if (!isNew && pendingQuestion?.question_id !== question.question_id) return;
-  openQuestion(question);
-  if (isNew && admitsExpansion("question")) activity.relevantEvent();
-  render();
-  resetIdle();
-});
 
-void listen<unknown>("question-resolved", (event) => {
-  const resolution = parseQuestionResolution(event.payload);
-  if (!resolution) return;
-  closeQuestion(resolution.question_id);
-  render();
-  resetIdle();
-});
+}, connectionFailed).catch(connectionFailed);
 
 void listen<unknown>("question-focus", (event) => {
   const questionId = stringField(event.payload, "question_id");
@@ -1037,10 +956,6 @@ void listen<PointerState>("island-pointer", (event) => {
 
 void listen<FocusState>("island-focus", (event) => {
   focusedPid = event.payload.pid;
-});
-
-void listen<QuietScenes>("quiet-scenes", (event) => {
-  quietScene = event.payload.active === true;
 });
 
 void listen<{ fullscreen: boolean }>("island-fullscreen", (event) => {
@@ -1061,23 +976,27 @@ void listen<unknown>("island-toggle", () => {
 });
 
 function paintUpdate(): void {
-  headerUpdateEl.hidden = availableUpdate === null;
+  setHidden(headerUpdateEl, availableUpdate === null);
   if (availableUpdate === null) return;
   const label = strings.header.update(availableUpdate);
-  headerUpdateEl.title = label;
-  headerUpdateEl.setAttribute("aria-label", label);
+  if (headerUpdateEl.title !== label) headerUpdateEl.title = label;
+  if (headerUpdateEl.getAttribute("aria-label") !== label) headerUpdateEl.setAttribute("aria-label", label);
 }
 
 function paintMute(): void {
+  const disabled = !daemonConnected;
+  if (headerMuteEl.disabled !== disabled) headerMuteEl.disabled = disabled;
   muteWavesEl.toggleAttribute("hidden", quiet);
   muteCrossEl.toggleAttribute("hidden", !quiet);
   const label = quiet ? strings.header.unmute : strings.header.mute;
-  headerMuteEl.setAttribute("aria-label", label);
-  headerMuteEl.title = label;
+  if (headerMuteEl.getAttribute("aria-label") !== label) headerMuteEl.setAttribute("aria-label", label);
+  if (headerMuteEl.title !== label) headerMuteEl.title = label;
 }
 
 export function applyConfig(next: Record<string, unknown>): void {
   config = next;
+  configRevision += 1;
+  configPaintPending = true;
   const island = section(next, "island");
   dwellMs = milliseconds(island, "hover_dwell_ms", dwellMs);
   autoCollapseMs = milliseconds(island, "auto_collapse_ms", autoCollapseMs);
@@ -1107,19 +1026,9 @@ export function applyConfig(next: Record<string, unknown>): void {
   const baseWidth = milliseconds(display, "panel_max_width", BASE_EXPANDED.w);
   if (baseWidth !== BASE_EXPANDED.w) {
     BASE_EXPANDED.w = baseWidth;
-    const scale = uiScale;
-    uiScale = 0;
-    applyUiScale(scale);
+    resetScalePending = true;
   }
   expandedMaxH = milliseconds(display, "panel_max_height", expandedMaxH);
-  document.documentElement.style.setProperty(
-    "--content-font",
-    `${milliseconds(display, "content_font", 11)}px`,
-  );
-  document.documentElement.style.setProperty(
-    "--transcript-max",
-    `${milliseconds(display, "completion_card_height", 90)}px`,
-  );
   show = {
     tasks: display.tasks !== false,
     project: display.project !== false,
@@ -1145,18 +1054,33 @@ export function applyConfig(next: Record<string, unknown>): void {
     warnThreshold:
       typeof usageSection.warn_threshold === "number" ? usageSection.warn_threshold : 90,
   };
-  const monitor = typeof display.monitor === "string" ? display.monitor : "";
-  void invoke("set_island_monitor", { name: monitor })
-    .catch(() => {})
-    .finally(() => {
-      void resolveUiScale(display.ui_scale);
-    });
-  paintMute();
   render();
   resetIdle();
 }
 
+function paintConfig(): void {
+  const display = section(config, "display");
+  const revision = configRevision;
+  if (resetScalePending) {
+    resetScalePending = false;
+    const scale = uiScale; uiScale = 0; applyUiScale(scale);
+  }
+  const style = document.documentElement.style;
+  for (const [key, value] of [
+    ["--content-font", `${milliseconds(display, "content_font", 11)}px`],
+    ["--transcript-max", `${milliseconds(display, "completion_card_height", 90)}px`],
+  ]) if (style.getPropertyValue(key) !== value) style.setProperty(key, value);
+  const monitor = typeof display.monitor === "string" ? display.monitor : "";
+  void invoke("set_island_monitor", { name: monitor })
+    .catch(() => {})
+    .finally(() => {
+      if (revision === configRevision) void resolveUiScale(display.ui_scale);
+    });
+}
+
 async function resolveUiScale(override: unknown): Promise<void> {
+  const revision = ++metricsRevision;
+  const configuration = configRevision;
   let metrics: { scale: number; compact_height: number | null; safe_top?: number; notch_width?: number } = {
     scale: 1,
     compact_height: null,
@@ -1166,6 +1090,7 @@ async function resolveUiScale(override: unknown): Promise<void> {
   } catch {
     metrics = { scale: 1, compact_height: null };
   }
+  if (revision !== metricsRevision || configuration !== configRevision) return;
   const scale = typeof override === "number" && override > 0 ? override : metrics.scale;
   const previousNotch = hasPhysicalNotch;
   physicalNotchHeight = metrics.safe_top ?? 0;
@@ -1175,19 +1100,10 @@ async function resolveUiScale(override: unknown): Promise<void> {
   // A monitor switch can change the shape even when dimensions stay the same.
   if (previousNotch !== hasPhysicalNotch) {
     islandEl.style.backgroundImage = expanded
-      ? expandedShape(curSize.w, curSize.h)
-      : compactShape(curSize.w, curSize.h);
+      ? expandedShape(windowMorph.current.w, windowMorph.current.h)
+      : compactShape(windowMorph.current.w, windowMorph.current.h);
   }
   applyUiScale(scale, metrics.compact_height ?? undefined);
-}
-
-async function loadConfig(): Promise<void> {
-  try {
-    const payload = await invoke<{ config: Record<string, unknown> }>("get_config");
-    if (isRecord(payload.config)) applyConfig(payload.config);
-  } catch {
-    paintMute();
-  }
 }
 
 headerSettingsEl.addEventListener("click", () => {
@@ -1292,51 +1208,12 @@ async function saveQuiet(next: boolean): Promise<void> {
 }
 
 headerMuteEl.addEventListener("click", () => {
+  if (!daemonConnected) return;
   quiet = !quiet;
   section(config, "sound").quiet = quiet;
   paintMute();
   void saveQuiet(quiet).catch(() => {});
 });
-
-void listen<{ config: Record<string, unknown> }>("config-changed", (event) => {
-  if (isRecord(event.payload?.config)) applyConfig(event.payload.config);
-});
-
-void listen<UsageReport>("usage-updated", (event) => {
-  if (Array.isArray(event.payload?.providers)) {
-    usage = event.payload;
-    renderUsage();
-  }
-});
-
-void listen<{ version: string }>("update-available", (event) => {
-  if (typeof event.payload?.version === "string") {
-    availableUpdate = event.payload.version;
-    paintUpdate();
-  }
-});
-
-async function loadUpdate(): Promise<void> {
-  try {
-    const update = await invoke<{ version: string } | null>("get_update");
-    availableUpdate = typeof update?.version === "string" ? update.version : null;
-  } catch {
-    availableUpdate = null;
-  }
-  paintUpdate();
-}
-
-async function loadUsage(): Promise<void> {
-  try {
-    const report = await invoke<UsageReport>("get_usage");
-    if (Array.isArray(report?.providers)) {
-      usage = report;
-      renderUsage();
-    }
-  } catch {
-    renderUsage();
-  }
-}
 
 function applyStaticStrings(): void {
   islandEl.setAttribute("aria-label", strings.island.label);
@@ -1364,14 +1241,11 @@ async function boot(): Promise<void> {
     document.body.classList.toggle("platform-macos", platform?.os === "macos");
   }).catch(() => {});
   await setIslandSize(COMPACT.w, COMPACT.h);
-  setView("compact");
+  if (!expanded) setView("compact");
   resetIdle();
-  void loadConfig();
-  void loadUsage();
-  void loadUpdate();
-  void refresh();
+  void resolveUiScale(section(config, "display").ui_scale);
 }
 
 void boot();
 
-void listen("island-screen-changed", () => { void loadConfig(); });
+void listen("island-screen-changed", () => { void resolveUiScale(section(config, "display").ui_scale); });

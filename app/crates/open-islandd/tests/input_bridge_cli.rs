@@ -372,6 +372,7 @@ fn a_connection_can_arrive_before_its_message_without_losing_the_request() {
     input_bridge::write_frame(
         &mut connection,
         &input_bridge::Request {
+            expected_process_identity: None,
             pid,
             text: "chegou depois da conexão".into(),
         },
@@ -452,12 +453,11 @@ fn daemon_discovers_the_bridge_and_delivers_through_the_existing_message_protoco
     );
     let found = loop {
         let sessions = request("list_sessions", serde_json::json!({}));
-        if let Some(found) = sessions
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|session| session["pid"] == pid && session["attention"] == "idle")
-        {
+        if let Some(found) = sessions.as_array().unwrap().iter().find(|session| {
+            session["pid"] == pid
+                && session["attention"] == "idle"
+                && session["send_channel"] == "island"
+        }) {
             break found.clone();
         }
         assert!(
@@ -471,8 +471,55 @@ fn daemon_discovers_the_bridge_and_delivers_through_the_existing_message_protoco
         "send_message",
         serde_json::json!({"id": found["id"], "text":"mensagem da ilha"}),
     );
-    assert_eq!(reply["delivered"], true);
+    assert_eq!(reply["delivered"], false);
+    let delivery_deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let deliveries = request("get_message_deliveries", serde_json::json!({}));
+        let record = deliveries["message_deliveries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|record| record["message_id"] == reply["message_id"])
+            .unwrap();
+        if record["state"] == "delivered" {
+            assert_eq!(record["text"], "");
+            break;
+        }
+        assert!(Instant::now() < delivery_deadline, "{record}");
+        thread::sleep(Duration::from_millis(10));
+    }
     let received: serde_json::Value = serde_json::from_str(&wait_file(&agent.received)).unwrap();
     assert_eq!(received["text"], "\x1b[200~mensagem da ilha\x1b[201~\r");
     agent.finish();
+}
+
+#[test]
+fn guarded_bridge_rejects_recycled_identity_before_any_pty_write() {
+    use std::os::unix::net::UnixStream;
+    let mut session = session();
+    let (path, pid) = address(&session);
+    let mut connection = UnixStream::connect(&path).unwrap();
+    connection
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    input_bridge::write_frame(
+        &mut connection,
+        &input_bridge::Request {
+            pid,
+            text: "não deve chegar".into(),
+            expected_process_identity: Some(input_bridge::ExpectedIdentity {
+                birth: open_island_core::process::ProcessBirthIdentity::new(0),
+                stdin_device: open_island_core::process::stdin_device(pid).unwrap(),
+            }),
+        },
+    )
+    .unwrap();
+    let response: input_bridge::Response = input_bridge::read_frame(connection).unwrap();
+    assert_eq!(response.outcome, Some(input_bridge::Outcome::Rejected));
+    assert_eq!(response.error_code.as_deref(), Some("target_changed"));
+    assert!(!session.received.exists());
+    input_bridge::send(&path, pid, "somente esta").unwrap();
+    let received: serde_json::Value = serde_json::from_str(&wait_file(&session.received)).unwrap();
+    assert_eq!(received["text"], "\x1b[200~somente esta\x1b[201~\r");
+    session.finish();
 }

@@ -33,6 +33,7 @@ const tauri = tauriMock(({ command, args }) => {
   if (command === "user_sound_dir") return "";
   if (command === "list_monitors") return ["HDMI-A-1"];
   if (command === "app_version") return "v0.1.0";
+  if (command === "get_message_recovery") return [];
   if (command === "list_sessions") {
     return [{ launcher: "kitty" }, { launcher: "foot" }, { launcher: "" }, { launcher: 7 }];
   }

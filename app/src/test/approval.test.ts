@@ -25,7 +25,7 @@ const PLAN = [
 ].join("\n");
 
 function request(toolName: string, toolInput: unknown): void {
-  tauri.emit("approval-requested", {
+  tauri.state.approval({
     approval_id: `approval-${toolName}`,
     session_id: "claude:abc123",
     tool_name: toolName,
@@ -55,7 +55,7 @@ test("Sempre is hidden on a plan, where it would repeat Permitir", () => {
 });
 
 test("Sempre still shows on an ordinary tool from an agent that supports it", () => {
-  tauri.emit("approval-resolved", { approval_id: "approval-ExitPlanMode", session_id: "claude:abc123", decision: "allow" });
+  tauri.state.resolveApproval("approval-ExitPlanMode");
   request("Bash", { command: "pwd" });
   expect(always.hidden).toBe(false);
   expect(tool.textContent).toBe("Bash");

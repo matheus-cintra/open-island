@@ -16,11 +16,45 @@ pub const MAX_FRAME: usize = MAX_TEXT * 6 + 1024;
 pub struct Request {
     pub pid: u32,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_process_identity: Option<ExpectedIdentity>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Response {
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<Outcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Outcome {
+    Delivered,
+    Rejected,
+    Unconfirmed,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExpectedIdentity {
+    pub birth: crate::process::ProcessBirthIdentity,
+    pub stdin_device: u64,
+}
+impl Response {
+    pub fn success() -> Self {
+        Self {
+            error: None,
+            outcome: Some(Outcome::Delivered),
+            error_code: None,
+        }
+    }
+    pub fn failure(outcome: Outcome, code: &str, error: String) -> Self {
+        Self {
+            error: Some(error),
+            outcome: Some(outcome),
+            error_code: Some(code.to_owned()),
+        }
+    }
 }
 
 pub fn read_frame<T: serde::de::DeserializeOwned>(reader: impl Read) -> io::Result<T> {
@@ -71,14 +105,15 @@ pub fn send(path: &Path, pid: u32, text: &str) -> Result<(), String> {
             &mut socket,
             &Request {
                 pid,
+                expected_process_identity: None,
                 text: text.into(),
             },
         )?;
         read_frame(socket)
     })();
     match result {
-        Ok(Response { error: None }) => Ok(()),
-        Ok(Response { error: Some(error) }) => Err(error),
+        Ok(Response { error: None, .. }) => Ok(()),
+        Ok(Response { error: Some(error), .. }) => Err(error),
         // A lost acknowledgement is ambiguous: never retry automatically.
         Err(error) => Err(format!("Não foi possível confirmar o envio à sessão: {error}. Confira o terminal antes de reenviar.")),
     }
@@ -94,6 +129,7 @@ mod tests {
             &mut bytes,
             &Request {
                 pid: 42,
+                expected_process_identity: None,
                 text: "olá\n\t'$(echo x)'".into(),
             },
         )

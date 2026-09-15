@@ -1,3 +1,5 @@
+import { pendingKey } from "./island-state";
+import type { ActionIdentity } from "./daemon-state";
 import { invoke } from "@tauri-apps/api/core";
 import { strings } from "./strings";
 import {
@@ -7,9 +9,28 @@ import {
   questionCountEl,
   questionKickerEl,
 } from "./elements";
-import { isRecord, stringField } from "./json";
-import { Question, QuestionRequest, QuestionResolved } from "./types";
-import { childLabel, jumpToId, render, resetIdle, showCard, showError } from "./main";
+import { Question, QuestionRequest } from "./types";
+
+interface QuestionContext {
+  childLabel(id: string): string;
+  jumpToId(id: string, expected?: ActionIdentity): void;
+  render(): void;
+  resetIdle(): void;
+  showCard(card: HTMLElement, visible: boolean, onHidden?: () => void): void;
+  showError(message: string): void;
+}
+let context: QuestionContext;
+export function initializeQuestions(value: QuestionContext): void { context = value; }
+
+let connected = false;
+export function setQuestionConnection(online: boolean): void {
+  if (connected === online) return;
+  connected = online;
+  context.render();
+}
+function guardedReady(question: QuestionRequest | null): boolean {
+  return connected && question?.action_identity !== undefined && question.pending_generation !== undefined;
+}
 
 export let pendingQuestion: QuestionRequest | null = null;
 let questionAnswers: string[][] = [];
@@ -17,49 +38,18 @@ let resolvingQuestion = false;
 let questionDeadline = 0;
 let countdownTimer = 0;
 let renderedQuestionKey = "";
-
-export function parseQuestion(value: unknown): QuestionRequest | null {
-  const questionId = stringField(value, "question_id");
-  const sessionId = stringField(value, "session_id");
-  const agent = stringField(value, "agent");
-  if (!questionId || !sessionId || !agent || !isRecord(value)) return null;
-  const raw = value.questions;
-  if (!Array.isArray(raw) || raw.length === 0) return null;
-  const questions = raw.map((entry): Question => {
-    const options = isRecord(entry) && Array.isArray(entry.options) ? entry.options : [];
-    return {
-      question: stringField(entry, "question") ?? "",
-      ...(stringField(entry, "header") ? { header: stringField(entry, "header") } : {}),
-      options: options.flatMap((option) => {
-        const label = stringField(option, "label");
-        if (!label) return [];
-        const description = stringField(option, "description");
-        return [{ label, ...(description ? { description } : {}) }];
-      }),
-      multi_select: isRecord(entry) && entry.multi_select === true,
-      custom: isRecord(entry) && entry.custom === true,
-    };
-  });
-  return {
-    question_id: questionId,
-    session_id: sessionId,
-    agent,
-    questions,
-    answerable: value.answerable === true,
-    ...(typeof value.expires_in_ms === "number" ? { expires_in_ms: value.expires_in_ms } : {}),
-  };
-}
-
-export function parseQuestionResolution(value: unknown): QuestionResolved | null {
-  const questionId = stringField(value, "question_id");
-  const sessionId = stringField(value, "session_id");
-  const outcome = stringField(value, "outcome");
-  if (!questionId || !sessionId) return null;
-  if (outcome !== "answered" && outcome !== "cancelled" && outcome !== "expired") return null;
-  return { question_id: questionId, session_id: sessionId, outcome };
-}
+let renderedActionsKey = "";
 
 const questionQueue: QuestionRequest[] = [];
+export function replaceQuestions(questions: QuestionRequest[]): void {
+  const next = questions.find((question): boolean => pendingKey(question) === pendingKey(pendingQuestion)) ?? questions[0];
+  questionQueue.length = 0;
+  if (!next) { closeQuestion(); return; }
+  if (pendingKey(next) !== pendingKey(pendingQuestion)) closeQuestion();
+  openQuestion(next);
+  questionQueue.push(...questions.filter((question): boolean => question !== next));
+}
+
 export function openQuestion(question: QuestionRequest): void {
   if (pendingQuestion && pendingQuestion.question_id !== question.question_id) {
     if (!questionQueue.some((entry) => entry.question_id === question.question_id)) {
@@ -70,13 +60,17 @@ export function openQuestion(question: QuestionRequest): void {
   if (pendingQuestion?.question_id === question.question_id) {
     // Repeated hook delivery can update text, but must not erase a draft or restart its deadline.
     pendingQuestion = question;
+    if (question.expires_in_ms !== undefined) {
+      const remainingDeadline = Date.now() + Math.max(0, question.expires_in_ms);
+      questionDeadline = questionDeadline === 0 ? remainingDeadline : Math.min(questionDeadline, remainingDeadline);
+    }
     return;
   }
   pendingQuestion = question;
   questionAnswers = question.questions.map(() => []);
   resolvingQuestion = false;
   clearInterval(countdownTimer);
-  questionDeadline = question.expires_in_ms ? Date.now() + question.expires_in_ms : 0;
+  questionDeadline = question.expires_in_ms !== undefined ? Date.now() + Math.max(0, question.expires_in_ms) : 0;
   if (questionDeadline > 0) {
     countdownTimer = window.setInterval(tickCountdown, 1000);
   }
@@ -119,8 +113,9 @@ function paintAnswers(index: number): void {
   const selected = questionAnswers[index] ?? [];
   for (const button of options.querySelectorAll<HTMLButtonElement>(".question-option")) {
     const on = selected.includes(button.dataset.option ?? "");
-    button.classList.toggle("selected", on);
-    button.setAttribute("aria-pressed", String(on));
+    if (button.classList.contains("selected") !== on) button.classList.toggle("selected", on);
+    const pressed = String(on);
+    if (button.getAttribute("aria-pressed") !== pressed) button.setAttribute("aria-pressed", pressed);
   }
   const custom = questionBodyEl.querySelector<HTMLInputElement>(
     `.question-custom[data-question="${index}"]`,
@@ -133,6 +128,8 @@ function answersComplete(): boolean {
 }
 
 function questionItem(question: Question, index: number): HTMLDivElement {
+  const ownerKey = pendingKey(pendingQuestion);
+  const current = (): boolean => ownerKey === pendingKey(pendingQuestion) && !resolvingQuestion;
   const item = document.createElement("div");
   item.className = "question-item";
 
@@ -158,9 +155,9 @@ function questionItem(question: Question, index: number): HTMLDivElement {
     button.classList.toggle("selected", selected);
     button.setAttribute("aria-pressed", String(selected));
     button.disabled = resolvingQuestion || !pendingQuestion?.answerable;
-    button.addEventListener("click", () =>
-      toggleAnswer(index, option.label, question.multi_select),
-    );
+    button.addEventListener("click", (): void => {
+      if (current()) toggleAnswer(index, option.label, question.multi_select);
+    });
     options.append(button);
   }
   item.append(options);
@@ -184,6 +181,7 @@ function questionItem(question: Question, index: number): HTMLDivElement {
     const savedCustom = selected.find((answer) => !optionLabels.has(answer));
     if (savedCustom) custom.value = savedCustom;
     custom.addEventListener("input", () => {
+      if (!current()) return;
       const value = custom.value.trim();
       questionAnswers[index] = value ? [value] : [];
       renderQuestionActions();
@@ -217,6 +215,15 @@ function tickCountdown(): void {
 }
 
 function renderQuestionActions(): void {
+  const key = JSON.stringify([
+    pendingKey(pendingQuestion),
+    pendingQuestion?.answerable ?? false,
+    resolvingQuestion,
+    connected,
+    questionAnswers,
+  ]);
+  if (renderedActionsKey === key) return;
+  renderedActionsKey = key;
   questionActionsEl.replaceChildren();
   if (!pendingQuestion) return;
 
@@ -225,8 +232,11 @@ function renderQuestionActions(): void {
     submit.type = "button";
     submit.className = "question-submit";
     submit.textContent = strings.question.submit;
-    submit.disabled = resolvingQuestion || !answersComplete();
-    submit.addEventListener("click", submitAnswers);
+    submit.disabled = resolvingQuestion || !answersComplete() || !guardedReady(pendingQuestion);
+    const ownerKey = pendingKey(pendingQuestion);
+    submit.addEventListener("click", (): void => {
+      if (ownerKey === pendingKey(pendingQuestion)) submitAnswers();
+    });
     questionActionsEl.append(submit);
     return;
   }
@@ -238,13 +248,18 @@ function renderQuestionActions(): void {
   jump.type = "button";
   jump.className = "question-jump";
   jump.textContent = strings.question.jump;
-  jump.addEventListener("click", () => jumpToId(pendingQuestion?.session_id ?? ""));
+  const question = pendingQuestion;
+  jump.disabled = !guardedReady(question);
+  jump.addEventListener("click", (): void => {
+    if (!guardedReady(question) || pendingKey(question) !== pendingKey(pendingQuestion)) return;
+    context.jumpToId(question.session_id, question.action_identity);
+  });
   questionActionsEl.append(fallback, jump);
 }
 
 export function renderQuestion(): void {
   if (!pendingQuestion) {
-    showCard(questionCardEl, false, () => {
+    context.showCard(questionCardEl, false, () => {
       questionCardEl.classList.remove("focused");
       questionBodyEl.replaceChildren();
       questionActionsEl.replaceChildren();
@@ -252,15 +267,19 @@ export function renderQuestion(): void {
     return;
   }
   const renderKey = JSON.stringify({
-    question: pendingQuestion,
+    question: { ...pendingQuestion, expires_in_ms: undefined },
     resolving: resolvingQuestion,
   });
-  showCard(questionCardEl, true);
-  questionCardEl.setAttribute("aria-label", strings.question.label);
-  const owner = childLabel(pendingQuestion.session_id);
-  questionKickerEl.textContent = strings.question.kicker(pendingQuestion.agent) + (owner ? ` · ${owner}` : "");
-  questionCountEl.textContent = strings.question.count(pendingQuestion.questions.length);
-  if (renderedQuestionKey === renderKey) return;
+  context.showCard(questionCardEl, true);
+  if (questionCardEl.getAttribute("aria-label") !== strings.question.label) {
+    questionCardEl.setAttribute("aria-label", strings.question.label);
+  }
+  const owner = context.childLabel(pendingQuestion.session_id);
+  const kicker = strings.question.kicker(pendingQuestion.agent) + (owner ? ` · ${owner}` : "");
+  if (questionKickerEl.textContent !== kicker) questionKickerEl.textContent = kicker;
+  const count = strings.question.count(pendingQuestion.questions.length);
+  if (questionCountEl.textContent !== count) questionCountEl.textContent = count;
+  if (renderedQuestionKey === renderKey) { renderQuestionActions(); return; }
   const focused = document.activeElement;
   const focusedIndex = focused instanceof HTMLElement && focused.matches(".question-custom")
     ? focused.dataset.question
@@ -274,21 +293,21 @@ export function renderQuestion(): void {
 }
 
 function submitAnswers(): void {
-  if (!pendingQuestion || resolvingQuestion || !answersComplete()) return;
+  if (!pendingQuestion || resolvingQuestion || !answersComplete() || !guardedReady(pendingQuestion)) return;
   const question = pendingQuestion;
   const answers = questionAnswers.map((labels) => [...labels]);
   resolvingQuestion = true;
   renderQuestion();
-  void invoke("answer_question", { questionId: question.question_id, answers })
+  void invoke("answer_question_v2", { questionId: question.question_id, answers, identity: question.action_identity, pendingGeneration: question.pending_generation })
     .then(() => {
-      if (pendingQuestion?.question_id === question.question_id) closeQuestion();
-      render();
-      resetIdle();
+      if (pendingKey(pendingQuestion) === pendingKey(question)) closeQuestion();
+      context.render();
+      context.resetIdle();
     })
     .catch((error: unknown) => {
-      if (pendingQuestion?.question_id !== question.question_id) return;
+      if (pendingKey(pendingQuestion) !== pendingKey(question)) return;
       resolvingQuestion = false;
       renderQuestion();
-      showError(strings.question.failed(String(error)));
+      context.showError(strings.question.failed(String(error)));
     });
 }

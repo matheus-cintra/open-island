@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "reference": "Mostre os testes do projeto e verifique se a mensagem chegou na sessão correta.",
+  "max_normalized_wer": 0.35,
+  "required_words": [
+    "testes",
+    "sessão"
+  ],
+  "files": [
+    {
+      "path": "pt-br.wav",
+      "sha256": "5f680c60c84b541744ba36d91b8f8e2153ec9a02a9cfc585d627f2bc016d5c27",
+      "bytes": 193760,
+      "sample_rate": 16000,
+      "channels": 1,
+      "sample_width_bytes": 2,
+      "frames": 96841,
+      "origin": "generated synthetic speech",
+      "license": "MIT"
+    },
+    {
+      "path": "silence.wav",
+      "sha256": "cf4a763aa4975e7209fc78e4f85d5debf9227706d9db6910b73d566bab84ca00",
+      "bytes": 96078,
+      "sample_rate": 16000,
+      "channels": 1,
+      "sample_width_bytes": 2,
+      "frames": 48000,
+      "origin": "generated digital silence",
+      "license": "MIT"
+    }
+  ],
+  "generator": {
+    "name": "espeak-ng",
+    "version": "1.52.0",
+    "voice": "pt-br",
+    "license": "GPL-3.0-or-later",
+    "source": "https://github.com/espeak-ng/espeak-ng/archive/refs/tags/1.52.0.tar.gz",
+    "source_sha256": "bb4338102ff3b49a81423da8a1a158b420124b055b60fa76cfb4b18677130a23",
+    "words_per_minute": 140
+  },
+  "normalizer": {
+    "name": "ffmpeg",
+    "version": "ffmpeg version n9.0.1 Copyright (c) 2000-2026 the FFmpeg developers"
+  },
+  "model": {
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/90a64d80ea254cf67575b41a5971f972c79f7b45/ggml-small.bin",
+    "bytes": 487601967,
+    "sha256": "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+    "distribution": "QA cache only; not bundled"
+  }
+}

@@ -1,7 +1,11 @@
+#[cfg(any(test, not(feature = "qa-harness")))]
 use crate::terminal;
-use std::path::{Path, PathBuf};
+#[cfg(any(test, not(feature = "qa-harness")))]
+use std::path::Path;
+use std::path::PathBuf;
 
 pub const AGENTS: [&str; 3] = ["claude", "codex", "opencode"];
+#[cfg(any(test, not(feature = "qa-harness")))]
 const SESSION_SCRIPT: &str = "cd \"$1\" && exec \"$2\" run -- \"$3\"";
 
 pub fn known_agent(name: &str) -> Result<&'static str, String> {
@@ -20,12 +24,14 @@ pub fn available(lookup: impl Fn(&str) -> Option<PathBuf>) -> Vec<String> {
         .collect()
 }
 
+#[cfg(any(test, not(feature = "qa-harness")))]
 pub fn session_argv(program: &Path, folder: &Path, bridge: &Path, agent: &str) -> Vec<String> {
     let folder = folder.to_string_lossy();
     let bridge = bridge.to_string_lossy();
     terminal::terminal_argv(program, SESSION_SCRIPT, &[&folder, &bridge, agent])
 }
 
+#[cfg(any(test, not(feature = "qa-harness")))]
 #[cfg(not(target_os = "macos"))]
 pub fn open(folder: &str, agent: &str) -> Result<(), String> {
     let agent = known_agent(agent)?;
@@ -47,15 +53,15 @@ pub fn open(folder: &str, agent: &str) -> Result<(), String> {
 #[path = "launch_tests.rs"]
 mod tests;
 
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(any(test, all(target_os = "macos", not(feature = "qa-harness"))))]
 fn terminal_script(folder: &str, agent: &str) -> String {
     crate::launch_macos::applescript(folder, agent, false)
 }
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
 pub fn open(folder: &str, agent: &str) -> Result<(), String> {
     open_macos(folder, agent, "terminal")
 }
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "qa-harness")))]
 pub fn open_macos(folder: &str, agent: &str, terminal: &str) -> Result<(), String> {
     crate::launch_macos::open(folder, agent, terminal)
 }

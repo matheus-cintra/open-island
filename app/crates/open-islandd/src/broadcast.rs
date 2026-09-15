@@ -1,6 +1,6 @@
 use crate::notifications::lifecycle::{DaemonContext, SharedState};
 use crate::server::wire::event_message;
-use open_island_core::{discovery, protocol::EventData};
+use open_island_core::protocol::EventData;
 
 /// Delivers `message` to every subscriber, dropping failed subscribers, and
 /// reports whether at least one subscriber received it.
@@ -8,26 +8,49 @@ pub fn broadcast(state: &SharedState, message: String) -> bool {
     broadcast_except(state, message, None)
 }
 
-/// Every connection is a subscriber, the caller's own included, so a request that reports
-/// whether anyone is listening has to leave itself out of the count.
+/// Legacy listeners and subscribed UIs count as action surfaces. Hook connections
+/// can receive legacy events but do not count; diagnostic clients receive no events.
 pub fn broadcast_except(state: &SharedState, message: String, except: Option<u64>) -> bool {
+    let state_event = serde_json::from_str::<serde_json::Value>(&message)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("event")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        })
+        .is_some_and(|event| {
+            !matches!(
+                event.as_str(),
+                "island-toggle" | "open-settings" | "question-focus"
+            )
+        });
     let subscribers = state
         .lock()
-        .map(|state| {
+        .map(|mut state| {
+            state.publication_revision = state.publication_revision.saturating_add(1);
             state
                 .subscribers
                 .iter()
-                .filter(|subscriber| Some(subscriber.connection_id) != except)
-                .map(|subscriber| (subscriber.connection_id, subscriber.sender.clone()))
+                .filter(|subscriber| !subscriber.diagnostic_only && Some(subscriber.connection_id) != except)
+                .map(|subscriber| {
+                    let invalidation = subscriber.ui_epoch.as_ref().filter(|_| state_event).map(|epoch| {
+                        serde_json::json!({"v":1,"event":"ui-state-invalidated","data":{"daemon_epoch":epoch,"publication_revision":state.publication_revision}}).to_string()
+                    });
+                    (subscriber.connection_id, subscriber.sender.clone(), invalidation, subscriber.receives_actions)
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
     let mut delivered = false;
     let failed = subscribers
         .into_iter()
-        .filter_map(|(connection_id, sender)| {
-            if sender.send(message.clone()).is_ok() {
-                delivered = true;
+        .filter_map(|(connection_id, sender, invalidation, receives_actions)| {
+            if sender
+                .send(invalidation.unwrap_or_else(|| message.clone()))
+                .is_ok()
+            {
+                delivered |= receives_actions;
                 None
             } else {
                 Some(connection_id)
@@ -49,9 +72,7 @@ pub fn make_broadcast(state: SharedState) -> impl Fn(String) -> bool + Clone {
     move |message| broadcast(&state, message)
 }
 
-/// The broadcast the hook path uses. It leaves the hook's own connection out of the count,
-/// because every connection is a subscriber: without the exclusion an approval would always
-/// look as if an island had seen it, even when the only listener was the agent asking.
+/// The hook never counts its own connection as an available action surface.
 pub fn make_hook_broadcast(
     state: SharedState,
     connection_id: u64,
@@ -60,12 +81,7 @@ pub fn make_hook_broadcast(
 }
 
 pub fn broadcast_sessions(ctx: &DaemonContext) {
-    let processes = discovery::scan();
-    let Ok(sessions) = ctx
-        .state
-        .lock()
-        .map(|mut state| state.store.snapshot(&processes))
-    else {
+    let Ok(sessions) = crate::discovery_cache::sessions(ctx) else {
         return;
     };
     broadcast(

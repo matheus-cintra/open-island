@@ -7,7 +7,7 @@ use crate::notifications::approval::QuestionSettlement;
 use crate::notifications::lifecycle::{self, DaemonContext};
 use crate::poll::{refresh_update, send_message};
 use crate::update;
-use open_island_core::{discovery, jump, protocol::Request};
+use open_island_core::{jump, protocol::Request};
 use serde_json::{json, Value};
 use std::{path::Path, sync::Arc, time::Instant};
 
@@ -25,8 +25,44 @@ pub fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> Strin
             json!({"reported": true})
         }),
         "ping" => {
-            Ok(json!({"daemon":"open-islandd", "version": VERSION, "pid": std::process::id()}))
+            let mut reply = json!({"daemon":"open-islandd", "version": VERSION, "pid": std::process::id(), "daemon_epoch": ctx.messages.epoch, "capabilities":open_island_core::diagnostics::CAPABILITIES});
+            if request.params.as_ref().and_then(|params| params.get("client_role")).and_then(Value::as_str) == Some("diagnostic") {
+                if let Ok(state) = ctx.state.lock() {
+                    reply["counters"] = json!(open_island_core::diagnostics::Counters {
+                        outbox: ctx.admission.outbox.snapshot(),
+                        connections_legacy: ctx.admission.connections.snapshot(32),
+                        connections_managed: ctx.admission.managed.snapshot(32),
+                        fast_requests: ctx.admission.fast.snapshot(64),
+                        blocking_requests: ctx.admission.blocking.snapshot(64),
+                        bulk_requests: ctx.admission.bulk.snapshot(4),
+                        no_island: state.no_island,
+                        pending_approvals: state.pending.len() as u64,
+                        pending_questions: state.pending_questions.len() as u64,
+                    });
+                }
+            }
+            Ok(reply)
         }
+        "subscribe_ui" => ctx.state.lock().map_err(|_| "daemon_unavailable".to_owned()).and_then(|mut state| {
+            let subscriber = state.subscribers.iter_mut().find(|s| s.connection_id == connection_id).ok_or("connection_not_found")?;
+            subscriber.ui_epoch = Some(ctx.messages.epoch.clone());
+            Ok(json!({"daemon_epoch":ctx.messages.epoch,"capabilities":open_island_core::diagnostics::CAPABILITIES}))
+        }),
+        "get_ui_state" => {
+            let mut revision = 0;
+            ctx.snapshots.begin_with(connection_id, || {
+                let document = crate::ui_state::freeze(&ctx)?;
+                revision = document.publication_revision;
+                Ok(document)
+            }).map(|id| json!({"snapshot_id":id,"daemon_epoch":ctx.messages.epoch,"publication_revision":revision}))
+        },
+        "get_ui_state_page" => request.params.as_ref().ok_or("missing_snapshot_params".to_owned()).and_then(|params| {
+            let id = params.get("snapshot_id").and_then(Value::as_u64).ok_or("invalid_snapshot_id")?;
+            let page = params.get("expected_page").and_then(Value::as_u64).ok_or("invalid_snapshot_page")?;
+            ctx.snapshots.page(connection_id, id, page).and_then(|page| serde_json::to_value(page).map_err(|_| "snapshot_serialization".into()))
+        }),
+        "cancel_ui_state" => { ctx.snapshots.cancel(connection_id); Ok(Value::Null) },
+        "get_message_deliveries" => ctx.state.lock().map_err(|_| "daemon_unavailable".to_owned()).map(|state| json!({"daemon_epoch":ctx.messages.epoch,"message_deliveries":state.store.deliveries.snapshot()})),
         "get_usage" => ctx
             .state
             .lock()
@@ -63,27 +99,16 @@ pub fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> Strin
             "config": ctx.config.get().to_json_value(),
             "env_locked": env_locked(),
         })),
-        "list_sessions" => {
-            let sessions = discovery::scan();
-            ctx.state
-                .lock()
-                .map_err(|_| "daemon state unavailable".to_owned())
-                .map(|mut state| {
-                    serde_json::to_value(state.store.snapshot(&sessions))
-                        .unwrap_or(Value::Array(Vec::new()))
-                })
-        }
+        "list_sessions" => crate::discovery_cache::sessions(&ctx).and_then(|sessions| serde_json::to_value(sessions).map_err(|_| "snapshot_serialization".into())),
+        "jump_v2" => serde_json::from_value::<super::guarded_jump::Jump>(request.params.unwrap_or(Value::Null))
+            .map_err(|_| "invalid_guarded_jump".to_owned())
+            .and_then(|request| super::guarded_jump::jump(&ctx, request)),
         "jump" => {
             let params = request.params.unwrap_or(Value::Null);
             serde_json::from_value::<JumpParams>(params)
                 .map_err(|error| format!("invalid jump params: {error}"))
                 .and_then(|params| {
-                    let processes = discovery::scan();
-                    let sessions = ctx
-                        .state
-                        .lock()
-                        .map_err(|error| format!("daemon state unavailable: {error}"))
-                        .map(|mut state| state.store.snapshot(&processes))?;
+                    let sessions = crate::discovery_cache::sessions(&ctx)?;
                     sessions
                         .into_iter()
                         .find(|session| {
@@ -111,6 +136,9 @@ pub fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> Strin
             refresh_update(&ctx, cache_path.as_deref(), true)
                 .map(|notice| json!({"version": notice.map(|notice| notice.version)}))
         }
+        "send_message_v2" => serde_json::from_value::<super::guarded_actions::Send>(request.params.unwrap_or(Value::Null))
+            .map_err(|_| "invalid_guarded_send".to_owned())
+            .and_then(|request| crate::poll::send_message_guarded(&ctx, request)),
         "send_message" => request
             .params
             .ok_or_else(|| "missing send_message params".to_owned())
@@ -119,6 +147,9 @@ pub fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> Strin
                     .map_err(|error| format!("invalid send_message params: {error}"))
             })
             .and_then(|params| send_message(&ctx, &params.id, &params.text)),
+        "cancel_message_v2" => serde_json::from_value::<super::guarded_actions::Cancel>(request.params.unwrap_or(Value::Null))
+            .map_err(|_| "invalid_guarded_cancel".to_owned())
+            .and_then(|request| super::guarded_actions::cancel(&ctx, request)),
         "cancel_message" => request
             .params
             .ok_or_else(|| "missing cancel_message params".to_owned())
@@ -131,11 +162,12 @@ pub fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> Strin
                     .state
                     .lock()
                     .map_err(|_| "daemon state unavailable".to_owned())
-                    .map(|mut state| state.store.cancel_message(&params.id, params.message_id))?;
+                    .and_then(|mut state| state.store.cancel_message(&params.id, params.message_id))?;
                 if !cancelled {
                     return Err("message not queued".to_owned());
                 }
                 broadcast_sessions(&ctx);
+                crate::message_executor::publish(&ctx.state);
                 Ok(Value::Null)
             }),
         "toggle" => {
@@ -177,6 +209,12 @@ pub fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> Strin
                     make_hook_broadcast(Arc::clone(&ctx.state), connection_id),
                 )
             }),
+        "resolve_approval_v2" => serde_json::from_value::<super::guarded_actions::Resolve>(request.params.unwrap_or(Value::Null))
+            .map_err(|_| "invalid_guarded_approval".to_owned())
+            .and_then(|request| super::guarded_actions::resolve(&ctx, request)),
+        "answer_question_v2" => serde_json::from_value::<super::guarded_actions::Answer>(request.params.unwrap_or(Value::Null))
+            .map_err(|_| "invalid_guarded_question".to_owned())
+            .and_then(|request| super::guarded_actions::answer(&ctx, request)),
         "resolve_approval" => request
             .params
             .ok_or_else(|| "missing resolve_approval params".to_owned())

@@ -19,8 +19,9 @@ pub fn response(id: Value, data: Result<Value, String>) -> String {
             error: Some(error),
         },
     };
-    serde_json::to_string(&message).unwrap_or_else(|_| {
-        "{\"v\":1,\"id\":null,\"ok\":false,\"error\":\"serialization failed\"}".to_owned()
+    bounded(&message).unwrap_or_else(|| {
+        bounded(&serde_json::json!({"v":1,"id":message.id,"ok":false,"error":"snapshot_requires_paging"}))
+            .unwrap_or_else(|| r#"{"v":1,"id":null,"ok":false,"error":"snapshot_requires_paging"}"#.to_owned())
     })
 }
 
@@ -59,12 +60,31 @@ pub struct AnswerParams {
 }
 
 pub fn event_message(event: &str, data: EventData) -> String {
-    serde_json::to_string(&Event {
+    bounded(&Event {
         v: 1,
         event: event.to_owned(),
         data,
     })
-    .unwrap_or_else(|_| "{\"v\":1,\"event\":\"sessions-updated\",\"data\":[]}".to_owned())
+    .unwrap_or_else(|| r#"{"v":1,"event":"snapshot-requires-paging","data":null}"#.to_owned())
+}
+
+fn bounded(value: &impl serde::Serialize) -> Option<String> {
+    struct Limited(Vec<u8>);
+    impl std::io::Write for Limited {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if self.0.len().saturating_add(bytes.len()) >= super::outbox::MAX_FRAME {
+                return Err(std::io::Error::other("snapshot_requires_paging"));
+            }
+            self.0.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut writer = Limited(Vec::new());
+    serde_json::to_writer(&mut writer, value).ok()?;
+    String::from_utf8(writer.0).ok()
 }
 
 #[cfg(test)]
@@ -72,6 +92,16 @@ mod tests {
     use super::{event_message, response};
     use open_island_core::protocol::{EventData, QuietScenes};
     use serde_json::{json, Value};
+
+    #[test]
+    fn oversized_legacy_reply_is_small_explicit_error() {
+        let wire = response(json!(42), Ok(json!({"text":"x".repeat(5 * 1024 * 1024)})));
+        let value: Value = serde_json::from_str(&wire).unwrap();
+        assert_eq!(value["id"], 42);
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["error"], "snapshot_requires_paging");
+        assert!(wire.len() < 256);
+    }
 
     #[test]
     fn an_ok_reply_carries_the_data_and_no_error() {

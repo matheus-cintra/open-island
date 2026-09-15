@@ -5,12 +5,14 @@ import { tauriMock } from "./tauri";
 const tauri = tauriMock(({ command }) => {
   if (command === "get_config") return { config: {} };
   if (command === "island_metrics") return { scale: 1, compact_height: null };
+  if (command === "get_message_recovery") return [];
   if (command === "list_sessions") return [];
   if (command === "get_usage") return { providers: [] };
   if (command === "get_update") return { version: "v0.3.0" };
   return {};
 });
 
+tauri.state.update({ version: "v0.3.0" });
 mock.module("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 mock.module("@tauri-apps/api/event", () => ({ listen: tauri.listen }));
 

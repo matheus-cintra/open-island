@@ -9,6 +9,21 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=CoreGraphics");
         println!("cargo:rustc-link-lib=framework=Intents");
+        println!("cargo:rustc-link-lib=framework=AVFoundation");
     }
-    tauri_build::build()
+    tauri_build::try_build(tauri_build::Attributes::new().plugins([(
+        "voice",
+        tauri_build::InlinedPlugin::new().commands(&[
+            "voice_start",
+            "voice_get_state",
+            "voice_state",
+            "voice_stop",
+            "voice_cancel",
+            "voice_model_status",
+            "voice_select_model",
+            "voice_clear_model",
+            "voice_open_microphone_settings",
+        ]),
+    )]))
+    .expect("build Tauri voice permissions");
 }

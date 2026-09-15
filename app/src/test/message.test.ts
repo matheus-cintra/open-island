@@ -7,10 +7,11 @@ let sendFails: string | null = null;
 const tauri = tauriMock(({ command }) => {
   if (command === "get_config") return { config: {} };
   if (command === "island_metrics") return { scale: 1, compact_height: null };
+  if (command === "get_message_recovery") return [];
   if (command === "list_sessions") return [];
   if (command === "get_usage") return { providers: [] };
   if (command === "get_update") return null;
-  if (command === "send_message") {
+  if (command === "send_message_v2") {
     if (sendFails !== null) throw new Error(sendFails);
     return { message_id: 1, delivered: false };
   }
@@ -24,7 +25,9 @@ mountIsland({ reducedMotion: true });
 const main = await import("../main");
 await new Promise((resolve) => setTimeout(resolve, 50));
 
+const identity = { daemon_epoch: "fixture-epoch", session_instance_id: "session-instance" };
 const base = {
+  action_identity: identity,
   id: "claude:s1",
   agent: "claude",
   cwd: "/home/user/dev/open-island",
@@ -65,30 +68,32 @@ test("a blocked session shows the field disabled with the reason in Portuguese",
 });
 
 test("Enter sends the text, Shift+Enter keeps typing, Escape drops the focus", async () => {
-  const li = main.createRow({ ...base, send_channel: "kitty" }, false);
-  document.getElementById("session-list")!.append(li);
+  tauri.state.sessions([{ ...base, send_channel: "kitty" }]);
+  if (!main.expanded) tauri.emit("island-toggle", {});
+  const li = document.querySelector<HTMLLIElement>("#session-list > li")!;
   const input = li.querySelector<HTMLTextAreaElement>(".message-input")!;
   input.focus();
   expect(document.activeElement).toBe(input);
 
   input.value = "oi tudo bem";
   expect(keydown(input, "Enter", true)).toBe(true);
-  expect(calls("send_message").length).toBe(0);
+  expect(calls("send_message_v2").length).toBe(0);
 
   expect(keydown(input, "Enter")).toBe(false);
   await new Promise((resolve) => setTimeout(resolve, 10));
-  const sent = calls("send_message");
+  const sent = calls("send_message_v2");
   expect(sent.length).toBe(1);
-  expect(sent[0]!.args).toEqual({ id: "claude:s1", text: "oi tudo bem" });
+  expect(sent[0]!.args).toEqual({ id: "claude:s1", text: "oi tudo bem", identity });
   expect(input.value).toBe("");
 
   input.value = "   ";
   keydown(input, "Enter");
-  expect(calls("send_message").length).toBe(1);
+  expect(calls("send_message_v2").length).toBe(1);
 
   keydown(input, "Escape");
   expect(document.activeElement).not.toBe(input);
   li.remove();
+  tauri.emit("island-toggle", {});
 });
 
 test("queued messages show a badge with the count and a cancel button each", async () => {
@@ -111,7 +116,7 @@ test("queued messages show a badge with the count and a cancel button each", asy
   expect(items[1]!.querySelector(".message-queued-text")!.textContent).toBe("segunda");
   items[1]!.querySelector<HTMLButtonElement>(".message-cancel")!.click();
   await new Promise((resolve) => setTimeout(resolve, 10));
-  expect(calls("cancel_message").pop()!.args).toEqual({ id: "claude:s1", messageId: 8 });
+  expect(calls("cancel_message_v2").pop()!.args).toEqual({ id: "claude:s1", messageId: 8, identity });
 
   main.fillRow(li, { ...base, send_channel: "tmux" }, false);
   expect(li.querySelector(".badge-queue")).toBeNull();
@@ -120,7 +125,8 @@ test("queued messages show a badge with the count and a cancel button each", asy
 
 test("a refused send shows the mapped reason and keeps the text", async () => {
   sendFails = "host_unsupported";
-  const li = main.createRow({ ...base, send_channel: "kitty" }, false);
+  tauri.state.sessions([{ ...base, send_channel: "kitty" }]);
+  const li = document.querySelector<HTMLLIElement>("#session-list > li")!;
   const input = li.querySelector<HTMLTextAreaElement>(".message-input")!;
   input.value = "vai falhar";
   keydown(input, "Enter");
@@ -165,4 +171,24 @@ test("losing host support keeps pending messages visible for cancellation", () =
   expect(li.querySelector<HTMLElement>(".message-input")!.hidden).toBe(true);
   expect(li.querySelector<HTMLElement>(".message-hint")!.hidden).toBe(true);
   expect(li.querySelector(".message-cancel")).not.toBeNull();
+});
+
+test("identical queue updates keep the editor, caret and queue nodes", () => {
+  if (!main.expanded) tauri.emit("island-toggle", {});
+  const session = { ...base, send_channel: "tmux", queued_messages: [{ id: 70, text: "preservar", queued_at_ms: 1 }] };
+  const li = main.createRow(session, false);
+  document.getElementById("session-list")!.append(li);
+  const input = li.querySelector<HTMLTextAreaElement>(".message-input")!;
+  const queued = li.querySelector(".message-queued")!;
+  input.value = "draft";
+  input.focus();
+  input.setSelectionRange(1, 3);
+  for (let index = 0; index < 100; index += 1) main.fillRow(li, session, false);
+  expect(li.querySelector(".message-input")).toBe(input);
+  expect(li.querySelector(".message-queued")).toBe(queued);
+  expect(input.value).toBe("draft");
+  expect(input.selectionStart).toBe(1);
+  expect(input.selectionEnd).toBe(3);
+  expect(document.activeElement).toBe(input);
+  li.remove();
 });

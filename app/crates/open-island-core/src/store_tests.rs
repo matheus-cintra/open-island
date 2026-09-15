@@ -221,7 +221,9 @@ fn a_hook_whose_process_is_gone_is_dropped_but_a_silent_one_is_kept() {
     assert_eq!(snapshot[0].id, "claude:quiet");
     assert_eq!(snapshot[0].attention, Some(Attention::Idle));
 
-    assert!(store.snapshot_at(&[], much_later).is_empty());
+    assert!(store
+        .snapshot_with_liveness(&[], much_later, |_| false)
+        .is_empty());
     assert_process_fallback(
         &store.snapshot_at(&[process(4242, "/work")], much_later),
         4242,
@@ -530,6 +532,8 @@ fn the_branch_is_resolved_from_the_session_cwd() {
 
     let session = &store.snapshot_at(&[process(4242, &repository)], now)[0];
     assert_eq!(session.branch.as_deref(), Some("session-fixture"));
+    let (roots, _) = store.snapshot_with_children(&[process(4242, &repository)]);
+    assert_eq!(roots[0].branch.as_deref(), Some("session-fixture"));
 }
 
 fn stopped_store(id: &str, cwd: &str, pid: u32) -> (SessionStore, Instant, HookId) {
@@ -1766,93 +1770,102 @@ fn with_attention(mut session: Session, attention: Option<Attention>) -> Session
     session
 }
 
+fn reserve_due(
+    store: &mut SessionStore,
+    sessions: &[Session],
+) -> Vec<(Session, crate::message_delivery::MessageDelivery)> {
+    store.observe_deliveries(sessions, 100);
+    sessions
+        .iter()
+        .filter_map(|session| {
+            store
+                .reserve_message(session)
+                .unwrap()
+                .map(|message| (session.clone(), message))
+        })
+        .collect()
+}
 #[test]
 fn a_message_waits_while_the_agent_works_and_leaves_once_per_stop() {
+    use crate::message_delivery::DeliveryState;
     let mut store = SessionStore::new();
     let working = with_attention(process(7, "/tmp/p"), Some(Attention::Working));
     let idle = with_attention(process(7, "/tmp/p"), Some(Attention::Idle));
-    let first = store.enqueue_message(&working.id, "primeira".into(), 1, working.attention);
-    let second = store.enqueue_message(&working.id, "segunda".into(), 2, working.attention);
-    assert_eq!(first.id, 1);
-    assert_eq!(second.id, 2);
-    assert!(store
-        .take_due_messages(std::slice::from_ref(&working))
-        .is_empty());
+    let first = store
+        .enqueue_message(&working.id, "primeira".into(), 1, working.attention)
+        .unwrap();
+    let second = store
+        .enqueue_message(&working.id, "segunda".into(), 2, working.attention)
+        .unwrap();
+    assert_eq!((first.id, second.id), (1, 2));
+    assert!(reserve_due(&mut store, std::slice::from_ref(&working)).is_empty());
     assert_eq!(
         queued_ids(&mut store, std::slice::from_ref(&working), 7),
         vec![1, 2]
     );
-
-    let due = store.take_due_messages(std::slice::from_ref(&idle));
+    let due = reserve_due(&mut store, std::slice::from_ref(&idle));
     assert_eq!(due.len(), 1);
     assert_eq!(due[0].1.text, "primeira");
-    assert_eq!(due[0].0.id, idle.id);
-    assert!(
-        store
-            .take_due_messages(std::slice::from_ref(&idle))
-            .is_empty(),
-        "the second one waits for another working phase"
+    assert_eq!(
+        store.cancel_message(&idle.id, first.id),
+        Err("delivery_in_progress".into())
     );
-    assert!(store
-        .take_due_messages(std::slice::from_ref(&working))
-        .is_empty());
-    let due = store.take_due_messages(std::slice::from_ref(&idle));
+    assert!(store.deliveries.settle(
+        first.id,
+        due[0].1.attempt_id.unwrap(),
+        DeliveryState::Unconfirmed,
+        None,
+        10
+    ));
+    assert!(reserve_due(&mut store, std::slice::from_ref(&idle)).is_empty());
+    assert!(reserve_due(&mut store, std::slice::from_ref(&working)).is_empty());
+    let due = reserve_due(&mut store, std::slice::from_ref(&idle));
     assert_eq!(due.len(), 1);
     assert_eq!(due[0].1.text, "segunda");
-    assert!(queued_ids(&mut store, std::slice::from_ref(&idle), 7).is_empty());
+    assert_eq!(store.deliveries.snapshot()[0].text, "primeira");
 }
-
 #[test]
 fn a_message_sent_to_a_stopped_session_is_due_at_once() {
     let mut store = SessionStore::new();
     let idle = with_attention(process(7, "/tmp/p"), Some(Attention::WaitingForInput));
-    store.enqueue_message(&idle.id, "agora".into(), 1, idle.attention);
-    assert_eq!(
-        store.take_due_messages(std::slice::from_ref(&idle)).len(),
-        1
-    );
-    let unknown = process(8, "/tmp/q");
-    store.enqueue_message(&unknown.id, "sem hook".into(), 2, None);
-    assert_eq!(
-        store
-            .take_due_messages(std::slice::from_ref(&unknown))
-            .len(),
-        1
-    );
+    store
+        .enqueue_message(&idle.id, "agora".into(), 1, idle.attention)
+        .unwrap();
+    assert_eq!(reserve_due(&mut store, &[idle]).len(), 1);
 }
-
 #[test]
-fn a_queued_message_can_be_cancelled_and_a_vanished_session_drops_its_queue() {
+fn a_queued_message_can_be_cancelled_and_a_vanished_session_retains_recovery() {
     let mut store = SessionStore::new();
     let working = with_attention(process(7, "/tmp/p"), Some(Attention::Working));
-    let kept = store.enqueue_message(&working.id, "fica".into(), 1, working.attention);
-    let gone = store.enqueue_message(&working.id, "sai".into(), 2, working.attention);
-    assert!(store.cancel_message(&working.id, gone.id));
-    assert!(!store.cancel_message(&working.id, gone.id));
-    assert!(!store.cancel_message("claude:999", kept.id));
-    assert_eq!(
-        queued_ids(&mut store, std::slice::from_ref(&working), 7),
-        vec![kept.id]
-    );
-    assert!(store.take_due_messages(&[]).is_empty());
+    let kept = store
+        .enqueue_message(&working.id, "fica".into(), 1, working.attention)
+        .unwrap();
+    let gone = store
+        .enqueue_message(&working.id, "sai".into(), 2, working.attention)
+        .unwrap();
+    assert_eq!(store.cancel_message(&working.id, gone.id), Ok(true));
+    assert_eq!(store.cancel_message(&working.id, gone.id), Ok(false));
+    assert_eq!(store.cancel_message("claude:999", kept.id), Ok(false));
+    assert!(reserve_due(&mut store, &[]).is_empty());
     assert!(queued_ids(&mut store, &[working], 7).is_empty());
+    assert_eq!(store.deliveries.snapshot()[0].text, "fica");
 }
-
 #[test]
-fn the_queue_is_bounded_and_keeps_the_newest() {
+fn the_queue_is_bounded_and_rejects_new_messages_without_evicting_old_ones() {
     let mut store = SessionStore::new();
     let working = with_attention(process(7, "/tmp/p"), Some(Attention::Working));
     for index in 0..(MAX_QUEUED_MESSAGES + 3) {
-        store.enqueue_message(
+        let result = store.enqueue_message(
             &working.id,
             format!("m{index}"),
             index as u64,
             working.attention,
         );
+        assert_eq!(result.is_ok(), index < MAX_QUEUED_MESSAGES);
     }
     let ids = queued_ids(&mut store, &[working], 7);
     assert_eq!(ids.len(), MAX_QUEUED_MESSAGES);
-    assert_eq!(ids[0], 4);
+    assert_eq!(ids[0], 1);
 }
 
 #[test]
@@ -2059,4 +2072,27 @@ fn opencode_cleanup_hides_a_finished_family_together_and_child_deletion_keeps_pa
     );
     assert_eq!(oc_snapshot(&mut store, now)[0].id, "opencode:root");
     assert_eq!(store.hooks.len(), 1);
+}
+
+#[test]
+fn hook_without_pid_is_not_adopted_by_a_process_in_the_same_directory() {
+    let now = Instant::now();
+    let mut store = SessionStore::new();
+    let mut event = HookEvent::new("claude", "hook-only", HookEventKind::SessionStart);
+    event.cwd = Some("/work".into());
+    store.apply_hook_event_at(event.clone(), now);
+    let snapshot = store.snapshot_projection(&[process(4242, "/work")], now, |_| false, false);
+    let hook = snapshot
+        .iter()
+        .find(|session| session.id == "claude:hook-only")
+        .unwrap();
+    assert_eq!(hook.pid, 0);
+    assert_eq!(hook.send_blocked.as_deref(), Some("unverified_target"));
+    assert!(snapshot
+        .iter()
+        .any(|session| session.pid == 4242 && session.hook_id.is_none()));
+    let generation = hook.hook_generation;
+    store.apply_hook_event_at(event, now);
+    let next = store.snapshot_projection(&[], now, |_| false, false);
+    assert_ne!(next[0].hook_generation, generation);
 }

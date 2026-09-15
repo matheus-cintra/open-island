@@ -8,6 +8,7 @@ let terminalMissing = false;
 const tauri = tauriMock(({ command }) => {
   if (command === "get_config") return { config: {} };
   if (command === "island_metrics") return { scale: 1, compact_height: null };
+  if (command === "get_message_recovery") return [];
   if (command === "list_sessions") return [];
   if (command === "get_usage") return { providers: [] };
   if (command === "get_update") return null;

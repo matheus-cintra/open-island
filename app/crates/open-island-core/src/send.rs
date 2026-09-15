@@ -173,6 +173,10 @@ pub fn normalize(text: &str) -> String {
 }
 
 pub fn plan(channel: &Channel, text: &str) -> Vec<SendStep> {
+    plan_with_buffer(channel, text, TMUX_BUFFER)
+}
+
+pub fn plan_with_buffer(channel: &Channel, text: &str, buffer: &str) -> Vec<SendStep> {
     let text = normalize(text);
     let multi = text.contains('\n');
     match channel {
@@ -187,8 +191,8 @@ pub fn plan(channel: &Channel, text: &str) -> Vec<SendStep> {
             };
             let mut steps = if multi {
                 vec![
-                    tmux(&["set-buffer", "-b", TMUX_BUFFER, &text]),
-                    tmux(&["paste-buffer", "-p", "-d", "-b", TMUX_BUFFER, "-t", pane]),
+                    tmux(&["set-buffer", "-b", buffer, &text]),
+                    tmux(&["paste-buffer", "-p", "-d", "-b", buffer, "-t", pane]),
                 ]
             } else {
                 vec![tmux(&["send-keys", "-t", pane, "-l", &text])]

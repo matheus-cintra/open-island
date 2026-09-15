@@ -1,3 +1,4 @@
+import type { ActionIdentity, Delivery } from "./daemon-state";
 export type TerminalKind = "kitty" | "alacritty" | "unknown" | "wezterm" | "ghostty" | "zed" | "code" | "cursor" | "windsurf" | "codium";
 
 export interface QueuedMessage {
@@ -12,6 +13,7 @@ export interface Task {
 }
 
 export interface Session {
+  action_identity?: ActionIdentity;
   id: string;
   agent: string;
   cwd: string;
@@ -31,6 +33,7 @@ export interface Session {
   question_state?: "pending" | "answered" | "expired";
   attention?: Attention;
   queued_messages?: QueuedMessage[];
+  message_deliveries?: Delivery[];
   send_channel?: string;
   send_blocked?: string;
   name?: string;
@@ -85,6 +88,8 @@ export interface RowVisibility {
 }
 
 export interface ApprovalRequest {
+  action_identity?: ActionIdentity;
+  pending_generation?: number;
   approval_id: string;
   session_id: string;
   tool_name?: string;
@@ -113,6 +118,8 @@ export interface Question {
 }
 
 export interface QuestionRequest {
+  action_identity?: ActionIdentity;
+  pending_generation?: number;
   question_id: string;
   session_id: string;
   agent: string;

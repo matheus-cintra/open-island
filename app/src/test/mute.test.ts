@@ -18,10 +18,12 @@ const tauri = tauriMock(({ command, args }) => {
     return null;
   }
   if (command === "island_metrics") return { scale: 1, compact_height: null };
+  if (command === "get_message_recovery") return [];
   if (command === "list_sessions") return [];
   return {};
 });
 
+tauri.state.config(structuredClone(onDisk));
 mock.module("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 mock.module("@tauri-apps/api/event", () => ({ listen: tauri.listen }));
 
@@ -53,4 +55,14 @@ test("unmuting still leaves every key the island never touched alone", async () 
   await settle();
   expect(lastWrite().sound.quiet).toBe(false);
   expect(lastWrite().sound.volume).toBe(0.4);
+});
+
+test("an unchanged authoritative config replaces an optimistic local mute", async () => {
+  const authoritative = structuredClone(onDisk);
+  tauri.state.config(authoritative);
+  const before = mute.title;
+  mute.click(); expect(mute.title).not.toBe(before);
+  await settle();
+  tauri.state.config(authoritative);
+  expect(mute.title).toBe(before);
 });

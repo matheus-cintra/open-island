@@ -72,18 +72,22 @@ remove as integrações e orienta mover o aplicativo para a Lixeira.
 
 ## Build e verificação
 
-No Mac, instale Rust, Bun e as ferramentas do Xcode. Execute em `app`:
+No Mac, instale Rust, Bun, CMake 3.31.6 e as ferramentas do Xcode. Execute em `app`:
 
 ```sh
 bun install --frozen-lockfile
 bun run tauri build --target aarch64-apple-darwin --bundles app,dmg
 # Em Intel, use --target x86_64-apple-darwin.
-python3 ../scripts/test-processes.py cargo test --workspace
+python3 ../scripts/test-processes.py bun scripts/portable-build.mjs cargo test --workspace
 bun run test
 ```
 
-O prebundle compila o daemon com o mesmo target de Tauri. O CI executa testes e builds
-nas duas arquiteturas e verifica binários, assinaturas e WAVs. Um único job publica todos
+O prebundle compila o daemon com o mesmo target de Tauri.
+`node scripts/portable-build.mjs paths` informa o diretório de saída da política
+portátil. Os workflows estão configurados para testar ambas as arquiteturas e
+verificar binários, assinaturas, WAVs e a mensagem localizada de microfone.
+Alterar esses workflows não comprova sua execução; os builds desta evolução
+ainda precisam de validação no Mac. Um único job publica todos
 os artefatos e checksums. `scripts/test-processes.py` isola o grupo de processos e grava
 logs em arquivo; não encadeie `cargo test` com pipes.
 

@@ -63,6 +63,12 @@ pub fn run(input: &str, socket_path: &Path, timeout: Duration) -> Result<String,
     }
 
     if approval.is_none() {
+        // A hook can close immediately after writing a lifecycle/question event.  On Darwin
+        // that EOF may reach the daemon before its framed reader observes the bytes.  Consume
+        // the short acknowledgement when available; the hook still remains non-blocking for
+        // the agent because the bounded timeout is only a transport handoff.
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
+        let _ = read_matching_response(stream, REQUEST_ID);
         return Ok(String::new());
     }
 

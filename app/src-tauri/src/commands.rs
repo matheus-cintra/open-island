@@ -1,7 +1,9 @@
 use crate::client::DaemonClient;
 use crate::compositor::{self, Compositor};
 use crate::geometry::{forget_monitor_box, position_island, selected_monitor, SELECTED_MONITOR};
-use crate::{appicon, launch, platform, settings, terminal, update};
+#[cfg(not(feature = "qa-harness"))]
+use crate::update;
+use crate::{appicon, launch, platform, settings, terminal};
 use open_island_core::protocol::ApprovalDecision;
 use open_island_core::session::Session;
 use serde_json::{json, Value};
@@ -10,6 +12,83 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 pub const REVEAL_REMAP: Duration = Duration::from_millis(80);
+
+#[tauri::command]
+pub fn jump_v2(
+    client: State<'_, DaemonClient>,
+    id: String,
+    identity: open_island_core::message_delivery::DeliveryIdentity,
+) -> Result<(), String> {
+    client.jump_v2(&id, identity)
+}
+
+#[tauri::command]
+pub fn get_daemon_ui_state(
+    client: State<'_, DaemonClient>,
+) -> crate::daemon_transport::refresh::UiCache {
+    client.get_daemon_ui_state()
+}
+
+#[tauri::command]
+pub fn resolve_approval_v2(
+    client: State<'_, DaemonClient>,
+    approval_id: String,
+    pending_generation: u64,
+    decision: ApprovalDecision,
+    identity: open_island_core::message_delivery::DeliveryIdentity,
+) -> Result<(), String> {
+    client.resolve_approval_v2(&approval_id, pending_generation, decision, identity)
+}
+#[tauri::command]
+pub fn answer_question_v2(
+    client: State<'_, DaemonClient>,
+    question_id: String,
+    pending_generation: u64,
+    answers: Vec<Vec<String>>,
+    identity: open_island_core::message_delivery::DeliveryIdentity,
+) -> Result<(), String> {
+    client.answer_question_v2(&question_id, pending_generation, answers, identity)
+}
+
+#[tauri::command]
+pub fn cancel_message_v2(
+    client: State<'_, DaemonClient>,
+    id: String,
+    message_id: u64,
+    identity: open_island_core::message_delivery::DeliveryIdentity,
+) -> Result<(), String> {
+    client.cancel_message_v2(&id, message_id, identity)
+}
+
+#[tauri::command]
+pub fn get_message_recovery(
+    client: State<'_, DaemonClient>,
+) -> Result<Vec<crate::message_recovery::RecoveryRecord>, String> {
+    client.message_recovery()
+}
+#[tauri::command]
+pub fn discard_message_recovery(
+    client: State<'_, DaemonClient>,
+    id: open_island_core::message_delivery::ClientSubmissionId,
+) -> Result<bool, String> {
+    client.discard_message_recovery(id)
+}
+#[tauri::command]
+pub fn send_message_v2(
+    client: State<'_, DaemonClient>,
+    id: String,
+    text: String,
+    identity: open_island_core::message_delivery::DeliveryIdentity,
+) -> Result<Value, String> {
+    client.send_message_v2(&id, &text, identity)
+}
+
+#[tauri::command]
+pub fn get_ui_state(
+    client: State<'_, DaemonClient>,
+) -> Result<crate::daemon_transport::sync::SyncedSnapshot, String> {
+    client.get_ui_state()
+}
 
 #[tauri::command]
 pub fn list_sessions(client: State<'_, DaemonClient>) -> Result<Vec<Session>, String> {
@@ -87,6 +166,7 @@ pub fn agents_available() -> Vec<String> {
     launch::available(terminal::on_path)
 }
 
+#[cfg(not(feature = "qa-harness"))]
 #[tauri::command]
 pub fn open_session(
     agent: String,
@@ -105,6 +185,17 @@ pub fn open_session(
         let _ = client;
         launch::open(&folder, &agent)
     }
+}
+
+#[cfg(feature = "qa-harness")]
+#[tauri::command]
+pub fn open_session(
+    agent: String,
+    folder: String,
+    client: State<'_, DaemonClient>,
+) -> Result<(), String> {
+    let _ = (agent, folder, client);
+    crate::qa::service_control::deny_launch()
 }
 
 #[tauri::command]
@@ -129,11 +220,18 @@ pub fn check_update(client: State<'_, DaemonClient>) -> Result<Value, String> {
 
 #[tauri::command]
 pub async fn run_update(app: tauri::AppHandle, prompt: String) -> Result<(), String> {
+    #[cfg(feature = "qa-harness")]
+    {
+        let _ = app;
+        crate::qa::service_control::run_update(&prompt)
+    }
+    #[cfg(not(feature = "qa-harness"))]
     #[cfg(target_os = "macos")]
     {
         let _ = prompt;
         crate::update_macos::run(app).await
     }
+    #[cfg(not(feature = "qa-harness"))]
     #[cfg(not(target_os = "macos"))]
     {
         let _ = app;
@@ -324,4 +422,20 @@ pub fn request_focus_permission(window: tauri::WebviewWindow) -> Result<(), Stri
         let _ = window;
         Err("Disponível somente no macOS.".into())
     }
+}
+
+#[tauri::command]
+pub async fn diagnostic_report() -> Result<open_island_core::diagnostics::Report, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut report = open_island_core::diagnostics::collect(
+            &open_island_core::paths::socket(),
+            Some(env!("CARGO_PKG_VERSION")),
+        );
+        report.model =
+            crate::voice::model::diagnostic_status(open_island_core::paths::state_dir().as_deref())
+                .into();
+        report
+    })
+    .await
+    .map_err(|_| "diagnostic_unavailable".into())
 }

@@ -12,19 +12,31 @@ import {
   compactTail,
   sessionListEl,
 } from "./elements";
-import { createMessageBox, fillMessageBox } from "./message";
-import { Attention, BadgeSpec, Session, Subagent, Task } from "./types";
-import {
-  compactClean,
-  expanded,
-  jumpTo,
-  LEAVE_MS,
-  reducedMotion,
-  render,
-  sessions,
-  show,
-  syncExpandedSize,
-} from "./main";
+import { createMessageBox, fillMessageBox, disposeMessageBox } from "./message";
+import { Attention, BadgeSpec, Session, Subagent, Task, RowVisibility } from "./types";
+import type { ActionIdentity } from "./daemon-state";
+interface RowContext {
+  readonly compactClean: boolean;
+  readonly expanded: boolean;
+  readonly visible: boolean;
+  readonly sessions: Session[];
+  readonly show: RowVisibility;
+  readonly LEAVE_MS: number;
+  jumpTo(session: Session, row: HTMLButtonElement): void;
+  reducedMotion(): boolean;
+  render(): void;
+  syncExpandedSize(): void;
+  showError(message: string): void;
+  canUseTarget(id: string, identity: ActionIdentity, writing?: boolean): boolean;
+}
+let context: RowContext;
+const displayedSessions = new WeakMap<HTMLLIElement, Session>();
+const headSignatures = new WeakMap<HTMLElement, string>();
+export function initializeRows(value: RowContext): void { context = value; }
+
+function setHidden(element: HTMLElement, hidden: boolean): void {
+  if (element.hidden !== hidden) element.hidden = hidden;
+}
 
 export function listKey(list: Session[]): string {
   return list
@@ -52,32 +64,33 @@ export function listKey(list: Session[]): string {
 
 export function renderCompact(n: number, pending = false): void {
   if (n === 0) {
-    compactPending.hidden = !pending;
-    compactCount.textContent = "";
-    compactLabel.textContent = "";
-    compactLabel.hidden = true;
-    if (pending) compactRowEl.replaceChildren(compactTail);
-    else compactRowEl.replaceChildren();
+    setHidden(compactPending, !pending);
+    if (compactCount.textContent !== "") compactCount.textContent = "";
+    if (compactLabel.textContent !== "") compactLabel.textContent = "";
+    setHidden(compactLabel, true);
+    const hasTail = compactRowEl.contains(compactTail);
+    if (pending && !hasTail) compactRowEl.replaceChildren(compactTail);
+    else if (!pending && hasTail) compactRowEl.replaceChildren();
     return;
   }
-  const lead = sessions[0];
+  const lead = context.sessions[0];
   const wanted = spriteAgent(lead.agent);
   let sprite = compactSpriteEl.firstElementChild as SVGSVGElement | null;
   if (sprite === null || sprite.dataset.agent !== wanted) {
     sprite = createSprite(lead.agent);
     compactSpriteEl.replaceChildren(sprite);
   }
-  sprite.classList.toggle("is-walking", strongestAttention(sessions) !== "idle");
+  sprite.classList.toggle("is-walking", strongestAttention(context.sessions) !== "idle");
   if (!compactRowEl.contains(compactSpriteEl)) {
     const leading = document.createElement("div");
     leading.className = "compact-leading";
     leading.append(compactSpriteEl, compactProject);
     compactRowEl.append(leading, compactTail);
   }
-  compactProject.hidden = compactClean || !show.project;
+  setHidden(compactProject, context.compactClean || !context.show.project);
   if (compactProject.textContent !== lead.title) compactProject.textContent = lead.title;
-  compactLabel.hidden = compactClean;
-  compactPending.hidden = !pending;
+  setHidden(compactLabel, context.compactClean);
+  setHidden(compactPending, !pending);
   const label = strings.island.compactSessions(n);
   if (compactLabel.textContent !== label) compactLabel.textContent = label;
   const next = String(n);
@@ -90,8 +103,8 @@ export function renderCompact(n: number, pending = false): void {
 }
 
 export function renderList(): void {
-  const owner = transcriptOwner(sessions);
-  const wanted = new Map(sessions.map((session) => [session.id, session]));
+  const owner = transcriptOwner(context.sessions);
+  const wanted = new Map(context.sessions.map((session) => [session.id, session]));
   const alive = new Map<string, HTMLLIElement>();
 
   for (const li of [...sessionListEl.children] as HTMLLIElement[]) {
@@ -109,7 +122,7 @@ export function renderList(): void {
 
   let index = 0;
   let previous: HTMLLIElement | null = null;
-  for (const session of sessions) {
+  for (const session of context.sessions) {
     let li = alive.get(session.id);
     if (li === undefined) {
       li = createRow(session, session.id === owner);
@@ -131,14 +144,15 @@ function leaveRow(li: HTMLLIElement): void {
   void li.offsetWidth;
   li.style.height = "0px";
   const done = (): void => {
+    disposeMessageBox(li);
     li.remove();
-    syncExpandedSize();
+    context.syncExpandedSize();
   };
-  if (reducedMotion()) {
+  if (context.reducedMotion()) {
     done();
     return;
   }
-  const timer = window.setTimeout(done, LEAVE_MS + 120);
+  const timer = window.setTimeout(done, context.LEAVE_MS + 120);
   li.addEventListener(
     "transitionend",
     (event) => {
@@ -175,7 +189,7 @@ function ensureTerminalIcon(session: Session): void {
     .then((url) => {
       terminalIconCache.set(kind, url ?? null);
       terminalIconPending.delete(kind);
-      if (url) render();
+      if (url) context.render();
     })
     .catch(() => {
       terminalIconCache.set(kind, null);
@@ -248,16 +262,16 @@ export function badgeSpec(session: Session): BadgeSpec[] {
   const specs: BadgeSpec[] = [];
   if (session.mode === "bypassPermissions") specs.push(["mode", strings.session.bypass, "bypass"]);
   const iconUrl = SESSION_ICONS[session.agent];
-  if (show.agentIcons && iconUrl !== undefined) {
+  if (context.show.agentIcons && iconUrl !== undefined) {
     specs.push(["session-icon", strings.session.agent(session.agent), "icon", iconUrl]);
   } else {
     specs.push(["agent", strings.session.agent(session.agent), session.agent]);
   }
-  if (session.model && show.model) specs.push(["model", strings.session.model(session.model), undefined]);
-  if (session.effort && show.effort) specs.push(["effort", session.effort, undefined]);
+  if (session.model && context.show.model) specs.push(["model", strings.session.model(session.model), undefined]);
+  if (session.effort && context.show.effort) specs.push(["effort", session.effort, undefined]);
   if (session.terminal && session.terminal !== "unknown") {
     const terminalUrl = terminalIconCache.get(session.terminal);
-    if (show.terminalIcons && terminalUrl) {
+    if (context.show.terminalIcons && terminalUrl) {
       specs.push(["terminal-icon", session.terminal, "icon", terminalUrl]);
     } else {
       specs.push(["terminal", session.terminal, undefined]);
@@ -287,7 +301,7 @@ export function fillBadges(container: HTMLElement, session: Session): void {
       container.insertBefore(element, previous === null ? container.firstChild : previous.nextSibling);
     } else if (iconUrl !== undefined) {
       const image = element.firstElementChild as HTMLImageElement | null;
-      if (image !== null && image.src !== iconUrl) image.src = iconUrl;
+      if (image !== null && image.getAttribute("src") !== iconUrl) image.src = iconUrl;
     } else if (element.textContent !== text) {
       element.textContent = text;
     }
@@ -387,8 +401,9 @@ function taskItem(task: Task): HTMLElement {
 function fillTasks(row: HTMLElement, session: Session): void {
   const block = row.querySelector<HTMLElement>(".row-tasks")!;
   const list = session.tasks ?? [];
-  block.hidden = list.length === 0 || !show.tasks;
-  if (block.hidden) return;
+  const hidden = list.length === 0 || !context.show.tasks;
+  setHidden(block, hidden);
+  if (hidden) return;
 
   const done = list.filter(
     (task) => task.status === "completed" || task.status === "cancelled",
@@ -408,7 +423,7 @@ function fillTasks(row: HTMLElement, session: Session): void {
 function fillAgents(row: HTMLElement, session: Session): void {
   const block = row.querySelector<HTMLElement>(".row-agents")!;
   const list = session.subagents ?? [];
-  block.hidden = list.length === 0;
+  setHidden(block, list.length === 0);
   if (list.length === 0) return;
 
   const count = block.querySelector<HTMLElement>(".agents-count")!;
@@ -416,8 +431,8 @@ function fillAgents(row: HTMLElement, session: Session): void {
   if (count.textContent !== label) count.textContent = label;
 
   const items = block.querySelector<HTMLElement>(".agents-list")!;
-  items.hidden = !show.subagents;
-  if (!show.subagents) return;
+  setHidden(items, !context.show.subagents);
+  if (!context.show.subagents) return;
   const signature = agentSignature(list);
   if (items.dataset.signature === signature) return;
   items.dataset.signature = signature;
@@ -427,11 +442,11 @@ function fillAgents(row: HTMLElement, session: Session): void {
 function fillTranscript(row: HTMLElement, session: Session, wanted: boolean): void {
   const card = row.querySelector<HTMLElement>(".row-transcript")!;
   if (!wanted) {
-    card.hidden = true;
+    setHidden(card, true);
     return;
   }
   if (card.hidden) {
-    card.hidden = false;
+    setHidden(card, false);
     card.classList.add("is-entering");
     clearOnAnimationEnd(card, "is-entering");
   }
@@ -446,13 +461,15 @@ function fillTranscript(row: HTMLElement, session: Session, wanted: boolean): vo
 }
 
 export function fillRow(li: HTMLLIElement, session: Session, transcript: boolean): void {
+  displayedSessions.set(li, { ...session, action_identity: session.action_identity ? { ...session.action_identity } : undefined });
   const attention = session.attention ?? "working";
   const row = li.firstElementChild as HTMLButtonElement;
   setAttention(row, attention);
   row.classList.toggle("collapsed", attention === "idle");
-  row.title = session.summary
+  const title = session.summary
     ? `${session.agent} — ${session.cwd}\n${session.summary}`
     : `${session.agent} — ${session.cwd}`;
+  if (row.title !== title) row.title = title;
 
   const head = row.querySelector<HTMLElement>(".row-head")!;
   const badges = row.querySelector<HTMLElement>(".row-badges")!;
@@ -461,51 +478,59 @@ export function fillRow(li: HTMLLIElement, session: Session, transcript: boolean
   setAttention(dot, attention);
   sprite.classList.toggle("is-walking", attention !== "idle");
 
-  for (const stale of [...head.children]) {
-    if (stale !== dot && stale !== badges && stale !== sprite) stale.remove();
-  }
+  const headSignature = JSON.stringify([
+    context.show.project ? session.title : "",
+    context.show.worktree ? session.branch ?? "" : "",
+    session.name ?? "",
+  ]);
+  if (headSignatures.get(head) !== headSignature) {
+    for (const stale of [...head.children]) {
+      if (stale !== dot && stale !== badges && stale !== sprite) stale.remove();
+    }
 
-  if (show.project) {
-    const project = document.createElement("span");
-    project.className = "row-project";
-    project.textContent = session.title;
-    head.insertBefore(project, badges);
-  }
+    if (context.show.project) {
+      const project = document.createElement("span");
+      project.className = "row-project";
+      project.textContent = session.title;
+      head.insertBefore(project, badges);
+    }
 
-  if (session.branch && show.worktree) {
-    const glyph = document.createElement("span");
-    glyph.className = "row-branch-glyph";
-    glyph.innerHTML = BRANCH_GLYPH;
-    glyph.setAttribute("aria-label", strings.session.branchLabel(session.branch));
-    const branch = document.createElement("span");
-    branch.className = "row-branch";
-    branch.textContent = session.branch;
-    head.insertBefore(glyph, badges);
-    head.insertBefore(branch, badges);
-  }
+    if (session.branch && context.show.worktree) {
+      const glyph = document.createElement("span");
+      glyph.className = "row-branch-glyph";
+      glyph.innerHTML = BRANCH_GLYPH;
+      glyph.setAttribute("aria-label", strings.session.branchLabel(session.branch));
+      const branch = document.createElement("span");
+      branch.className = "row-branch";
+      branch.textContent = session.branch;
+      head.insertBefore(glyph, badges);
+      head.insertBefore(branch, badges);
+    }
 
-  if (session.name) {
-    const name = document.createElement("span");
-    name.className = "row-name";
-    name.textContent = session.name;
-    head.insertBefore(separatorSpan(), badges);
-    head.insertBefore(name, badges);
+    if (session.name) {
+      const name = document.createElement("span");
+      name.className = "row-name";
+      name.textContent = session.name;
+      head.insertBefore(separatorSpan(), badges);
+      head.insertBefore(name, badges);
+    }
+    headSignatures.set(head, headSignature);
   }
 
   ensureTerminalIcon(session);
   fillBadges(badges, session);
   const age = badges.querySelector<HTMLElement>(".row-badge-elapsed");
-  if (age !== null) age.dataset.since = String(session.since_ms);
+  if (age !== null && age.dataset.since !== String(session.since_ms)) age.dataset.since = String(session.since_ms);
 
   const prompt = row.querySelector<HTMLElement>(".row-prompt")!;
   const promptText = session.summary
     ? `${strings.session.promptPrefix} ${session.summary}`
     : session.cwd;
   if (prompt.textContent !== promptText) prompt.textContent = promptText;
-  prompt.hidden = transcript;
+  setHidden(prompt, transcript);
 
   const activity = row.querySelector<HTMLElement>(".row-activity")!;
-  activity.hidden = (!show.activity && !blockedOnUser(session)) || transcript;
+  setHidden(activity, (!context.show.activity && !blockedOnUser(session)) || transcript);
   fillActivity(row.querySelector<HTMLElement>(".row-activity-label")!, session);
 
   fillTasks(row, session);
@@ -589,11 +614,12 @@ export function createRow(session: Session, transcript: boolean): HTMLLIElement 
   card.append(cardHead, cardBody);
 
   row.append(head, prompt, activity, tasks, agents, card);
-  li.append(row, createMessageBox(session.id));
+  li.append(row, createMessageBox(session.id, { resize: context.syncExpandedSize, error: context.showError, canUseTarget: context.canUseTarget }));
   fillRow(li, session, transcript);
   row.addEventListener("click", () => {
-    const current = sessions.find((entry) => entry.id === session.id);
-    if (current !== undefined) jumpTo(current, row);
+    if (li.classList.contains("is-leaving")) return;
+    const current = displayedSessions.get(li);
+    if (current !== undefined) context.jumpTo(current, row);
   });
   return li;
 }
@@ -601,12 +627,15 @@ export function createRow(session: Session, transcript: boolean): HTMLLIElement 
 /// Only the elapsed text is rewritten, and only while the panel is open, so an idle island
 /// never wakes the webview and a tick never re-renders the list.
 export function tickElapsed(): void {
-  if (!expanded) return;
+  if (!context.expanded || !context.visible) return;
   const now = Date.now();
   for (const element of sessionListEl.querySelectorAll<HTMLElement>(
     ".row-badge-elapsed, .agent-elapsed",
   )) {
     const since = Number(element.dataset.since);
-    if (Number.isFinite(since)) element.textContent = strings.session.elapsed(now - since);
+    if (Number.isFinite(since)) {
+      const text = strings.session.elapsed(now - since);
+      if (element.textContent !== text) element.textContent = text;
+    }
   }
 }

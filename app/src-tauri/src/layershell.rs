@@ -6,6 +6,7 @@ use std::os::raw::c_char;
 const LAYER_OVERLAY: i32 = 3;
 const EDGE_TOP: i32 = 2;
 const KEYBOARD_NONE: i32 = 0;
+const KEYBOARD_EXCLUSIVE: i32 = 1;
 const KEYBOARD_ON_DEMAND: i32 = 2;
 const NAMESPACE: &[u8] = b"open-island\0";
 
@@ -19,6 +20,7 @@ extern "C" {
     fn gtk_layer_set_anchor(window: *mut gtk::ffi::GtkWindow, edge: i32, anchor: i32);
     fn gtk_layer_set_exclusive_zone(window: *mut gtk::ffi::GtkWindow, zone: i32);
     fn gtk_layer_set_keyboard_mode(window: *mut gtk::ffi::GtkWindow, mode: i32);
+    fn gtk_layer_get_keyboard_mode(window: *mut gtk::ffi::GtkWindow) -> i32;
     fn gtk_layer_set_monitor(
         window: *mut gtk::ffi::GtkWindow,
         monitor: *mut gtk::gdk::ffi::GdkMonitor,
@@ -33,6 +35,15 @@ pub fn init(window: &gtk::ApplicationWindow) -> Result<(), String> {
     if unsafe { gtk_layer_is_supported() } == 0 {
         return Err("wlr-layer-shell is not available on this compositor".to_string());
     }
+    window.connect_focus_in_event(|window, _| {
+        let window = handle(window);
+        unsafe {
+            if gtk_layer_get_keyboard_mode(window) == KEYBOARD_EXCLUSIVE {
+                gtk_layer_set_keyboard_mode(window, KEYBOARD_ON_DEMAND);
+            }
+        }
+        gtk::glib::Propagation::Proceed
+    });
     let window = handle(window);
     unsafe {
         gtk_layer_init_for_window(window);
@@ -49,11 +60,16 @@ pub fn init(window: &gtk::ApplicationWindow) -> Result<(), String> {
 }
 
 pub fn set_keyboard(window: &gtk::ApplicationWindow, interactive: bool) {
-    let mode = if interactive {
+    let current = unsafe { gtk_layer_get_keyboard_mode(handle(window)) };
+    let mode = if interactive && current == KEYBOARD_ON_DEMAND {
         KEYBOARD_ON_DEMAND
+    } else if interactive {
+        KEYBOARD_EXCLUSIVE
     } else {
         KEYBOARD_NONE
     };
+    #[cfg(feature = "qa-harness")]
+    eprintln!("qa_keyboard: active={interactive} previous={current} next={mode}");
     unsafe { gtk_layer_set_keyboard_mode(handle(window), mode) }
 }
 

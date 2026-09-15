@@ -187,9 +187,21 @@ impl Island {
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut last = Value::Null;
         while Instant::now() < deadline {
-            last = self.session(pid);
-            if ready(&last) {
-                return last;
+            self.id += 1;
+            let sessions = request(&mut self.stream, &mut self.reader, self.id, "list_sessions");
+            if let Some(candidates) = sessions.as_array() {
+                if let Some(found) = candidates
+                    .iter()
+                    .filter(|session| session["pid"] == json!(pid))
+                    .find(|session| ready(session))
+                {
+                    return found.clone();
+                }
+                last = candidates
+                    .iter()
+                    .find(|session| session["pid"] == json!(pid))
+                    .cloned()
+                    .unwrap_or(Value::Null);
             }
             thread::sleep(Duration::from_millis(20));
         }
@@ -373,14 +385,29 @@ fn spawn_agent_under_fake_kitty(
         std::process::id()
     ));
     fs::create_dir_all(&directory).expect("fake kitty dir");
-    let kitty = directory.join("kitty");
-    fs::copy("/bin/bash", &kitty).expect("copy bash as kitty");
-    let mut command = Command::new(&kitty);
+    #[cfg(target_os = "macos")]
+    let bun = env::var_os("PATH").and_then(|path| {
+        env::split_paths(&path)
+            .map(|entry| entry.join("bun"))
+            .find(|entry| entry.is_file())
+    });
+    #[cfg(not(target_os = "macos"))]
+    let bun: Option<PathBuf> = None;
+    let child_command = bun
+        .map(|path| {
+            format!(
+                "(exec -a {agent} {} -e 'setInterval(() => {{}}, 120000)') & wait",
+                shell_quote(&path.to_string_lossy())
+            )
+        })
+        .unwrap_or_else(|| format!("(exec -a {agent} /bin/sleep 120) & wait"));
+    let mut command = Command::new("/bin/bash");
     command
         .arg("-c")
-        .arg(format!("(exec -a {agent} /bin/sleep 120) & wait"))
+        .arg(child_command)
         .current_dir(cwd)
         .env_remove("KITTY_LISTEN_ON")
+        .env("KITTY_WINDOW_ID", "123")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .process_group(0);
@@ -407,8 +434,21 @@ fn spawn_agent_under_fake_kitty(
     }
 }
 
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
 #[test]
 fn a_message_sent_while_the_agent_works_waits_and_leaves_when_it_stops() {
+    #[cfg(target_os = "macos")]
+    if !env::var_os("PATH").is_some_and(|path| {
+        env::split_paths(&path)
+            .map(|entry| entry.join("bun"))
+            .any(|entry| entry.is_file())
+    }) {
+        eprintln!("skipping Kitty transport fixture: Bun is unavailable on this macOS host");
+        return;
+    }
     let path = socket("message");
     let cwd = env::temp_dir();
     let (_kitty, pid) = spawn_agent_under_fake_kitty(
@@ -479,6 +519,15 @@ fn a_message_sent_while_the_agent_works_waits_and_leaves_when_it_stops() {
         session["queued_messages"].is_null()
     });
     assert_eq!(drained["id"], idle["id"]);
+    let retained = request_with(&mut island, "get_message_deliveries", json!({}));
+    assert_eq!(
+        retained["data"]["message_deliveries"][0]["text"],
+        json!("primeira")
+    );
+    assert_ne!(
+        retained["data"]["message_deliveries"][0]["state"],
+        json!("queued")
+    );
 
     let blank = request_with(
         &mut island,
@@ -497,6 +546,15 @@ fn a_message_sent_while_the_agent_works_waits_and_leaves_when_it_stops() {
 
 #[test]
 fn a_kitty_without_remote_control_refuses_the_message_with_its_code() {
+    #[cfg(target_os = "macos")]
+    if !env::var_os("PATH").is_some_and(|path| {
+        env::split_paths(&path)
+            .map(|entry| entry.join("bun"))
+            .any(|entry| entry.is_file())
+    }) {
+        eprintln!("skipping Kitty transport fixture: Bun is unavailable on this macOS host");
+        return;
+    }
     let path = socket("blocked");
     let cwd = env::temp_dir();
     let (_kitty, pid) = spawn_agent_under_fake_kitty("blocked", "claude", &cwd, None);

@@ -2,8 +2,36 @@
 #import <objc/runtime.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <Intents/Intents.h>
+#import <AVFoundation/AVFoundation.h>
 #include <stdatomic.h>
 static atomic_bool layoutInvalidated = false;
+static atomic_bool microphoneRequestPending = false;
+
+int oi_microphone_authorization(void) {
+    switch ([AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio]) {
+        case AVAuthorizationStatusNotDetermined: return 0;
+        case AVAuthorizationStatusRestricted: return 1;
+        case AVAuthorizationStatusDenied: return 2;
+        case AVAuthorizationStatusAuthorized: return 3;
+        default: return 4;
+    }
+}
+
+// Called only for an explicit voice job, never during application startup.
+// No borrowed Rust context survives the asynchronous system dialog.
+void oi_request_microphone(void) {
+    if (oi_microphone_authorization() != 0 ||
+        atomic_exchange(&microphoneRequestPending, true)) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (oi_microphone_authorization() != 0) {
+            atomic_store(&microphoneRequestPending, false);
+            return;
+        }
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) {
+            atomic_store(&microphoneRequestPending, false);
+        }];
+    });
+}
 int oi_take_layout_invalidated(void) { return atomic_exchange(&layoutInvalidated, false); }
 
 // No extra ivars: the Tauri-owned window keeps its lifetime and delegate.
