@@ -19,10 +19,12 @@ fn sh_script(executable: &Path) -> String {
         .iter()
         .flat_map(|agent| agent.proc_names)
     {
+        // The `function` keyword keeps the name opaque to the parser: a same-named
+        // user alias would otherwise expand during parsing and break the block.
         script.push_str(&format!(
             r#"
 if ! typeset -f {agent} >/dev/null 2>&1 && ! alias {agent} >/dev/null 2>&1; then
-  {agent}() {{
+  function {agent} {{
     if [ -t 0 ] && [ -t 1 ] && [ -x {executable} ]; then
       case "${{1-}}" in
         --help|-h|--version|-v|--print|-p|exec|run|--headless) command {agent} "$@" ;;
@@ -277,6 +279,51 @@ mod tests {
                 String::from_utf8_lossy(&result.stderr)
             );
             assert_eq!(String::from_utf8_lossy(&result.stdout), "preserved:a b");
+        }
+    }
+
+    #[test]
+    fn user_aliases_do_not_break_function_parsing() {
+        use std::process::{Command, Stdio};
+        let home = tempfile::tempdir().unwrap();
+        let script = home.path().join("input.sh");
+        fs::write(&script, sh_script(Path::new("/bin/island"))).unwrap();
+        let wrapper = home.path().join("wrapper.sh");
+        // Separate lines mirror the real shell: the alias is a completed parse
+        // unit before the island script and the invocation are read.
+        fs::write(
+            &wrapper,
+            "alias pi='echo user-alias'\n. \"$INPUT_SCRIPT\"\npi 'a b'\n",
+        )
+        .unwrap();
+        for shell in ["bash", "zsh"] {
+            let Some(executable) = open_island_core::paths::executable(shell) else {
+                continue;
+            };
+            let result = Command::new(&executable)
+                .args(["-fic", ". \"$1\"", "test"])
+                .arg(&wrapper)
+                .env("HOME", home.path())
+                .env("INPUT_SCRIPT", &script)
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{shell}: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let stderr = String::from_utf8_lossy(&result.stderr);
+            assert!(
+                !stderr.contains("defining function based on alias")
+                    && !stderr.contains("syntax error"),
+                "{shell}: {stderr}"
+            );
+            assert_eq!(
+                String::from_utf8_lossy(&result.stdout).trim(),
+                "user-alias a b",
+                "{shell}"
+            );
         }
     }
 
