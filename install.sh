@@ -351,9 +351,12 @@ restart_services() {
 		warn "there is no systemd user session, so the running daemon and island were not restarted; they keep the previous version until they are restarted or you log in again."
 		return
 	fi
+	case "$INSTALL_ROUTE" in
+	deb | rpm) ISLAND_EXECUTABLE=/usr/bin/open-island ;;
+	*) ISLAND_EXECUTABLE="$(dirname "$DAEMON_EXECUTABLE")/open-island" ;;
+	esac
 	systemctl --user stop open-islandd.service open-island.service >/dev/null 2>&1
-	# A daemon left outside systemd keeps the socket and shadows the unit.
-	# The 'open-islandd run --' agent runners are separate processes and survive.
+	pkill -f "^$ISLAND_EXECUTABLE( |\$)" 2>/dev/null && sleep 1
 	pkill -f "$DAEMON_EXECUTABLE --socket" 2>/dev/null && sleep 1
 	if systemctl --user start open-islandd.service open-island.service; then
 		say "$PROGRAM_NAME: restarted open-islandd.service and open-island.service with the new version."
