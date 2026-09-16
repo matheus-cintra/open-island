@@ -6,6 +6,7 @@ import { strings } from "./strings";
 import { MICROPHONE, STOP_RECORDING } from "./voice-icons";
 import { VoiceController, sameVoiceTarget, type VoiceState, type VoiceTarget } from "./voice-controller";
 
+const SPINNER = '<span class="voice-spinner" aria-hidden="true"></span>';
 export const voice = new VoiceController(
   <T>(command: string, args?: Record<string, unknown>): Promise<T> => invoke<T>(`plugin:voice|${command}`, args),
   (callback): Promise<() => void> => listen<VoiceState>("voice-state", (event): void => callback(event.payload)),
@@ -30,12 +31,16 @@ function buttons(): void {
     button.classList.toggle("is-unconfigured", unconfigured);
     if (button.getAttribute("aria-disabled") !== String(unconfigured)) button.setAttribute("aria-disabled", String(unconfigured));
     const recording = own && voice.active() && stoppable;
-    const symbol = recording ? "stop" : "microphone";
+    const transcribing = own && voice.state.phase === "transcribing" && voice.state.worker_active;
+    const symbol = recording ? "stop" : transcribing ? "transcribing" : "microphone";
     if (button.dataset.symbol !== symbol) {
-      button.innerHTML = recording ? STOP_RECORDING : MICROPHONE;
+      button.innerHTML = recording ? STOP_RECORDING : transcribing ? SPINNER : MICROPHONE;
       button.dataset.symbol = symbol;
     }
-    const label = unconfigured ? strings.voice.modelRequired : recording ? strings.voice.stop : strings.voice.start;
+    const label = unconfigured ? strings.voice.modelRequired
+      : recording ? strings.voice.stop
+      : transcribing ? strings.voice.phase.transcribing
+      : strings.voice.start;
     if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
     const pressed = String(recording);
     if (button.getAttribute("aria-pressed") !== pressed) button.setAttribute("aria-pressed", pressed);
@@ -204,7 +209,8 @@ export function initializeVoice(root: HTMLElement, actions: Actions & { isMac():
   const render = (): void => {
     buttons();
     syncWaves();
-    live.hidden = (voice.state.phase === "idle" || voice.state.phase === "cancelled") && !voice.active();
+    live.hidden = voice.state.phase === "transcribing" || voice.state.phase === "ready"
+      || ((voice.state.phase === "idle" || voice.state.phase === "cancelled") && !voice.active());
     const cancelling = voice.state.phase === "cancelled" && voice.state.worker_active;
     const label = cancelling ? strings.voice.cancelling : voice.state.error ? strings.voice.error(voice.state.error) : strings.voice.phase[voice.starting ? "requesting_permission" : voice.state.phase];
     const caption = voice.state.target ? ` — ${voice.state.target.session_id}` : "";

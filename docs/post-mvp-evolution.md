@@ -82,10 +82,11 @@ O modelo de avaliação do plano é Whisper **small multilingual**, em formato G
 - [Artefato público na revisão fixada](https://huggingface.co/ggerganov/whisper.cpp/resolve/90a64d80ea254cf67575b41a5971f972c79f7b45/ggml-small.bin).
 - Licença dos pesos: [MIT, conforme o projeto Whisper](https://github.com/openai/whisper#license).
 
-Na sessão de destino, o botão de microfone inicia ou encerra a gravação; Escape
-cancela. O limite é sessenta segundos. Áudio e transcrição são processados
-localmente, em CPU, e não são enviados à nuvem nem persistidos como gravação.
-No Mac, a autorização pertence ao aplicativo, não ao daemon.
+Na sessão de destino, o botão de microfone inicia a gravação; ela encerra sozinha
+cerca de um segundo e meio depois que a voz para, e clicar de novo encerra na
+hora. Escape cancela. O limite é sessenta segundos. Áudio e transcrição são
+processados localmente, em CPU, e não são enviados à nuvem nem persistidos como
+gravação. No Mac, a autorização pertence ao aplicativo, não ao daemon.
 
 Revise o texto antes de enviar. Uma transcrição não envia mensagem sozinha. Se o
 rascunho foi editado ou o destino mudou durante a transcrição, o resultado fica

@@ -94,12 +94,16 @@ essa indicação distingue registro indisponível de conexão anterior.
 O botão de microfone alterna gravar/parar e mora dentro do campo do composer,
 no canto direito. Sem modelo configurado, o botão fica esmaecido e o clique abre
 Ajustes na aba Voz local; a seleção do modelo existe apenas nas preferências.
+A gravação encerra sozinha cerca de um segundo e meio depois que a voz para
+abaixo do limiar de voz; clicar de novo encerra na hora, e Escape cancela.
 Enquanto o worker está ativo, o destino e o estado permanecem visíveis, e a
 ilha não colapsa. Durante a gravação, o campo é substituído por uma linha
 horizontal que ondula com o nível do microfone; o rascunho permanece no estado
 e volta quando a gravação termina. O nível vem do evento `voice-level`, lido da
 cauda do buffer de captura a cada ~60 ms; o desenho respeita
-`prefers-reduced-motion` e para com a gravação. O timer
+`prefers-reduced-motion` e para com a gravação. A transcrição não tem faixa
+própria: o microfone mostra um indicador girando até o texto ficar pronto, e o
+resultado entra no rascunho ou vira cartão. O timer
 acompanha a captura; a transcrição ocorre localmente e exige revisão.
 Estados: idle, requesting_permission, recording, transcribing, ready,
 cancelled e error. Os rótulos ficam em `strings.ts`.

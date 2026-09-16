@@ -821,6 +821,23 @@ body {
   opacity: 0.45;
 }
 
+.voice-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.6px solid var(--muted);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: voice-spin 800ms linear infinite;
+}
+
+@keyframes voice-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-spinner { animation: none; }
+}
+
 .voice-live {
   display: flex;
   align-items: baseline;

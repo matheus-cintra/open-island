@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     sync::{atomic::Ordering, Arc, Mutex},
     thread::{self, JoinHandle},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -327,7 +327,11 @@ pub fn native_work(
         .map_err(|error| error.code())?;
         job.recording()?;
         let id = job.id.clone();
-        let audio = super::capture::run_with_levels(&source, controls.clone(), |value| {
+        let activity = super::capture::VoiceActivity {
+            speech: 0.025,
+            silence: Duration::from_millis(1500),
+        };
+        let audio = super::capture::run_with_levels(&source, controls.clone(), Some(activity), |value| {
             level(&id, value);
         })
         .map_err(|error| error.code())?;

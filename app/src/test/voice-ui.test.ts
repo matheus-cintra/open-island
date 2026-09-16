@@ -116,9 +116,17 @@ test("recording takes the field over with the voice wave and restores the draft"
   tauri.emit("voice-level", { job_id: backend.job_id, level: 0.4 });
   expect(parseFloat(canvas.dataset.level!)).toBeGreaterThan(0);
   expect(parseFloat(canvas.dataset.level!)).toBeLessThan(0.7);
+  backend = { ...backend, revision: ++revision, phase: "transcribing", worker_active: true };
+  tauri.emit("voice-state", backend); await settle();
+  expect(document.querySelector<HTMLElement>(".voice-live")!.hidden).toBe(true);
+  expect(canvas.hidden).toBe(true);
+  expect(editor.input.classList.contains("is-recording")).toBe(false);
+  expect(editor.button.dataset.symbol).toBe("transcribing");
+  expect(editor.button.getAttribute("aria-label")).toBe(strings.voice.phase.transcribing);
   await ready("ditado pronto");
   expect(canvas.hidden).toBe(true);
   expect(editor.input.classList.contains("is-recording")).toBe(false);
+  expect(editor.button.dataset.symbol).toBe("microphone");
   expect(editor.input.value).toBe("rascunho ditado pronto");
   expect(voiceLevel(backend.job_id)).toBe(0);
   editor.element.remove(); await clear();

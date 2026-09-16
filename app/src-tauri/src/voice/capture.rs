@@ -74,25 +74,35 @@ pub trait Source {
     fn format(&self) -> Result<(u32, u16), Error>;
     fn start(&self, sink: Sink) -> Result<Self::Stream, Error>;
 }
+#[derive(Clone, Copy)]
+pub struct VoiceActivity {
+    /// RMS at or above this counts as speech.
+    pub speech: f32,
+    /// Stop this long after speech falls back below the threshold.
+    pub silence: Duration,
+}
 pub fn run(source: &impl Source, controls: Controls) -> Result<Audio, Error> {
     run_until(source, controls, Duration::from_secs(MAX_SECONDS as u64))
 }
-/// Like `run`, but reports the recent-window input level while the stream is live.
+/// Like `run`, but reports the recent-window input level while the stream is live
+/// and, with voice activity configured, stops on its own once speech has settled.
 /// Callbacks fire from the polling loop, never from the audio callback thread.
 pub fn run_with_levels(
     source: &impl Source,
     controls: Controls,
+    activity: Option<VoiceActivity>,
     level: impl Fn(f32),
 ) -> Result<Audio, Error> {
-    run_until_with(source, controls, Duration::from_secs(MAX_SECONDS as u64), level)
+    run_until_with(source, controls, Duration::from_secs(MAX_SECONDS as u64), activity, level)
 }
 fn run_until(source: &impl Source, controls: Controls, limit: Duration) -> Result<Audio, Error> {
-    run_until_with(source, controls, limit, |_| {})
+    run_until_with(source, controls, limit, None, |_| {})
 }
 fn run_until_with(
     source: &impl Source,
     controls: Controls,
     limit: Duration,
+    activity: Option<VoiceActivity>,
     level: impl Fn(f32),
 ) -> Result<Audio, Error> {
     if controls.cancel.load(Ordering::Acquire) {
@@ -116,7 +126,11 @@ fn run_until_with(
     // insensitive to the callback's chunk sizes.
     let window = (rate as usize / 8).max(1);
     let interval = Duration::from_millis(60);
+    let reading = interval.as_millis() as u64;
+    let arm = 150;
     let mut next = interval;
+    let mut spoken = 0u64;
+    let mut quiet = 0u64;
     while sink.status.load(Ordering::Acquire) == 0
         && !controls.stop.load(Ordering::Acquire)
         && !controls.cancel.load(Ordering::Acquire)
@@ -127,7 +141,19 @@ fn run_until_with(
             // try_lock only: the audio callback owns this mutex and must never wait.
             if let Ok(guard) = sink.buffer.try_lock() {
                 if let Some(buffer) = guard.as_ref() {
-                    level(buffer.tail_level(window));
+                    let value = buffer.tail_level(window);
+                    level(value);
+                    if let Some(vad) = activity {
+                        if value >= vad.speech {
+                            spoken += reading;
+                            quiet = 0;
+                        } else if spoken >= arm {
+                            quiet += reading;
+                            if quiet >= vad.silence.as_millis() as u64 {
+                                controls.stop.store(true, Ordering::Release);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -231,9 +257,80 @@ mod tests {
         assert_eq!(audio.sample_rate, 8000);
         assert!(dropped.load(Ordering::Acquire));
     }
+    struct ConversationFixture {
+        dropped: Arc<AtomicBool>,
+        speech: usize,
+        silence: usize,
+    }
+    impl Source for ConversationFixture {
+        type Stream = Guard;
+        fn format(&self) -> Result<(u32, u16), Error> {
+            Ok((8000, 1))
+        }
+        fn start(&self, sink: Sink) -> Result<Guard, Error> {
+            let (speech, silence) = (self.speech, self.silence);
+            thread::spawn(move || {
+                let voiced = [0.4f32; 800];
+                let quiet = [0f32; 800];
+                for _ in 0..speech {
+                    sink.push(&voiced);
+                    thread::sleep(Duration::from_millis(80));
+                }
+                for _ in 0..silence {
+                    sink.push(&quiet);
+                    thread::sleep(Duration::from_millis(80));
+                }
+            });
+            Ok(Guard(self.dropped.clone()))
+        }
+    }
     #[test]
-    fn live_levels_are_reported_while_streaming_and_stopped_with_it() {
+    fn voice_activity_stops_after_speech_settles_and_ignores_leading_silence() {
         let dropped = Arc::new(AtomicBool::new(false));
+        let fixture = ConversationFixture {
+            dropped: dropped.clone(),
+            speech: 5,
+            silence: 48,
+        };
+        let started = Instant::now();
+        let audio = run_until_with(
+            &fixture,
+            Controls::default(),
+            Duration::from_secs(6),
+            Some(VoiceActivity {
+                speech: 0.025,
+                silence: Duration::from_millis(900),
+            }),
+            |_| {},
+        )
+        .unwrap();
+        let elapsed = started.elapsed();
+        assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
+        assert!(audio.samples.len() > 1000, "{}", audio.samples.len());
+        assert!(audio.samples.len() < 40_000, "{}", audio.samples.len());
+        let dropped = Arc::new(AtomicBool::new(false));
+        let fixture = ConversationFixture {
+            dropped: dropped.clone(),
+            speech: 0,
+            silence: 48,
+        };
+        let started = Instant::now();
+        let audio = run_until_with(
+            &fixture,
+            Controls::default(),
+            Duration::from_millis(600),
+            Some(VoiceActivity {
+                speech: 0.025,
+                silence: Duration::from_millis(200),
+            }),
+            |_| {},
+        )
+        .unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(500));
+        assert!(audio.samples.len() >= 4000, "{}", audio.samples.len());
+    }
+    #[test]
+    fn live_levels_are_reported_while_streaming_and_stopped_with_it() {        let dropped = Arc::new(AtomicBool::new(false));
         let fixture = Fixture {
             dropped: dropped.clone(),
             action: |sink| sink.push(&[0.5f32; 800]),
@@ -244,6 +341,7 @@ mod tests {
             &fixture,
             Controls::default(),
             Duration::from_millis(130),
+            None,
             move |value| collected.lock().unwrap().push(value),
         )
         .unwrap();
@@ -267,6 +365,7 @@ mod tests {
             &silenced,
             Controls::default(),
             Duration::from_millis(130),
+            None,
             move |value| collected.lock().unwrap().push(value),
         )
         .unwrap();
