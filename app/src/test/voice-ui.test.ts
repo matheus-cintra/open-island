@@ -5,13 +5,12 @@ import type { VoiceState, VoiceTarget } from "../voice-controller";
 import { strings } from "../strings";
 
 let revision = 0; let jobs = 0;
-let finishPicker: ((value: null) => void) | undefined;
+let modelConfigured = true;
 let backend: VoiceState = { revision, phase: "idle", job_id: null, target: null, recorded_ms: 0, worker_active: false, transcript: null, error: null };
 const tauri = tauriMock(({ command, args }) => {
   if (command === "get_message_recovery" || command === "list_sessions") return [];
   if (command === "get_usage") return { providers: [] };
-  if (command === "plugin:voice|voice_model_status") return { configured: true };
-  if (command === "plugin:voice|voice_select_model") return new Promise<null>((resolve) => { finishPicker = resolve; });
+  if (command === "plugin:voice|voice_model_status") return { configured: modelConfigured, error: modelConfigured ? null : "model_unavailable" };
   if (command === "plugin:voice|voice_start") {
     backend = { ...backend, revision: ++revision, job_id: `job-${++jobs}`, target: args.target as VoiceTarget, phase: "recording", worker_active: true, transcript: null };
     return backend;
@@ -27,7 +26,7 @@ mock.module("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 mock.module("@tauri-apps/api/event", () => ({ listen: tauri.listen }));
 mountIsland({ reducedMotion: true });
 const main = await import("../main");
-const { voice } = await import("../voice");
+const { voice, voiceLevel } = await import("../voice");
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
 await settle();
 function row(id: string) {
@@ -75,24 +74,54 @@ test("removed destination preserves text and requires selection plus explicit in
   selected.element.remove(); await clear();
 });
 
-test("Escape cancels the current job before the composer blurs", async () => {
-  const editor = row("escape"); editor.button.click(); await settle(); editor.input.focus();
+test("Escape cancels the current job before the composer blur handler runs", async () => {
+  const editor = row("escape"); editor.button.click(); await settle(); editor.button.focus();
   const event = new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
-  editor.input.dispatchEvent(event); await settle();
+  editor.button.dispatchEvent(event); await settle();
   expect(event.defaultPrevented).toBe(true);
-  expect(document.activeElement).toBe(editor.input);
   expect(backend.phase).toBe("cancelled");
   expect(tauri.calls.filter((call) => call.command === "plugin:voice|voice_cancel").pop()?.args.jobId).toBe(backend.job_id);
   editor.element.remove();
 });
 
-test("model selection remains disabled across renders until the native dialog closes", async () => {
-  const editor = row("model");
-  const picker = document.querySelector<HTMLButtonElement>(".voice-panel details button")!;
-  picker.click(); expect(picker.disabled).toBe(true);
-  editor.input.focus(); expect(picker.disabled).toBe(true);
-  finishPicker?.(null); await settle(); expect(picker.disabled).toBe(false);
+test("unconfigured microphone opens the voice settings pane and follows model events", async () => {
+  modelConfigured = false;
+  tauri.emit("voice-model-status", { configured: false, error: "model_unavailable" });
+  const editor = row("setup"); await settle();
+  expect(editor.button.classList.contains("is-unconfigured")).toBe(true);
+  expect(editor.button.getAttribute("aria-disabled")).toBe("true");
+  expect(editor.button.title).toBe(strings.voice.modelRequired);
+  const starts = tauri.calls.filter((call) => call.command === "plugin:voice|voice_start").length;
+  editor.button.click(); await settle();
+  expect(tauri.calls.find((call) => call.command === "open_settings")!.args).toEqual({ pane: "voice" });
+  expect(tauri.calls.filter((call) => call.command === "plugin:voice|voice_start")).toHaveLength(starts);
+  modelConfigured = true;
+  tauri.emit("voice-model-status", { configured: true, error: null }); await settle();
+  expect(editor.button.classList.contains("is-unconfigured")).toBe(false);
+  expect(editor.button.getAttribute("aria-disabled")).toBe("false");
   editor.element.remove();
+});
+
+test("recording takes the field over with the voice wave and restores the draft", async () => {
+  modelConfigured = true;
+  tauri.emit("voice-model-status", { configured: true, error: null });
+  const editor = row("wave");
+  editor.input.value = "rascunho"; editor.input.dispatchEvent(new window.Event("input"));
+  editor.button.click(); await settle();
+  const canvas = editor.element.querySelector<HTMLCanvasElement>(".voice-wave")!;
+  expect(canvas.hidden).toBe(false);
+  expect(editor.input.classList.contains("is-recording")).toBe(true);
+  tauri.emit("voice-level", { job_id: backend.job_id, level: 0.7 });
+  expect(voiceLevel(backend.job_id)).toBe(0.7);
+  tauri.emit("voice-level", { job_id: backend.job_id, level: 0.4 });
+  expect(parseFloat(canvas.dataset.level!)).toBeGreaterThan(0);
+  expect(parseFloat(canvas.dataset.level!)).toBeLessThan(0.7);
+  await ready("ditado pronto");
+  expect(canvas.hidden).toBe(true);
+  expect(editor.input.classList.contains("is-recording")).toBe(false);
+  expect(editor.input.value).toBe("rascunho ditado pronto");
+  expect(voiceLevel(backend.job_id)).toBe(0);
+  editor.element.remove(); await clear();
 });
 
 test("cancelled inference explains cleanup and prevents restart until the worker returns", async () => {

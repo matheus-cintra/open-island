@@ -77,7 +77,24 @@ pub trait Source {
 pub fn run(source: &impl Source, controls: Controls) -> Result<Audio, Error> {
     run_until(source, controls, Duration::from_secs(MAX_SECONDS as u64))
 }
+/// Like `run`, but reports the recent-window input level while the stream is live.
+/// Callbacks fire from the polling loop, never from the audio callback thread.
+pub fn run_with_levels(
+    source: &impl Source,
+    controls: Controls,
+    level: impl Fn(f32),
+) -> Result<Audio, Error> {
+    run_until_with(source, controls, Duration::from_secs(MAX_SECONDS as u64), level)
+}
 fn run_until(source: &impl Source, controls: Controls, limit: Duration) -> Result<Audio, Error> {
+    run_until_with(source, controls, limit, |_| {})
+}
+fn run_until_with(
+    source: &impl Source,
+    controls: Controls,
+    limit: Duration,
+    level: impl Fn(f32),
+) -> Result<Audio, Error> {
     if controls.cancel.load(Ordering::Acquire) {
         return Err(Error::Cancelled);
     }
@@ -95,11 +112,25 @@ fn run_until(source: &impl Source, controls: Controls, limit: Duration) -> Resul
     };
     let started = Instant::now();
     let stream = source.start(sink.clone())?;
+    // One eighth of a second of history per reading: responsive to speech,
+    // insensitive to the callback's chunk sizes.
+    let window = (rate as usize / 8).max(1);
+    let interval = Duration::from_millis(60);
+    let mut next = interval;
     while sink.status.load(Ordering::Acquire) == 0
         && !controls.stop.load(Ordering::Acquire)
         && !controls.cancel.load(Ordering::Acquire)
         && started.elapsed() < limit
     {
+        if started.elapsed() >= next {
+            next += interval;
+            // try_lock only: the audio callback owns this mutex and must never wait.
+            if let Ok(guard) = sink.buffer.try_lock() {
+                if let Some(buffer) = guard.as_ref() {
+                    level(buffer.tail_level(window));
+                }
+            }
+        }
         thread::sleep(Duration::from_millis(5));
     }
     controls.stop.store(true, Ordering::Release);
@@ -199,5 +230,46 @@ mod tests {
         assert_eq!(audio.samples.len(), 480000);
         assert_eq!(audio.sample_rate, 8000);
         assert!(dropped.load(Ordering::Acquire));
+    }
+    #[test]
+    fn live_levels_are_reported_while_streaming_and_stopped_with_it() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let fixture = Fixture {
+            dropped: dropped.clone(),
+            action: |sink| sink.push(&[0.5f32; 800]),
+        };
+        let readings = Arc::new(Mutex::new(Vec::new()));
+        let collected = readings.clone();
+        run_until_with(
+            &fixture,
+            Controls::default(),
+            Duration::from_millis(130),
+            move |value| collected.lock().unwrap().push(value),
+        )
+        .unwrap();
+        let collected = readings.lock().unwrap();
+        assert!(!collected.is_empty());
+        for value in collected.iter() {
+            assert!((0.45..=0.55).contains(value));
+        }
+        drop(collected);
+        let stopped = Arc::new(AtomicBool::new(false));
+        let silenced = Fixture {
+            dropped: stopped.clone(),
+            action: |sink| {
+                sink.push(&[0.5f32; 800]);
+                sink.controls.stop.store(true, Ordering::Release);
+            },
+        };
+        let after = Arc::new(Mutex::new(Vec::new()));
+        let collected = after.clone();
+        run_until_with(
+            &silenced,
+            Controls::default(),
+            Duration::from_millis(130),
+            move |value| collected.lock().unwrap().push(value),
+        )
+        .unwrap();
+        assert!(after.lock().unwrap().is_empty());
     }
 }

@@ -765,20 +765,72 @@ body {
   margin-top: 6px;
 }
 
-.voice-toggle {
-  align-self: flex-end;
-  min-width: 32px;
-  min-height: 28px;
+.message-field {
+  position: relative;
   border: 1px solid var(--row-stroke);
   border-radius: 6px;
+  transition: border-color 120ms var(--ease-out);
+}
+
+.message-field:focus-within {
+  border-color: var(--accent);
+}
+
+.message-field .message-input {
+  border: 0;
+  border-radius: 0;
+  padding-right: 36px;
+}
+
+.message-input.is-recording {
+  visibility: hidden;
+}
+
+.voice-wave {
+  position: absolute;
+  inset: 1px;
+  width: calc(100% - 2px);
+  height: calc(100% - 2px);
+  pointer-events: none;
+}
+
+.voice-toggle {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
   color: var(--fg);
   background: transparent;
 }
-.voice-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
-.voice-panel { padding: 8px 12px; font-size: var(--content-sm); overflow-wrap: anywhere; }
-.voice-panel details { margin-bottom: 6px; }
-.voice-panel summary { cursor: pointer; }
-.voice-panel p { margin: 6px 0; color: var(--muted); }
+
+.voice-toggle:hover:not(:disabled) {
+  background: var(--separator);
+}
+
+.voice-toggle[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.voice-toggle.is-unconfigured {
+  opacity: 0.45;
+}
+
+.voice-live {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 2px 4px 0;
+  color: var(--muted);
+}
+
+.voice-panel { padding: 8px 12px 0; font-size: var(--content-sm); overflow-wrap: anywhere; }
 .voice-panel button {
   margin: 4px 6px 4px 0;
   padding: 5px 8px;
@@ -791,6 +843,7 @@ body {
 .voice-panel button:disabled, .voice-toggle:disabled { opacity: 0.45; }
 .voice-panel button:focus-visible, .voice-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .voice-result { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--row-stroke); }
+.voice-result p { margin: 6px 0; color: var(--muted); }
 .voice-result textarea {
   display: block; width: 100%; min-height: 64px; max-height: 160px;
   padding: 6px; resize: none; color: var(--fg); background: transparent;
@@ -824,7 +877,6 @@ body {
 
 .message-input:focus {
   outline: none;
-  border-color: var(--accent);
 }
 
 .message-queue {

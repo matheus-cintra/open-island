@@ -5,7 +5,7 @@ use std::{
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::{Path, PathBuf},
 };
-const MAX_MODEL: u64 = 1024 * 1024 * 1024;
+const MAX_MODEL: u64 = 4 * 1024 * 1024 * 1024;
 pub fn diagnostic_status(directory: Option<&Path>) -> &'static str {
     if directory.is_some_and(|directory| read(directory).is_ok()) {
         "configured"

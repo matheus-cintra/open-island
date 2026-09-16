@@ -1,10 +1,10 @@
 use super::{controller::Controller, model};
 use serde::Serialize;
 #[cfg(not(feature = "qa-harness"))]
-use tauri::Manager;
-use tauri::{State, WebviewWindow};
+use tauri::{Emitter, Manager};
 #[cfg(not(feature = "qa-harness"))]
 use tauri_plugin_dialog::DialogExt;
+use tauri::{State, WebviewWindow};
 
 #[derive(Serialize)]
 pub struct ModelStatus {
@@ -61,7 +61,7 @@ pub async fn voice_select_model(
                 .dialog()
                 .file()
                 .set_parent(&window)
-                .set_title("Selecionar modelo GGML multilíngue (até 1 GiB)")
+                .set_title("Selecionar modelo GGML multilíngue")
                 .add_filter("Modelo GGML", &["bin"])
                 .blocking_pick_file();
             let Some(path) = path else {
@@ -69,7 +69,9 @@ pub async fn voice_select_model(
             };
             let path = path.into_path().map_err(|_| "invalid_model".to_owned())?;
             model::save(&directory, &path).map_err(str::to_owned)?;
-            Ok(Some(status(&directory)))
+            let status = status(&directory);
+            let _ = window.emit_to("main", "voice-model-status", &status);
+            Ok(Some(status))
         })
         .await
         .map_err(|_| "model_configuration_failed".to_owned())?
@@ -91,7 +93,9 @@ pub async fn voice_clear_model(window: WebviewWindow) -> Result<ModelStatus, Str
             let voice = app.state::<Controller>();
             let _selection = voice.begin_model_removal()?;
             model::clear(&directory)?;
-            Ok(status(&directory))
+            let status = status(&directory);
+            let _ = window.emit_to("main", "voice-model-status", &status);
+            Ok(status)
         })
         .await
         .map_err(|_| "model_configuration_failed".to_owned())?

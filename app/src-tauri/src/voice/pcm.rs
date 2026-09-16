@@ -75,6 +75,18 @@ impl Mono {
     pub fn is_empty(&self) -> bool {
         self.samples.is_empty()
     }
+    /// Root mean square of the most recent `window` samples, for the live waveform.
+    pub fn tail_level(&self, window: usize) -> f32 {
+        if window == 0 || self.samples.is_empty() {
+            return 0.0;
+        }
+        let start = self.samples.len().saturating_sub(window);
+        let mut total = 0.0;
+        for sample in &self.samples[start..] {
+            total += sample * sample;
+        }
+        (total / (self.samples.len() - start) as f32).sqrt()
+    }
     pub fn finish(self) -> Audio {
         Audio {
             samples: self.samples,
@@ -150,5 +162,16 @@ mod tests {
         assert_eq!(buffer.push(&[1f32]), Err(Error::Format));
         assert_eq!(buffer.push(&[f32::NAN, 0.0]), Err(Error::Format));
         assert!(buffer.samples.is_empty());
+    }
+    #[test]
+    fn tail_level_measures_only_the_recent_window() {
+        assert_eq!(Mono::new(8000, 1).unwrap().tail_level(0), 0.0);
+        let mut buffer = Mono::new(8000, 1).unwrap();
+        assert_eq!(buffer.tail_level(4), 0.0);
+        buffer.push(&[0.5f32, -0.5, 0.5, -0.5]).unwrap();
+        assert!((buffer.tail_level(4) - 0.5).abs() < 0.001);
+        buffer.push(&[0f32; 16]).unwrap();
+        assert!(buffer.tail_level(4) < 0.001);
+        assert!((buffer.tail_level(20) - 0.2236).abs() < 0.01);
     }
 }

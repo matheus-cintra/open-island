@@ -265,7 +265,7 @@ pub fn setup_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "settings" => {
-                let _ = crate::commands::open_settings(app.clone());
+                let _ = crate::commands::open_settings(app.clone(), None);
             }
             "toggle" => {
                 let _ = app.emit("island-toggle", ());

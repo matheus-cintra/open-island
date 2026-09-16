@@ -440,4 +440,10 @@ void listen("settings-revealed", () => {
   void load();
 });
 
+void listen<string>("open-pane", (event) => {
+  const pane = PANES.find((entry) => entry.id === event.payload);
+  if (pane === undefined) return;
+  selectPane(pane.id);
+});
+
 void load();

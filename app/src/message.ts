@@ -24,11 +24,14 @@ export function createMessageBox(sessionId: string, actions: MessageActions): HT
   const box = document.createElement("div");
   box.className = "row-message";
   actionsFor.set(box, actions);
+  const field = document.createElement("div");
+  field.className = "message-field";
   const input = document.createElement("textarea");
   input.className = "message-input";
   input.rows = 1;
   input.placeholder = strings.session.messagePlaceholder;
   input.setAttribute("aria-label", strings.session.messageOpen);
+  field.append(input);
   const hint = document.createElement("span");
   hint.className = "message-hint";
   hint.hidden = true;
@@ -46,7 +49,7 @@ export function createMessageBox(sessionId: string, actions: MessageActions): HT
     },
     copy: (text) => navigator.clipboard.writeText(text), error: actions.error, changed: actions.resize,
   }));
-  box.append(input, hint, queue, deliveries, recovery);
+  box.append(field, hint, queue, deliveries, recovery);
   const composer = new MessageComposer(
     (text: string): Promise<unknown> => {
       const target = targetFor.get(box);

@@ -46,7 +46,7 @@ pub fn run() {
     let builder = builder
         .plugin(tauri_plugin_single_instance::init(|app, args, _| {
             if args.iter().any(|arg| arg == "--settings") {
-                let _ = commands::open_settings(app.clone());
+                let _ = commands::open_settings(app.clone(), None);
             }
         }))
         .plugin(shortcut::plugin())

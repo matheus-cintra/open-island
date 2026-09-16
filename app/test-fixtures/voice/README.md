@@ -40,7 +40,7 @@ and [build instructions](https://github.com/espeak-ng/espeak-ng/blob/1.52.0/docs
 
 The product explicitly enables whisper.cpp's default CPU-capable flash attention;
 whisper-rs 0.16.0 otherwise defaults it off. Greedy best_of=1, Portuguese,
-no translation/context and the four-thread cap stay unchanged. The unchanged
+no translation/context and the eight-thread cap stay unchanged. The unchanged
 140 wpm fixture passed on the local Linux host after this change (WER 0.214,
 both required words, silence rejected); the prior result was WER 0.429 and a
 missing required word. The transcript still has errors. Host inference took

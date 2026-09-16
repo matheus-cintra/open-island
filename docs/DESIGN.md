@@ -91,8 +91,15 @@ O descarte usa a identidade original do registro. Se o registro desaparecer do
 daemon sem confirmação, a cópia do shell permanece como entrega não confirmada;
 essa indicação distingue registro indisponível de conexão anterior.
 
-O botão de microfone alterna gravar/parar. Enquanto o worker está ativo,
-o destino e o estado permanecem visíveis, e a ilha não colapsa. O timer
+O botão de microfone alterna gravar/parar e mora dentro do campo do composer,
+no canto direito. Sem modelo configurado, o botão fica esmaecido e o clique abre
+Ajustes na aba Voz local; a seleção do modelo existe apenas nas preferências.
+Enquanto o worker está ativo, o destino e o estado permanecem visíveis, e a
+ilha não colapsa. Durante a gravação, o campo é substituído por uma linha
+horizontal que ondula com o nível do microfone; o rascunho permanece no estado
+e volta quando a gravação termina. O nível vem do evento `voice-level`, lido da
+cauda do buffer de captura a cada ~60 ms; o desenho respeita
+`prefers-reduced-motion` e para com a gravação. O timer
 acompanha a captura; a transcrição ocorre localmente e exige revisão.
 Estados: idle, requesting_permission, recording, transcribing, ready,
 cancelled e error. Os rótulos ficam em `strings.ts`.
@@ -115,8 +122,10 @@ A transcrição só entra automaticamente no rascunho de origem se sua revisão
 e a identidade do destino não mudaram. O cartão mantém o texto para copiar
 ou inserir explicitamente em um editor selecionado. Nenhuma dessas ações
 envia a mensagem. Fechar o cartão não apaga texto já inserido no editor.
-As preferências permitem escolher e remover a configuração local do modelo;
-remover cancela o worker ativo, sem apagar o arquivo do modelo.
+A escolha, a verificação e a remoção da configuração local do modelo ficam
+exclusivamente nas preferências, na aba Voz local; mudanças lá avisam a ilha
+pelo evento `voice-model-status`. Remover cancela o worker ativo, sem apagar
+o arquivo do modelo.
 
 Textos de mensagens recuperáveis pertencem ao shell, em memória, e oferecem
 copiar/descartar. Não há reenvio automático ou promessa de persistência após

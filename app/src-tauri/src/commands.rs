@@ -385,11 +385,17 @@ pub fn reveal_settings(window: &tauri::WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
+pub fn open_settings(app: tauri::AppHandle, pane: Option<String>) -> Result<(), String> {
     let window = app
         .get_webview_window("settings")
         .ok_or_else(|| "no settings window".to_owned())?;
-    reveal_settings(&window)
+    reveal_settings(&window)?;
+    if let Some(pane) = pane {
+        window
+            .emit_to("settings", "open-pane", pane)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

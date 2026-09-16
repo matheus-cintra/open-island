@@ -12,21 +12,30 @@ export const voice = new VoiceController(
 );
 interface Actions { resize(): void; error(message: string): void; }
 interface Editor { target(): VoiceTarget | null; label(): string; }
-const editors = new WeakMap<HTMLButtonElement, Editor>();
+interface Composer { editor: Editor; canvas: HTMLCanvasElement; input: HTMLTextAreaElement; }
+const composers = new WeakMap<HTMLButtonElement, Composer>();
+let modelConfigured: boolean | null = null;
+const levels = { job: "", value: 0 };
+export function voiceLevel(job: string | null): number {
+  return job !== null && levels.job === job && voice.state.phase === "recording" ? levels.value : 0;
+}
 function buttons(): void {
   for (const button of document.querySelectorAll<HTMLButtonElement>(".voice-toggle")) {
-    const editor = editors.get(button);
-    const own = sameVoiceTarget(editor?.target() ?? null, voice.state.target);
+    const composer = composers.get(button);
+    const own = sameVoiceTarget(composer?.editor.target() ?? null, voice.state.target);
     const stoppable = voice.state.phase === "recording" || voice.state.phase === "requesting_permission";
-    const disabled = voice.active() ? !own || voice.starting || !stoppable : !editor?.target();
+    const unconfigured = !voice.active() && modelConfigured === false;
+    const disabled = voice.active() ? !own || voice.starting || !stoppable : !composer?.editor.target();
     if (button.disabled !== disabled) button.disabled = disabled;
+    button.classList.toggle("is-unconfigured", unconfigured);
+    if (button.getAttribute("aria-disabled") !== String(unconfigured)) button.setAttribute("aria-disabled", String(unconfigured));
     const recording = own && voice.active() && stoppable;
     const symbol = recording ? "stop" : "microphone";
     if (button.dataset.symbol !== symbol) {
       button.innerHTML = recording ? STOP_RECORDING : MICROPHONE;
       button.dataset.symbol = symbol;
     }
-    const label = recording ? strings.voice.stop : strings.voice.start;
+    const label = unconfigured ? strings.voice.modelRequired : recording ? strings.voice.stop : strings.voice.start;
     if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
     const pressed = String(recording);
     if (button.getAttribute("aria-pressed") !== pressed) button.setAttribute("aria-pressed", pressed);
@@ -36,32 +45,43 @@ function buttons(): void {
 export function attachVoice(box: HTMLElement, composer: MessageComposer, editor: Editor, actions: Actions): void {
   const button = document.createElement("button");
   button.type = "button"; button.className = "voice-toggle";
-  editors.set(button, editor);
+  const canvas = document.createElement("canvas");
+  canvas.className = "voice-wave"; canvas.setAttribute("aria-hidden", "true"); canvas.hidden = true;
+  const input = box.querySelector<HTMLTextAreaElement>("textarea")!;
+  const field = box.querySelector<HTMLElement>(".message-field")!;
+  composers.set(button, { editor, canvas, input });
   const select = (): void => voice.select({ ...editor, target: (): VoiceTarget | null => box.isConnected ? editor.target() : null, insert: (text): boolean => box.isConnected && !!editor.target() && composer.insertTranscript(text) });
-  box.querySelector("textarea")?.addEventListener("focus", select);
+  input.addEventListener("focus", select);
   button.addEventListener("click", (): void => {
     select();
     if (voice.active()) { void voice.stop().catch((error): void => actions.error(strings.voice.error(reasonOf(error)))); return; }
+    if (modelConfigured === false) {
+      void invoke("open_settings", { pane: "voice" }).catch((error): void => actions.error(strings.voice.error(reasonOf(error))));
+      return;
+    }
     const target = editor.target();
     if (!target || !box.isConnected) return;
     const revision = composer.draftRevision();
     void voice.start(target, (text): boolean => box.isConnected && sameVoiceTarget(target, editor.target()) && composer.insertTranscript(text, revision))
       .catch((error): void => actions.error(strings.voice.error(reasonOf(error))));
   });
-  box.append(button);
+  field.append(canvas, button);
   updateVoiceBox(box);
 }
 export function updateVoiceBox(box: HTMLElement): void {
   const button = box.querySelector<HTMLButtonElement>(".voice-toggle");
   if (!button) return;
+  const composer = composers.get(button);
+  const unconfigured = !voice.active() && modelConfigured === false;
+  button.classList.toggle("is-unconfigured", unconfigured);
+  if (button.getAttribute("aria-disabled") !== String(unconfigured)) button.setAttribute("aria-disabled", String(unconfigured));
   if (box.isConnected) {
     buttons();
     return;
   }
-  const editor = editors.get(button);
-  const disabled = !editor?.target() || voice.active();
+  const disabled = !composer?.editor.target() || voice.active();
   if (button.disabled !== disabled) button.disabled = disabled;
-  const label = strings.voice.start;
+  const label = unconfigured ? strings.voice.modelRequired : strings.voice.start;
   if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
   if (button.title !== label) button.title = label;
   if (button.dataset.symbol !== "microphone") {
@@ -70,47 +90,120 @@ export function updateVoiceBox(box: HTMLElement): void {
   }
 }
 
+const wave = { canvas: null as HTMLCanvasElement | null, level: 0, frame: 0 };
+function reducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+function startWave(): void {
+  if (wave.frame === 0) wave.frame = requestAnimationFrame(tick);
+}
+function stopWave(): void {
+  if (wave.frame !== 0) cancelAnimationFrame(wave.frame);
+  wave.frame = 0;
+  wave.canvas = null;
+  wave.level = 0;
+}
+function tick(now: number): void {
+  const canvas = wave.canvas;
+  if (canvas === null || canvas.hidden) {
+    wave.frame = 0;
+    return;
+  }
+  const target = voice.state.job_id !== null && levels.job === voice.state.job_id ? levels.value : 0;
+  wave.level += (target - wave.level) * (target > wave.level ? 0.4 : 0.1);
+  canvas.dataset.level = wave.level.toFixed(3);
+  draw(now);
+  wave.frame = requestAnimationFrame(tick);
+}
+function draw(now: number): void {
+  const canvas = wave.canvas;
+  if (canvas === null) return;
+  const context = canvas.getContext("2d");
+  if (context === null) return;
+  const scale = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth || canvas.parentElement?.clientWidth || 0;
+  const height = canvas.clientHeight || canvas.parentElement?.clientHeight || 0;
+  if (width < 4 || height < 4) return;
+  if (canvas.width !== Math.round(width * scale)) canvas.width = Math.round(width * scale);
+  if (canvas.height !== Math.round(height * scale)) canvas.height = Math.round(height * scale);
+  context.setTransform(scale, 0, 0, scale, 0, 0);
+  context.clearRect(0, 0, width, height);
+  const level = Math.min(Math.max(wave.level, 0), 1);
+  const middle = height / 2;
+  const reach = middle - 2;
+  const motion = reducedMotion() ? 0 : (now / 1000) * 2.2;
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#0a84ff";
+  context.strokeStyle = accent;
+  context.lineWidth = 1.4;
+  context.lineCap = "round";
+  context.beginPath();
+  const span = width - 2;
+  for (let x = 0; x <= span; x += 2) {
+    const position = x / span;
+    const envelope = Math.sin(Math.PI * position);
+    const ripple = Math.sin(position * 9.4 + motion) * 0.55 + Math.sin(position * 21.6 - motion * 1.7) * 0.45;
+    const y = middle + ripple * envelope * level * reach;
+    if (x === 0) context.moveTo(x, y); else context.lineTo(x, y);
+  }
+  context.stroke();
+}
+function syncWaves(): void {
+  let active: HTMLCanvasElement | null = null;
+  for (const button of document.querySelectorAll<HTMLButtonElement>(".voice-toggle")) {
+    const composer = composers.get(button);
+    if (!composer) continue;
+    const live = composer.canvas.isConnected
+      && sameVoiceTarget(composer.editor.target(), voice.state.target)
+      && voice.state.phase === "recording" && !voice.starting && voice.state.worker_active;
+    composer.canvas.hidden = !live;
+    composer.input.classList.toggle("is-recording", live);
+    if (live) active = composer.canvas;
+  }
+  if (active === null) {
+    stopWave();
+    return;
+  }
+  if (wave.canvas !== active) wave.canvas = active;
+  startWave();
+}
+
 export function initializeVoice(root: HTMLElement, actions: Actions & { isMac(): boolean }): void {
   root.classList.add("voice-panel");
-  const details = document.createElement("details");
-  const summary = document.createElement("summary"); summary.textContent = strings.voice.title;
-  const explanation = document.createElement("p"); explanation.textContent = strings.voice.explanation;
-  const model = document.createElement("button"); model.type = "button"; model.textContent = strings.voice.model;
-  let picking = false;
-  let modelRevision = 0;
-  const modelStatus = document.createElement("span"); modelStatus.textContent = strings.voice.unavailable;
-  const privacy = document.createElement("button"); privacy.type = "button"; privacy.textContent = strings.voice.privacy; privacy.hidden = true;
-  details.append(summary, explanation, model, modelStatus, privacy);
-  details.addEventListener("toggle", (): void => actions.resize());
-  model.addEventListener("click", (): void => {
-    picking = true; model.disabled = true;
-    void invoke<{ configured: boolean } | null>("plugin:voice|voice_select_model").then((status): void => {
-      if (status) { modelRevision += 1; modelStatus.textContent = status.configured ? strings.voice.configured : strings.voice.unavailable; }
-    }).catch((error): void => actions.error(strings.voice.error(reasonOf(error))))
-      .finally((): void => { picking = false; model.disabled = voice.active(); actions.resize(); });
-  });
-  privacy.addEventListener("click", (): void => {
-    void invoke("plugin:voice|voice_open_microphone_settings").catch((error): void => actions.error(strings.voice.error(reasonOf(error))));
-  });
-  void invoke<{ configured: boolean }>("plugin:voice|voice_model_status").then((status): void => {
-    if (modelRevision === 0) modelStatus.textContent = status.configured ? strings.voice.configured : strings.voice.unavailable;
-  }).catch((): void => {});
   const live = document.createElement("section");
+  live.className = "voice-live";
   const status = document.createElement("span"); status.setAttribute("aria-live", "polite");
   const time = document.createElement("span");
   const cancel = document.createElement("button"); cancel.type = "button"; cancel.textContent = strings.voice.cancel;
   const stop = document.createElement("button"); stop.type = "button"; stop.textContent = strings.voice.stop;
   stop.addEventListener("click", (): void => { void voice.stop().catch((error): void => actions.error(strings.voice.error(reasonOf(error)))); });
   cancel.addEventListener("click", (): void => { void voice.cancel().catch((error): void => actions.error(strings.voice.error(reasonOf(error)))); });
-  live.append(status, time, stop, cancel);
+  const privacy = document.createElement("button"); privacy.type = "button"; privacy.textContent = strings.voice.privacy; privacy.hidden = true;
+  privacy.addEventListener("click", (): void => {
+    void invoke("plugin:voice|voice_open_microphone_settings").catch((error): void => actions.error(strings.voice.error(reasonOf(error))));
+  });
+  live.append(status, time, cancel, stop, privacy);
   const list = document.createElement("div");
-  root.append(details, live, list);
+  root.append(live, list);
+  void invoke<{ configured: boolean }>("plugin:voice|voice_model_status").then((status): void => {
+    modelConfigured = status.configured;
+    render();
+  }).catch((): void => {});
+  void listen<{ configured: boolean }>("voice-model-status", (event): void => {
+    modelConfigured = event.payload.configured;
+    render();
+  });
+  void listen<{ job_id: string; level: number }>("voice-level", (event): void => {
+    if (typeof event.payload?.job_id === "string" && Number.isFinite(event.payload.level)) {
+      levels.job = event.payload.job_id;
+      levels.value = Math.min(Math.max(event.payload.level, 0), 1);
+    }
+  });
   const entries = new Map<string, { element: HTMLElement; input: HTMLTextAreaElement; label: HTMLElement; insert: HTMLButtonElement }>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let polling = false;
   const render = (): void => {
     buttons();
-    model.disabled = voice.active() || picking;
+    syncWaves();
     live.hidden = (voice.state.phase === "idle" || voice.state.phase === "cancelled") && !voice.active();
     const cancelling = voice.state.phase === "cancelled" && voice.state.worker_active;
     const label = cancelling ? strings.voice.cancelling : voice.state.error ? strings.voice.error(voice.state.error) : strings.voice.phase[voice.starting ? "requesting_permission" : voice.state.phase];

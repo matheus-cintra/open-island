@@ -63,14 +63,25 @@ fn voice_start(
     let app = window.app_handle().clone();
     let completion_app = app.clone();
     let completion_target = original.clone();
+    let levels = app.clone();
     voice
         .start_checked(
             target,
-            controller::native_work(directory, move || {
-                // Model configuration IO may have taken time. Validate again at the
-                // boundary before the native permission request, without rescanning.
-                verified(original, app.state::<DaemonClient>().get_daemon_ui_state()).map(|_| ())
-            }),
+            controller::native_work(
+                directory,
+                move || {
+                    // Model configuration IO may have taken time. Validate again at the
+                    // boundary before the native permission request, without rescanning.
+                    verified(original, app.state::<DaemonClient>().get_daemon_ui_state()).map(|_| ())
+                },
+                move |job, value| {
+                    let _ = levels.emit_to(
+                        "main",
+                        "voice-level",
+                        serde_json::json!({"job_id": job, "level": value}),
+                    );
+                },
+            ),
             move || {
                 verified(
                     completion_target,

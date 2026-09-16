@@ -10,10 +10,11 @@ export const strings = {
   voice: {
     title: "Voz local", start: "Gravar mensagem", stop: "Parar gravação", cancel: "Cancelar gravação",
     model: "Selecionar modelo…", configured: "Modelo local configurado", unavailable: "Selecione um modelo para transcrever",
+    modelRequired: "Selecione um modelo em Ajustes › Voz local",
     removeModel: "Remover configuração do modelo", removeConfirm: "Cancelar o ditado ativo e remover a configuração? O arquivo do modelo será preservado.",
     removeHint: "Encerra a gravação ou transcrição ativa. Não apaga o arquivo do modelo nem rascunhos já prontos.",
     refreshModel: "Verificar modelo local", modelStatus: "Modelo", modelRemoved: "Configuração do modelo removida.",
-    explanation: "A fala é transcrita neste computador, usando CPU e memória. Escolha um modelo GGML multilíngue de até 1 GiB. O aplicativo não baixa modelos nem salva gravações. Revise o texto antes de enviar.",
+    explanation: "A fala é transcrita neste computador, usando CPU e memória. Escolha um modelo GGML multilíngue; modelos maiores são mais precisos e mais lentos. O aplicativo não baixa modelos nem salva gravações. Revise o texto antes de enviar.",
     privacy: "Abrir ajustes do microfone", text: "Texto transcrito", applied: "Adicionada ao rascunho. Revise antes de enviar.", dismiss: "Fechar cartão",
     separate: "Texto preservado. Selecione uma sessão para inseri-lo no rascunho.",
     targetUnavailable: "O destino original não está disponível. Selecione uma sessão e confirme a inserção do texto preservado.",

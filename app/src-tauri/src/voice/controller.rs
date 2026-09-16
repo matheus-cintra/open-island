@@ -315,6 +315,7 @@ impl Drop for ModelSelection {
 pub fn native_work(
     state_directory: std::path::PathBuf,
     before_permission: impl FnOnce() -> Result<(), &'static str> + Send,
+    level: impl Fn(&str, f32) + Send + 'static,
 ) -> impl FnOnce(Job) -> Result<String, &'static str> + Send {
     move |job| {
         let path = super::model::read(&state_directory)?;
@@ -325,7 +326,11 @@ pub fn native_work(
         })
         .map_err(|error| error.code())?;
         job.recording()?;
-        let audio = super::capture::run(&source, controls.clone()).map_err(|error| error.code())?;
+        let id = job.id.clone();
+        let audio = super::capture::run_with_levels(&source, controls.clone(), |value| {
+            level(&id, value);
+        })
+        .map_err(|error| error.code())?;
         drop(source);
         let recorded_ms = audio.samples.len() as u64 * 1000 / audio.sample_rate as u64;
         job.transcribing(recorded_ms)?;
