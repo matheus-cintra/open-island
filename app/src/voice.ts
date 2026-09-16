@@ -120,6 +120,13 @@ function tick(now: number): void {
   draw(now);
   wave.frame = requestAnimationFrame(tick);
 }
+let accentColor: string | null = null;
+function accent(): string {
+  if (accentColor === null) {
+    accentColor = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#0a84ff";
+  }
+  return accentColor;
+}
 function draw(now: number): void {
   const canvas = wave.canvas;
   if (canvas === null) return;
@@ -137,8 +144,7 @@ function draw(now: number): void {
   const middle = height / 2;
   const reach = middle - 2;
   const motion = reducedMotion() ? 0 : (now / 1000) * 2.2;
-  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#0a84ff";
-  context.strokeStyle = accent;
+  context.strokeStyle = accent();
   context.lineWidth = 1.4;
   context.lineCap = "round";
   context.beginPath();

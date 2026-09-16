@@ -99,7 +99,12 @@ pub fn handle(ctx: DaemonContext, connection_id: u64, request: Request) -> Strin
             "config": ctx.config.get().to_json_value(),
             "env_locked": env_locked(),
         })),
-        "list_sessions" => crate::discovery_cache::sessions(&ctx).and_then(|sessions| serde_json::to_value(sessions).map_err(|_| "snapshot_serialization".into())),
+        "list_sessions" => {
+            if !crate::poll::background_scanning(&ctx.state) {
+                crate::poll::refresh_discovery_now(&ctx);
+            }
+            crate::discovery_cache::sessions(&ctx).and_then(|sessions| serde_json::to_value(sessions).map_err(|_| "snapshot_serialization".into()))
+        }
         "jump_v2" => serde_json::from_value::<super::guarded_jump::Jump>(request.params.unwrap_or(Value::Null))
             .map_err(|_| "invalid_guarded_jump".to_owned())
             .and_then(|request| super::guarded_jump::jump(&ctx, request)),

@@ -104,6 +104,7 @@ mod tests {
             config: Default::default(),
             sound: crate::sound::SoundPlayer::silent(),
             messages: Arc::new(crate::message_executor::MessageExecutor::new().unwrap()),
+            scan_wakeup: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
     #[test]

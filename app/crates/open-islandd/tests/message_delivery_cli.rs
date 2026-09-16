@@ -54,6 +54,7 @@ fn context() -> DaemonContext {
         config: ConfigHandle::default(),
         sound: SoundPlayer::silent(),
         messages: Arc::new(MessageExecutor::new().unwrap()),
+        scan_wakeup: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     }
 }
 fn helper(path: &std::path::Path) -> (Helper, Session) {

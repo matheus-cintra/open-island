@@ -15,6 +15,13 @@ pub trait ProcessSource: Send + Sync {
     fn cwd(&self, pid: u32) -> Option<PathBuf>;
     fn stdin_device(&self, pid: u32) -> Option<u64>;
     fn exists(&self, pid: u32) -> bool;
+    fn stat_fields(&self, pid: u32) -> Option<super::ProcessStat> {
+        let (parent, comm) = self.parent_and_comm(pid)?;
+        let birth = (pid > 1 && pid <= i32::MAX as u32)
+            .then(|| self.birth_identity(pid))
+            .flatten();
+        Some(super::ProcessStat { parent, comm, birth })
+    }
 }
 
 struct ProcessRegistry {

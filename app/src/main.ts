@@ -157,6 +157,7 @@ const PIXEL_PERIOD_Y = 291_240 * (DEBUG_SPEED ? 0.02 : 1);
 /* ------------------------------------------------------------------ */
 
 export let expanded = false;
+let forceRowFill = false;
 let macosPanel = false;
 const islandKeyboard = bindIslandKeyboard(
   islandEl,
@@ -193,6 +194,7 @@ initializeRows({
   get visible(): boolean { return visualVisible(); },
   get sessions(): Session[] { return sessions; },
   get show(): RowVisibility { return show; },
+  get forceFill(): boolean { return forceRowFill; },
   LEAVE_MS, jumpTo, reducedMotion, render, syncExpandedSize, showError,
   canUseTarget,
 });
@@ -376,7 +378,10 @@ export function expandedSize(): Size {
 }
 
 function expand(interactive = false): void {
+  forceRowFill = true;
   renderFrame.flush();
+  renderList();
+  forceRowFill = false;
   expanded = true;
   if (interactive && !macosPanel) islandKeyboard.activate();
   // Swap SVG + content at tween START (expanding).
@@ -775,12 +780,19 @@ let idleTimer = 0;
 function visualVisible(): boolean {
   return !document.hidden && !(daemonConnected && screenOff) && !idle && !(hideInFullscreen && fullscreenActive) && !(hideWhenIdle && agentsIdle);
 }
+const DRIFT_TICK_MS = 250;
 const drift = new FrameLoop((now): void => {
   const ex = 0.5 - 0.5 * Math.cos((2 * Math.PI * (now % PIXEL_PERIOD_X)) / PIXEL_PERIOD_X);
   const ey = 0.5 - 0.5 * Math.cos((2 * Math.PI * (now % PIXEL_PERIOD_Y)) / PIXEL_PERIOD_Y);
   const transform = `translate(${(-2 + 4 * ex).toFixed(2)}px, ${(-2 * ey).toFixed(2)}px)`;
   if (islandEl.style.transform !== transform) islandEl.style.transform = transform;
+}, {
+  request: (callback): number => window.setTimeout((): void => callback(performance.now()), DRIFT_TICK_MS),
+  cancel: (id): void => window.clearTimeout(id),
 });
+export function driftActive(): boolean {
+  return drift.isEnabled();
+}
 const elapsedWork = new FrameLoop(tickElapsed, {
   request: (callback): number => window.setTimeout((): void => callback(performance.now()), 1000),
   cancel: (id): void => window.clearTimeout(id),

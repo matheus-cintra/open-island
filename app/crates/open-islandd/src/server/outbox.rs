@@ -38,13 +38,15 @@ impl Outbox {
             metrics,
         }))
     }
-    pub fn send(&self, message: String) -> Result<(), &'static str> {
-        let replace = serde_json::from_str::<serde_json::Value>(&message)
-            .ok()
-            .and_then(|v| v.get("event").and_then(|v| v.as_str()).map(str::to_owned))
+    pub fn send_with_key(
+        &self,
+        message: String,
+        event: Option<&str>,
+    ) -> Result<(), &'static str> {
+        let replace = event
             .filter(|event| {
                 matches!(
-                    event.as_str(),
+                    *event,
                     "ui-state-invalidated"
                         | "message-deliveries-invalidated"
                         | "sessions-updated"
@@ -53,7 +55,8 @@ impl Outbox {
                         | "update-available"
                         | "config-changed"
                 )
-            });
+            })
+            .map(str::to_owned);
         let mut queue = self.0.queue.lock().map_err(|_| "outbox_unavailable")?;
         if queue.closed {
             return Err("outbox_closed");
@@ -121,15 +124,21 @@ mod tests {
         let outbox = Outbox::new(socket);
         for n in 0..1000 {
             outbox
-                .send(format!("{{\"event\":\"sessions-updated\",\"data\":{n}}}"))
+                .send_with_key(
+                    format!("{{\"event\":\"sessions-updated\",\"data\":{n}}}"),
+                    Some("sessions-updated"),
+                )
                 .unwrap();
         }
         assert_eq!(outbox.0.queue.lock().unwrap().items.len(), 1);
         assert!(outbox.receive().unwrap().contains("999"));
         for _ in 0..MAX_ITEMS {
-            outbox.send("{\"ok\":true}".into()).unwrap();
+            outbox.send_with_key("{}".into(), None).unwrap();
         }
-        assert_eq!(outbox.send("{}".into()), Err("outbox_full"));
+        assert_eq!(
+            outbox.send_with_key("{}".into(), None),
+            Err("outbox_full")
+        );
         assert_eq!(peer.read(&mut [0]).unwrap(), 0);
         assert!(outbox.receive().is_none());
         let counters = outbox.0.metrics.snapshot();
@@ -141,7 +150,7 @@ mod tests {
         let (socket, _peer) = UnixStream::pair().unwrap();
         let outbox = Outbox::new(socket);
         for _ in 0..MAX_ITEMS {
-            outbox.send("{}".into()).unwrap();
+            outbox.send_with_key("{}".into(), None).unwrap();
         }
         let barrier = Arc::new(std::sync::Barrier::new(8));
         let threads: Vec<_> = (0..8)
@@ -150,7 +159,7 @@ mod tests {
                 let barrier = barrier.clone();
                 std::thread::spawn(move || {
                     barrier.wait();
-                    outbox.send("{}".into())
+                    outbox.send_with_key("{}".into(), None)
                 })
             })
             .collect();
@@ -164,8 +173,10 @@ mod tests {
         let (socket, _peer) = UnixStream::pair().unwrap();
         let outbox = Outbox::new(socket);
         for _ in 0..16 {
-            outbox.send("x".repeat(MAX_FRAME - 1)).unwrap();
+            outbox
+                .send_with_key("x".repeat(MAX_FRAME - 1), None)
+                .unwrap();
         }
-        assert_eq!(outbox.send("x".into()), Err("outbox_full"));
+        assert_eq!(outbox.send_with_key("x".into(), None), Err("outbox_full"));
     }
 }

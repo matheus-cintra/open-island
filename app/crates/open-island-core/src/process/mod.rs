@@ -33,6 +33,28 @@ pub fn birth_identity(pid: u32) -> Option<ProcessBirthIdentity> {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessStat {
+    pub parent: u32,
+    pub comm: String,
+    pub birth: Option<ProcessBirthIdentity>,
+}
+
+pub fn stat_fields(pid: u32) -> Option<ProcessStat> {
+    #[cfg(feature = "qa-harness")]
+    {
+        qa::route(pid, None, |source| source.stat_fields(pid))
+    }
+    #[cfg(all(not(feature = "qa-harness"), target_os = "linux"))]
+    {
+        linux::stat_fields(pid)
+    }
+    #[cfg(all(not(feature = "qa-harness"), target_os = "macos"))]
+    {
+        macos::stat_fields(pid)
+    }
+}
+
 #[cfg(feature = "qa-harness")]
 pub use qa::{
     install_process_source_for_qa, register_process_for_qa, ProcessSource, ProcessSourceGuard,

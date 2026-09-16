@@ -89,6 +89,7 @@ fn run() -> io::Result<()> {
         config,
         sound,
         messages: Arc::new(open_islandd::message_executor::MessageExecutor::new()?),
+        scan_wakeup: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
     let shutdown_flag = ShutdownFlag::new();
     let _signals = SignalRegistrations::register(&shutdown_flag)?;

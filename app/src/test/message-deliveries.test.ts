@@ -18,6 +18,19 @@ test("old-instance messages stay detached instead of appearing under a reused se
   expect(detachedDeliveries(snapshot)).toEqual([record]);
 });
 
+test("deliveries attach to the matching instance and only queued ones wait", () => {
+  const waiting: Delivery = record;
+  const settled: Delivery = { message_id: 2, session_id: "session", text: "ok", queued_at_ms: 2, state: "delivered", identity: record.identity };
+  const orphan: Delivery = { message_id: 3, session_id: "gone", text: "órfã", queued_at_ms: 3, state: "queued", identity: record.identity };
+  const snapshot: UiSnapshot = { schema_version: 1, daemon_epoch: "epoch", publication_revision: 1,
+    sessions: [{ id: "session", agent: "codex", cwd: "/fixture", title: "sessão", pid: 42, terminal: "kitty", session_instance_id: "instance" }],
+    approvals: [], questions: [], message_deliveries: [waiting, settled, orphan], config: {}, usage: { providers: [] }, update: null, quiet_scenes: { active: false, focus_mode: false, screen_off: false } };
+  const session = snapshotSessions(snapshot)[0];
+  expect(session.message_deliveries).toEqual([waiting, settled]);
+  expect(session.queued_messages).toEqual([{ id: 1, text: "preservar", queued_at_ms: 1 }]);
+  expect(detachedDeliveries(snapshot)).toEqual([orphan]);
+});
+
 test("all delivery states preserve nodes, prohibit sending cancellation and never retry", async () => {
   const root = document.createElement("ul"); document.body.append(root);
   const cancelled: Delivery[] = []; let copied = "";

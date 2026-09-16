@@ -21,6 +21,25 @@ pub(super) fn parent_and_comm(pid: u32) -> Option<(u32, String)> {
         comm,
     ))
 }
+pub(super) fn stat_fields(pid: u32) -> Option<super::ProcessStat> {
+    let text = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let close = text.rfind(')')?;
+    let comm = text.get(text.find('(')? + 1..close)?.to_owned();
+    let mut fields = text.get(close + 2..)?.split_whitespace();
+    let _state = fields.next()?;
+    let parent: u32 = fields.next()?.parse().ok()?;
+    let birth = fields
+        .nth(17)?
+        .parse::<u64>()
+        .ok()
+        .filter(|_| pid > 1 && pid <= i32::MAX as u32)
+        .map(super::ProcessBirthIdentity::new);
+    Some(super::ProcessStat {
+        parent,
+        comm,
+        birth,
+    })
+}
 pub(super) fn command(pid: u32) -> Option<Vec<u8>> {
     fs::read(format!("/proc/{pid}/cmdline")).ok()
 }
@@ -54,6 +73,10 @@ impl super::ProcessSource for SystemProcessSource {
 
     fn birth_identity(&self, pid: u32) -> Option<super::ProcessBirthIdentity> {
         birth_identity(pid)
+    }
+
+    fn stat_fields(&self, pid: u32) -> Option<super::ProcessStat> {
+        stat_fields(pid)
     }
 
     fn parent_and_comm(&self, pid: u32) -> Option<(u32, String)> {

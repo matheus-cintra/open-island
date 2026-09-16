@@ -7,6 +7,9 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
+
+const LOCK_PROBE_TTL: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Scenes {
@@ -96,6 +99,7 @@ pub struct SystemScenes {
     dnd: Box<dyn FnMut() -> bool + Send>,
     session: Option<String>,
     session_probed: bool,
+    locked_cache: Option<(std::time::Instant, bool)>,
 }
 
 impl SystemScenes {
@@ -104,6 +108,7 @@ impl SystemScenes {
             dnd,
             session: None,
             session_probed: false,
+            locked_cache: None,
         }
     }
 
@@ -115,6 +120,11 @@ impl SystemScenes {
         let Some(id) = self.session.as_deref() else {
             return false;
         };
+        if let Some((checked_at, locked)) = self.locked_cache {
+            if checked_at.elapsed() < LOCK_PROBE_TTL {
+                return locked;
+            }
+        }
         let output = Command::new("loginctl")
             .args(["show-session", id, "-p", "LockedHint", "-p", "IdleHint"])
             .output()
@@ -122,7 +132,9 @@ impl SystemScenes {
         let reply = output
             .filter(|out| out.status.success())
             .and_then(|out| String::from_utf8(out.stdout).ok());
-        session_locked(reply)
+        let locked = session_locked(reply);
+        self.locked_cache = Some((std::time::Instant::now(), locked));
+        locked
     }
 }
 

@@ -165,3 +165,26 @@ test("a completion edge is retained when later working state arrives before pain
   tauri.emitBeforePaint("daemon-ui-state", structuredClone(cache));
   paintFrame(); expect(main.expanded).toBe(false);
 });
+
+test("collapsed updates skip row fills and expanding catches up once", (): void => {
+  if (main.expanded) tauri.emit("island-toggle", {});
+  const cache = tauri.state.read();
+  cache.generation = 7; cache.snapshot!.generation = 7;
+  const snapshot = cache.snapshot!.snapshot;
+  snapshot.sessions = [{ id: "deferred", agent: "codex", cwd: "/fixture", title: "antes", pid: 42, terminal: "kitty", send_channel: "tmux", session_instance_id: "instance" }];
+  tauri.emit("daemon-ui-state", structuredClone(cache));
+  const row = document.querySelector(".session-row")!;
+  const observer = new window.MutationObserver((): void => {});
+  observer.observe(row, { subtree: true, attributes: true, childList: true, characterData: true });
+  for (let i = 0; i < 200; i += 1) {
+    snapshot.publication_revision += 1;
+    snapshot.sessions[0].title = `depois ${i}`;
+    tauri.emitBeforePaint("daemon-ui-state", structuredClone(cache));
+  }
+  paintFrame();
+  expect(observer.takeRecords()).toHaveLength(0);
+  expect(document.querySelector(".row-project")!.textContent).toBe("antes");
+  tauri.emit("island-toggle", {});
+  expect(document.querySelector(".row-project")!.textContent).toBe("depois 199");
+  observer.disconnect();
+});

@@ -289,6 +289,11 @@ impl DeliveryStore {
     pub fn snapshot(&self) -> Vec<MessageDelivery> {
         self.records.iter().map(|r| r.delivery.clone()).collect()
     }
+    pub fn any_queued(&self) -> bool {
+        self.records.iter().any(|r| {
+            r.delivery.state == DeliveryState::Queued && r.orphaned_at.is_none()
+        })
+    }
     pub fn queued(&self, session: &str) -> Vec<crate::session::QueuedMessage> {
         self.records
             .iter()

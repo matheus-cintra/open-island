@@ -45,12 +45,12 @@ pub fn observe(hooks: &[Session]) -> Result<Observation, &'static str> {
     let snapshots: Vec<_> = pids
         .into_iter()
         .filter_map(|pid| {
-            let birth = crate::process::birth_identity(pid);
-            let snapshot = read_snapshot(pid, requested.contains(&pid))?;
-            if birth != crate::process::birth_identity(pid) {
+            let stat = crate::process::stat_fields(pid)?;
+            let snapshot = read_snapshot(pid, &stat, requested.contains(&pid))?;
+            if stat.birth != crate::process::birth_identity(pid) {
                 return None;
             }
-            if let Some(birth) = birth {
+            if let Some(birth) = stat.birth {
                 observation.births.insert(pid, birth);
             }
             Some(snapshot)
@@ -266,11 +266,17 @@ pub fn classify_processes(
 fn read_snapshots() -> Vec<ProcessSnapshot> {
     crate::process::pids()
         .into_iter()
-        .filter_map(|pid| read_snapshot(pid, false))
+        .filter_map(|pid| {
+            let stat = crate::process::stat_fields(pid)?;
+            read_snapshot(pid, &stat, false)
+        })
         .collect()
 }
-fn read_snapshot(pid: u32, requested: bool) -> Option<ProcessSnapshot> {
-    let (ppid, comm) = crate::process::parent_and_comm(pid)?;
+fn read_snapshot(
+    pid: u32,
+    stat: &crate::process::ProcessStat,
+    requested: bool,
+) -> Option<ProcessSnapshot> {
     let agent = crate::process::command(pid).and_then(|command| agent_for_cmdline(&command));
     let (cwd, env) = if agent.is_some() || requested {
         (
@@ -282,8 +288,8 @@ fn read_snapshot(pid: u32, requested: bool) -> Option<ProcessSnapshot> {
     };
     Some(ProcessSnapshot {
         pid,
-        ppid,
-        comm,
+        ppid: stat.parent,
+        comm: stat.comm.clone(),
         agent,
         cwd,
         env,

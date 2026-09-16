@@ -33,6 +33,7 @@ pub struct DaemonContext {
     pub config: ConfigHandle,
     pub sound: SoundPlayer,
     pub messages: Arc<crate::message_executor::MessageExecutor>,
+    pub scan_wakeup: Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub fn announce_hook_event(ctx: &DaemonContext, kind: HookEventKind) {

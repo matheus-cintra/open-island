@@ -21,6 +21,7 @@ interface RowContext {
   readonly visible: boolean;
   readonly sessions: Session[];
   readonly show: RowVisibility;
+  readonly forceFill: boolean;
   readonly LEAVE_MS: number;
   jumpTo(session: Session, row: HTMLButtonElement): void;
   reducedMotion(): boolean;
@@ -104,6 +105,7 @@ export function renderCompact(n: number, pending = false): void {
 
 export function renderList(): void {
   const owner = transcriptOwner(context.sessions);
+  const fill = context.expanded || context.forceFill;
   const wanted = new Map(context.sessions.map((session) => [session.id, session]));
   const alive = new Map<string, HTMLLIElement>();
 
@@ -116,7 +118,7 @@ export function renderList(): void {
       leaveRow(li);
       continue;
     }
-    fillRow(li, session, session.id === owner);
+    if (fill) fillRow(li, session, session.id === owner);
     alive.set(id, li);
   }
 

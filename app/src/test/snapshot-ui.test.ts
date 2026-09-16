@@ -58,6 +58,7 @@ test("initial discovery is distinct from a connected empty session list", () => 
   expect(status.hidden).toBe(true);
 });
 test("authoritative snapshot feeds guarded editor and disconnect preserves draft", async (): Promise<void> => {
+  if (!main.expanded) tauri.emit("island-toggle", {});
   tauri.emit("daemon-ui-state", cache(2, "epoch"));
   const input = document.querySelector<HTMLTextAreaElement>(".message-input")!;
   expect(input).not.toBeNull();

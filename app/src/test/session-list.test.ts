@@ -55,6 +55,7 @@ test("a sessions-updated event renders one row per session, in the emitted order
 });
 
 test("each rendered row carries the badges its session asks for", () => {
+  if (!main.expanded) tauri.emit("island-toggle", {});
   tauri.state.sessions([sessionA, sessionB]);
   expect(renderedBadgeKeys(rows()[0])).toEqual(main.badgeSpec(sessionA).map(([key]) => key));
   expect(renderedBadgeKeys(rows()[1])).toEqual(main.badgeSpec(sessionB).map(([key]) => key));

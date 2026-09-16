@@ -153,3 +153,11 @@ pub(super) fn birth_identity(pid: u32) -> Option<super::ProcessBirthIdentity> {
     (unsafe { oi_process_birth(pid as i32, &mut birth) } != 0)
         .then_some(super::ProcessBirthIdentity::new(birth))
 }
+
+pub(super) fn stat_fields(pid: u32) -> Option<super::ProcessStat> {
+    let (parent, comm) = parent_and_comm(pid)?;
+    let birth = (pid > 1 && pid <= i32::MAX as u32)
+        .then(|| birth_identity(pid))
+        .flatten();
+    Some(super::ProcessStat { parent, comm, birth })
+}

@@ -127,11 +127,14 @@ pub fn client(
             Ok(request) => {
                 if request.method == "subscribe_ui" && managed.is_none() {
                     let Some(permit) = admission.managed.acquire(32) else {
-                        let _ = sender.send(response(request.id, Err("server_busy".into())));
+                        let _ = sender
+                            .send_with_key(response(request.id, Err("server_busy".into())), None);
                         continue;
                     };
                     managed = Some(permit);
                     handshake.take();
+                    ctx.scan_wakeup
+                        .store(true, std::sync::atomic::Ordering::Release);
                 }
                 let diagnostic = request.method == "ping"
                     && request
@@ -171,21 +174,25 @@ pub fn client(
                     local.acquire(8)
                 };
                 let Some(global) = global.filter(|_| blocking || bulk || local.is_some()) else {
-                    let _ = sender.send(response(request.id, Err("server_busy".into())));
+                    let _ = sender
+                        .send_with_key(response(request.id, Err("server_busy".into())), None);
                     continue;
                 };
                 let ctx = ctx.clone();
                 let sender = sender.clone();
                 thread::spawn(move || {
                     let (_global, _local) = (global, local);
-                    let _ = sender.send(handle(ctx, connection_id, request));
+                    let _ = sender.send_with_key(handle(ctx, connection_id, request), None);
                 });
             }
             Err(error) => {
-                let _ = sender.send(response(
-                    Value::Null,
-                    Err(format!("invalid request: {error}")),
-                ));
+                let _ = sender.send_with_key(
+                    response(
+                        Value::Null,
+                        Err(format!("invalid request: {error}")),
+                    ),
+                    None,
+                );
             }
         }
     }

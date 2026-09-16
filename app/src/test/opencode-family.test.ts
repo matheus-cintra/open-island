@@ -17,6 +17,7 @@ const parent = {
 };
 
 test("one family row shows both children and honors subagent visibility", () => {
+  if (!main.expanded) tauri.emit("island-toggle", {});
   tauri.state.sessions([parent]);
   tauri.state.children(["a", "b"].map((id) => ({ ...parent, id: `opencode:${id}`, subagents: undefined })));
   expect(document.querySelectorAll(".session-row")).toHaveLength(1);

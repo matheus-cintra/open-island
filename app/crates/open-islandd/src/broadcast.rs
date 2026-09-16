@@ -11,17 +11,19 @@ pub fn broadcast(state: &SharedState, message: String) -> bool {
 /// Legacy listeners and subscribed UIs count as action surfaces. Hook connections
 /// can receive legacy events but do not count; diagnostic clients receive no events.
 pub fn broadcast_except(state: &SharedState, message: String, except: Option<u64>) -> bool {
-    let state_event = serde_json::from_str::<serde_json::Value>(&message)
+    let event = serde_json::from_str::<serde_json::Value>(&message)
         .ok()
         .and_then(|value| {
             value
                 .get("event")
                 .and_then(|value| value.as_str())
                 .map(str::to_owned)
-        })
+        });
+    let state_event = event
+        .as_deref()
         .is_some_and(|event| {
             !matches!(
-                event.as_str(),
+                event,
                 "island-toggle" | "open-settings" | "question-focus"
             )
         });
@@ -43,20 +45,20 @@ pub fn broadcast_except(state: &SharedState, message: String, except: Option<u64
         })
         .unwrap_or_default();
     let mut delivered = false;
-    let failed = subscribers
-        .into_iter()
-        .filter_map(|(connection_id, sender, invalidation, receives_actions)| {
-            if sender
-                .send(invalidation.unwrap_or_else(|| message.clone()))
-                .is_ok()
-            {
-                delivered |= receives_actions;
-                None
-            } else {
-                Some(connection_id)
-            }
-        })
-        .collect::<Vec<_>>();
+    let mut failed = Vec::new();
+    for (connection_id, sender, invalidation, receives_actions) in subscribers {
+        let key = if invalidation.is_some() {
+            Some("ui-state-invalidated")
+        } else {
+            event.as_deref()
+        };
+        let payload = invalidation.unwrap_or_else(|| message.clone());
+        if sender.send_with_key(payload, key).is_ok() {
+            delivered |= receives_actions;
+        } else {
+            failed.push(connection_id);
+        }
+    }
     if let Ok(mut state) = state.lock() {
         state
             .subscribers

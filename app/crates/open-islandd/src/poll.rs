@@ -1,7 +1,7 @@
 use crate::broadcast::{broadcast, broadcast_sessions, make_broadcast};
 use crate::daemon_config::{config_stamp, reload_config, VERSION};
 use crate::notifications::{
-    lifecycle::{self, DaemonContext},
+    lifecycle::{self, DaemonContext, SharedState},
     shutdown::{self, ShutdownFlag},
 };
 use crate::scenes::{self, SceneSource, SystemScenes};
@@ -19,7 +19,10 @@ use serde_json::{json, Value};
 use std::{
     env,
     path::Path,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -36,7 +39,7 @@ pub fn poller(ctx: DaemonContext, flag: ShutdownFlag) {
     let config_file = config::path();
     let mut stamp = config_file.as_deref().and_then(config_stamp);
     loop {
-        if !first && !shutdown::wait_for_interval(&flag, Duration::from_millis(interval)) {
+        if !first && !wait_for_tick(&flag, &ctx.scan_wakeup, Duration::from_millis(interval)) {
             return;
         }
         first = false;
@@ -53,6 +56,11 @@ pub fn poller(ctx: DaemonContext, flag: ShutdownFlag) {
             make_broadcast(Arc::clone(&state)),
         );
         announce_quiet_scenes(&ctx, &mut source);
+        announce_idle_reminders(&ctx);
+        if !island_connected(&state) && !deliveries_waiting(&state) {
+            previous = None;
+            continue;
+        }
         let hooks = state
             .lock()
             .map(|state| state.store.discovery_targets())
@@ -70,7 +78,6 @@ pub fn poller(ctx: DaemonContext, flag: ShutdownFlag) {
         for session in &reconciled {
             let _ = ctx.messages.schedule(&state, session, false);
         }
-        announce_idle_reminders(&ctx);
         if (!before.ready && cached.ready)
             || cached.identities_changed(&before, &hooks)
             || previous.as_ref() != Some(&reconciled)
@@ -84,6 +91,58 @@ pub fn poller(ctx: DaemonContext, flag: ShutdownFlag) {
             }
         }
     }
+}
+
+fn wait_for_tick(flag: &ShutdownFlag, wakeup: &AtomicBool, duration: Duration) -> bool {
+    if flag.is_requested() {
+        return false;
+    }
+    let deadline = Instant::now() + duration;
+    loop {
+        if wakeup.swap(false, Ordering::AcqRel) {
+            return true;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return true;
+        }
+        std::thread::sleep(std::cmp::min(shutdown::TICK, remaining));
+        if flag.is_requested() {
+            return false;
+        }
+    }
+}
+
+fn island_connected(state: &SharedState) -> bool {
+    state
+        .lock()
+        .map(|state| {
+            state
+                .subscribers
+                .iter()
+                .any(|subscriber| subscriber.receives_actions && !subscriber.diagnostic_only)
+        })
+        .unwrap_or(true)
+}
+
+fn deliveries_waiting(state: &SharedState) -> bool {
+    state
+        .lock()
+        .map(|state| state.store.deliveries.any_queued())
+        .unwrap_or(true)
+}
+
+pub(crate) fn background_scanning(state: &SharedState) -> bool {
+    island_connected(state) || deliveries_waiting(state)
+}
+
+pub(crate) fn refresh_discovery_now(ctx: &DaemonContext) {
+    let hooks = ctx
+        .state
+        .lock()
+        .map(|state| state.store.discovery_targets())
+        .unwrap_or_default();
+    let _ = ctx.discovery.refresh(&hooks);
 }
 
 pub fn usage_poller(ctx: DaemonContext, flag: ShutdownFlag) {
@@ -351,4 +410,115 @@ pub fn announce_quiet_scenes(ctx: &DaemonContext, source: &mut dyn SceneSource) 
         &ctx.state,
         event_message("quiet-scenes", EventData::QuietScenes(next)),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::notifications::lifecycle::{DaemonState, Subscriber};
+    use std::{os::unix::net::UnixStream, thread};
+
+    fn shared_state(subscribers: Vec<Subscriber>) -> SharedState {
+        Arc::new(std::sync::Mutex::new(DaemonState {
+            publication_revision: 0,
+            no_island: 0,
+            store: open_island_core::store::SessionStore::new(),
+            pending: Default::default(),
+            pending_questions: Default::default(),
+            subscribers,
+            approval_generation: 0,
+            usage: Default::default(),
+            usage_watch: Default::default(),
+            scenes: Default::default(),
+            update: None,
+        }))
+    }
+
+    fn subscriber(receives_actions: bool, diagnostic_only: bool) -> Subscriber {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        Subscriber {
+            receives_actions,
+            diagnostic_only,
+            ui_epoch: None,
+            connection_id: 1,
+            sender: crate::server::outbox::Outbox::new(socket),
+        }
+    }
+
+    #[test]
+    fn wait_for_tick_returns_early_when_the_scan_is_woken() {
+        let flag = ShutdownFlag::new();
+        let wakeup = Arc::new(AtomicBool::new(false));
+        let waker = Arc::clone(&wakeup);
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            waker.store(true, Ordering::Release);
+        });
+        let started = Instant::now();
+        assert!(wait_for_tick(&flag, &wakeup, Duration::from_secs(30)));
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn wait_for_tick_reports_shutdown_instead_of_sleeping_the_whole_interval() {
+        let flag = ShutdownFlag::new();
+        flag.request();
+        let wakeup = Arc::new(AtomicBool::new(false));
+        assert!(!wait_for_tick(&flag, &wakeup, Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn wait_for_tick_consumes_the_wakeup_and_returns_immediately() {
+        let flag = ShutdownFlag::new();
+        let wakeup = Arc::new(AtomicBool::new(true));
+        let started = Instant::now();
+        assert!(wait_for_tick(&flag, &wakeup, Duration::from_secs(30)));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(!wakeup.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn hook_and_diagnostic_connections_do_not_keep_the_scan_running() {
+        let state = shared_state(vec![
+            subscriber(false, false),
+            subscriber(true, true),
+        ]);
+        assert!(!island_connected(&state));
+        assert!(!background_scanning(&state));
+    }
+
+    #[test]
+    fn a_subscribed_island_keeps_the_scan_running() {
+        let state = shared_state(vec![subscriber(true, false)]);
+        assert!(island_connected(&state));
+        assert!(background_scanning(&state));
+    }
+
+    #[test]
+    fn queued_deliveries_keep_the_scan_running_without_an_island() {
+        let state = shared_state(Vec::new());
+        assert!(!island_connected(&state));
+        {
+            let mut state = state.lock().unwrap();
+            state
+                .store
+                .deliveries
+                .admit("claude:1", "mensagem".into(), 0, true, None, None)
+                .unwrap();
+        }
+        assert!(deliveries_waiting(&state));
+        assert!(background_scanning(&state));
+    }
+
+    #[test]
+    fn a_poisoned_state_fails_safe_and_keeps_the_scan_running() {
+        let state = shared_state(Vec::new());
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = state.lock().unwrap();
+            panic!("poison the state");
+        }));
+        assert!(result.is_err());
+        assert!(island_connected(&state));
+        assert!(background_scanning(&state));
+    }
 }

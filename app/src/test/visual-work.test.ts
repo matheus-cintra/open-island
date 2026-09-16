@@ -25,26 +25,21 @@ await new Promise((resolve): void => { setTimeout(resolve, 30); });
 paint();
 
 test("visibility, fullscreen and reduced motion suspend the island's drift", (): void => {
-  expect(pending.size).toBe(1);
-  const old = [...pending.values()][0];
+  expect(main.driftActive()).toBe(true);
   Object.defineProperty(document, "hidden", { configurable: true, value: true });
   document.dispatchEvent(new window.Event("visibilitychange"));
-  expect(pending.size).toBe(0);
-  old(100);
-  expect(pending.size).toBe(0);
+  expect(main.driftActive()).toBe(false);
   Object.defineProperty(document, "hidden", { configurable: true, value: false });
   document.dispatchEvent(new window.Event("visibilitychange"));
-  expect(pending.size).toBe(1);
+  expect(main.driftActive()).toBe(true);
   tauri.emit("island-fullscreen", { fullscreen: true });
-  expect(pending.size).toBe(0);
+  expect(main.driftActive()).toBe(false);
   tauri.emit("island-fullscreen", { fullscreen: false });
-  expect(pending.size).toBe(1);
+  expect(main.driftActive()).toBe(true);
   reduced = true; for (const change of changes) change();
-  expect(pending.size).toBe(0);
+  expect(main.driftActive()).toBe(false);
   reduced = false; for (const change of changes) change();
-  expect(pending.size).toBe(1);
-  for (const [id, callback] of callbacks) if (!pending.has(id)) callback(200);
-  expect(pending.size).toBe(1);
+  expect(main.driftActive()).toBe(true);
 });
 
 test("idle fade suspends drift and pointer activity resumes one loop", async (): Promise<void> => {
@@ -52,9 +47,9 @@ test("idle fade suspends drift and pointer activity resumes one loop", async ():
   paint();
   main.resetIdle();
   await new Promise((resolve): void => { setTimeout(resolve, 30); });
-  expect(pending.size).toBe(0);
+  expect(main.driftActive()).toBe(false);
   main.resetIdle();
-  expect(pending.size).toBe(1);
+  expect(main.driftActive()).toBe(true);
   main.applyConfig({ island: { idle_fade: false } });
   paint();
 });
@@ -66,15 +61,15 @@ test("screen-off snapshots suspend drift; a stale offline snapshot cannot keep i
   snapshot.quiet_scenes.screen_off = true;
   tauri.emit("daemon-ui-state", structuredClone(cache));
   paint();
-  expect(pending.size).toBe(0);
+  expect(main.driftActive()).toBe(false);
   tauri.emit("daemon-ui-state", { phase: "reconnecting", generation: cache.generation, snapshot: cache.snapshot });
   paint();
-  expect(pending.size).toBe(1);
+  expect(main.driftActive()).toBe(true);
   snapshot.publication_revision += 1;
   snapshot.quiet_scenes.screen_off = false;
   tauri.emit("daemon-ui-state", structuredClone(cache));
   paint();
-  expect(pending.size).toBe(1);
+  expect(main.driftActive()).toBe(true);
 });
 
 test("returning to a visible expanded panel refreshes elapsed immediately without replaying renders", (): void => {

@@ -18,6 +18,9 @@ export class FrameLoop {
     this.pending = null;
     if (enabled) this.schedule(this.generation);
   }
+  isEnabled(): boolean {
+    return this.enabled;
+  }
   private schedule(generation: number): void {
     this.pending = this.frames.request((time): void => {
       if (!this.enabled || generation !== this.generation) return;
