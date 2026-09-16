@@ -347,10 +347,18 @@ run_install() {
 }
 
 restart_services() {
-	if systemctl --user try-restart open-islandd.service open-island.service 2>/dev/null; then
-		say "$PROGRAM_NAME: ran systemctl --user try-restart open-islandd.service open-island.service -> ok"
+	if ! command -v systemctl >/dev/null 2>&1 || ! systemctl --user show-environment >/dev/null 2>&1; then
+		warn "there is no systemd user session, so the running daemon and island were not restarted; they keep the previous version until they are restarted or you log in again."
+		return
+	fi
+	systemctl --user stop open-islandd.service open-island.service >/dev/null 2>&1
+	# A daemon left outside systemd keeps the socket and shadows the unit.
+	# The 'open-islandd run --' agent runners are separate processes and survive.
+	pkill -f "$DAEMON_EXECUTABLE --socket" 2>/dev/null && sleep 1
+	if systemctl --user start open-islandd.service open-island.service; then
+		say "$PROGRAM_NAME: restarted open-islandd.service and open-island.service with the new version."
 	else
-		warn "the running daemon and island were not restarted; they keep the previous version until they are restarted or you log in again."
+		warn "the services could not be restarted; they keep the previous version until they are restarted or you log in again."
 	fi
 }
 
