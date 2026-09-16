@@ -407,6 +407,7 @@ fn spawn_agent_under_fake_kitty(
         .arg(child_command)
         .current_dir(cwd)
         .env_remove("KITTY_LISTEN_ON")
+        .env_remove("OPEN_ISLAND_INPUT_SOCKET")
         .env("KITTY_WINDOW_ID", "123")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -465,8 +466,9 @@ fn a_message_sent_while_the_agent_works_waits_and_leaves_when_it_stops() {
         &path,
         &claude_event("UserPromptSubmit", &cwd, pid, r#","prompt":"trabalhe""#),
     );
-    let working = island.attention(pid, "working");
-    assert_eq!(working["send_channel"], json!("kitty"));
+    let working = island.session_where(pid, "working session with a resolved channel", |session| {
+        session["attention"] == json!("working") && session["send_channel"] == json!("kitty")
+    });
     let id = working["id"].as_str().expect("session id").to_owned();
 
     let first = request_with(
