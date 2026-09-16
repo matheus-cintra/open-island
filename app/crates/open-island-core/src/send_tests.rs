@@ -60,6 +60,7 @@ fn a_multiplexer_step_wins_over_the_emulator() {
         },
         JumpStep::KittyFocusWindow {
             window_id: "9".into(),
+            socket: "unix:/tmp/kitty-1".into(),
         },
     ];
     assert_eq!(
@@ -133,6 +134,7 @@ fn wezterm_takes_the_socket_from_the_env_or_the_runtime_dir() {
 fn kitty_needs_the_listen_socket() {
     let steps = [JumpStep::KittyFocusWindow {
         window_id: "9".into(),
+        socket: "unix:/tmp/kitty-1".into(),
     }];
     assert_eq!(
         channel_for(

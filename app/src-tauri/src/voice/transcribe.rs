@@ -37,7 +37,7 @@ pub fn run(path: &Path, audio: Audio, cancelled: &AtomicBool) -> Result<String, 
     }
     let mut state = context.create_state().map_err(|_| "transcription_failed")?;
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    params.set_n_threads(std::thread::available_parallelism().map_or(1, |n| n.get().min(8)) as i32);
+    params.set_n_threads(std::thread::available_parallelism().map_or(1, |n| n.get().min(12)) as i32);
     params.set_language(Some("pt"));
     params.set_detect_language(false);
     params.set_translate(false);

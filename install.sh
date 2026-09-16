@@ -342,7 +342,16 @@ run_install() {
 	install_release
 	resolve_installed_daemon
 	install_integrations
+	restart_services
 	report_install
+}
+
+restart_services() {
+	if systemctl --user try-restart open-islandd.service open-island.service 2>/dev/null; then
+		say "$PROGRAM_NAME: ran systemctl --user try-restart open-islandd.service open-island.service -> ok"
+	else
+		warn "the running daemon and island were not restarted; they keep the previous version until they are restarted or you log in again."
+	fi
 }
 
 elevated() {

@@ -3,5 +3,5 @@ members = ["crates/open-island-core", "crates/open-islandd", "src-tauri"]
 resolver = "2"
 
 [workspace.package]
-version = "0.9.0-linux"
+version = "0.9.1-linux"
 edition = "2021"

@@ -26,6 +26,7 @@ pub enum JumpStep {
     },
     KittyFocusWindow {
         window_id: String,
+        socket: String,
     },
     FocusWindowAddress {
         address: String,
@@ -134,9 +135,16 @@ impl<'a> JumpExecutor<'a> {
                 JumpStep::WeztermActivatePane { pane_id } => {
                     self.run("wezterm", &["cli", "activate-pane", "--pane-id", pane_id])
                 }
-                JumpStep::KittyFocusWindow { window_id } => self.run(
+                JumpStep::KittyFocusWindow { window_id, socket } => self.run(
                     "kitty",
-                    &["@", "focus-window", "--match", &format!("id:{window_id}")],
+                    &[
+                        "@",
+                        "--to",
+                        socket,
+                        "focus-window",
+                        "--match",
+                        &format!("id:{window_id}"),
+                    ],
                 ),
                 JumpStep::FocusWindowAddress { address } => {
                     if guarded {
@@ -230,7 +238,14 @@ mod tests {
                 window_id: window_id.map(str::to_owned),
             }),
             editor: None,
-            env: HashMap::new(),
+            env: if kind == "kitty" {
+                HashMap::from([(
+                    "KITTY_LISTEN_ON".to_owned(),
+                    "unix:/run/user/1000/kitty-test".to_owned(),
+                )])
+            } else {
+                HashMap::new()
+            },
         }
     }
 
@@ -283,11 +298,23 @@ mod tests {
             plan.steps,
             vec![
                 JumpStep::KittyFocusWindow {
-                    window_id: "9".into()
+                    window_id: "9".into(),
+                    socket: "unix:/run/user/1000/kitty-test".into()
                 },
                 JumpStep::RaiseWindow { pid: 77 }
             ]
         );
+        assert_eq!(runner.calls(), Vec::<(String, Vec<String>)>::new());
+    }
+
+    #[test]
+    fn kitty_plan_without_listen_socket_raises_only() {
+        let runner = FakeRunner::new();
+        let mut info = host("kitty", 77, Some("9"));
+        info.env.clear();
+        let plan = JumpPlanner::new(vec![Box::new(crate::resolvers::kitty::KittyResolver)])
+            .plan(&info, &runner);
+        assert_eq!(plan.steps, vec![JumpStep::RaiseWindow { pid: 77 }]);
         assert_eq!(runner.calls(), Vec::<(String, Vec<String>)>::new());
     }
 
@@ -304,7 +331,8 @@ mod tests {
             plan.steps,
             vec![
                 JumpStep::KittyFocusWindow {
-                    window_id: "12".into()
+                    window_id: "12".into(),
+                    socket: "unix:/run/user/1000/kitty-test".into()
                 },
                 JumpStep::RaiseWindow { pid: 77 }
             ]
@@ -347,6 +375,7 @@ mod tests {
         let result = JumpExecutor::new(&runner).execute(&[
             JumpStep::KittyFocusWindow {
                 window_id: "9".into(),
+                socket: "unix:/run/user/1000/kitty-test".into(),
             },
             JumpStep::FocusWindowAddress {
                 address: "0x1".into(),

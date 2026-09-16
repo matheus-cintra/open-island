@@ -127,7 +127,7 @@ pub fn channel_for(
                     pane_id: pane_id.clone(),
                 });
             }
-            JumpStep::KittyFocusWindow { window_id } => {
+            JumpStep::KittyFocusWindow { window_id, .. } => {
                 let socket = host
                     .env
                     .get("KITTY_LISTEN_ON")

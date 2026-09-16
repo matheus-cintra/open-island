@@ -131,6 +131,8 @@ fn run_until_with(
     let mut next = interval;
     let mut spoken = 0u64;
     let mut quiet = 0u64;
+    let mut floor = f32::MAX;
+    let mut seen = 0u32;
     while sink.status.load(Ordering::Acquire) == 0
         && !controls.stop.load(Ordering::Acquire)
         && !controls.cancel.load(Ordering::Acquire)
@@ -141,16 +143,31 @@ fn run_until_with(
             // try_lock only: the audio callback owns this mutex and must never wait.
             if let Ok(guard) = sink.buffer.try_lock() {
                 if let Some(buffer) = guard.as_ref() {
-                    let value = buffer.tail_level(window);
-                    level(value);
-                    if let Some(vad) = activity {
-                        if value >= vad.speech {
-                            spoken += reading;
-                            quiet = 0;
-                        } else if spoken >= arm {
-                            quiet += reading;
-                            if quiet >= vad.silence.as_millis() as u64 {
-                                controls.stop.store(true, Ordering::Release);
+                    if buffer.is_empty() {
+                        level(0.0);
+                    } else {
+                        let value = buffer.tail_level(window);
+                        level(value);
+                        if let Some(vad) = activity {
+                            seen += 1;
+                            if seen <= 5 {
+                                // Learn the ambient floor before judging speech, so
+                                // microphones whose noise sits above the absolute
+                                // minimum still reach silence.
+                                floor = floor.min(value);
+                            } else {
+                                if value >= (floor * 3.0).max(vad.speech) {
+                                    spoken += reading;
+                                    quiet = 0;
+                                } else if spoken >= arm {
+                                    quiet += reading;
+                                    if quiet >= vad.silence.as_millis() as u64 {
+                                        controls.stop.store(true, Ordering::Release);
+                                    }
+                                }
+                                if value < floor * 2.0 {
+                                    floor += (value - floor) * 0.1;
+                                }
                             }
                         }
                     }
@@ -259,8 +276,10 @@ mod tests {
     }
     struct ConversationFixture {
         dropped: Arc<AtomicBool>,
+        lead: usize,
         speech: usize,
         silence: usize,
+        noise: f32,
     }
     impl Source for ConversationFixture {
         type Stream = Guard;
@@ -268,10 +287,15 @@ mod tests {
             Ok((8000, 1))
         }
         fn start(&self, sink: Sink) -> Result<Guard, Error> {
-            let (speech, silence) = (self.speech, self.silence);
+            let (lead, speech, silence, noise) =
+                (self.lead, self.speech, self.silence, self.noise);
             thread::spawn(move || {
                 let voiced = [0.4f32; 800];
-                let quiet = [0f32; 800];
+                let quiet = [noise; 800];
+                for _ in 0..lead {
+                    sink.push(&quiet);
+                    thread::sleep(Duration::from_millis(80));
+                }
                 for _ in 0..speech {
                     sink.push(&voiced);
                     thread::sleep(Duration::from_millis(80));
@@ -289,8 +313,10 @@ mod tests {
         let dropped = Arc::new(AtomicBool::new(false));
         let fixture = ConversationFixture {
             dropped: dropped.clone(),
+            lead: 4,
             speech: 5,
             silence: 48,
+            noise: 0.0,
         };
         let started = Instant::now();
         let audio = run_until_with(
@@ -311,8 +337,10 @@ mod tests {
         let dropped = Arc::new(AtomicBool::new(false));
         let fixture = ConversationFixture {
             dropped: dropped.clone(),
+            lead: 4,
             speech: 0,
             silence: 48,
+            noise: 0.0,
         };
         let started = Instant::now();
         let audio = run_until_with(
@@ -328,6 +356,33 @@ mod tests {
         .unwrap();
         assert!(started.elapsed() >= Duration::from_millis(500));
         assert!(audio.samples.len() >= 4000, "{}", audio.samples.len());
+    }
+    #[test]
+    fn voice_activity_adapts_to_ambient_noise_above_the_floor() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let fixture = ConversationFixture {
+            dropped: dropped.clone(),
+            lead: 10,
+            speech: 6,
+            silence: 60,
+            noise: 0.03,
+        };
+        let started = Instant::now();
+        let audio = run_until_with(
+            &fixture,
+            Controls::default(),
+            Duration::from_secs(6),
+            Some(VoiceActivity {
+                speech: 0.025,
+                silence: Duration::from_millis(900),
+            }),
+            |_| {},
+        )
+        .unwrap();
+        let elapsed = started.elapsed();
+        assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
+        assert!(audio.samples.len() > 1000, "{}", audio.samples.len());
+        assert!(audio.samples.len() < 40_000, "{}", audio.samples.len());
     }
     #[test]
     fn live_levels_are_reported_while_streaming_and_stopped_with_it() {        let dropped = Arc::new(AtomicBool::new(false));
