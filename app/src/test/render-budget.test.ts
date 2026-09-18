@@ -69,7 +69,7 @@ test("a burst commits every state but paints the latest state once at the frame 
   input.focus();
   const header = document.querySelector(".row-head")!;
   const observer = new window.MutationObserver((): void => {});
-  observer.observe(header, { childList: true });
+  observer.observe(header, { childList: true, subtree: true });
   const monitorCalls = tauri.calls.filter((call): boolean => call.command === "set_island_monitor").length;
   for (let i = 0; i < 200; i += 1) {
     snapshot.publication_revision += 1; snapshot.sessions[0].title = `event ${i}`;

@@ -141,15 +141,15 @@ export function fillMessageBox(li: HTMLLIElement, session: Session): void {
   // Keep queued messages cancellable if a session loses its supported host.
   const boxHidden = unsupported && queued.length === 0 && !session.message_deliveries?.length && (box.querySelector<HTMLElement>(".message-recovery")?.hidden ?? true);
   setHidden(box, boxHidden);
-  const badges = li.querySelector<HTMLElement>(".row-badges")!;
-  let badge = badges.querySelector<HTMLElement>(".badge-queue");
+  const tail = li.querySelector<HTMLElement>(".row-tail")!;
+  let badge = tail.querySelector<HTMLElement>(".badge-queue");
   if (queued.length === 0) {
     badge?.remove();
   } else {
     if (badge === null) {
       badge = document.createElement("span");
-      badge.className = "row-badge badge-queue";
-      badges.append(badge);
+      badge.className = "row-queue pixel badge-queue";
+      tail.insertBefore(badge, tail.querySelector(".row-elapsed"));
     }
     if (badge.textContent !== String(queued.length)) badge.textContent = String(queued.length);
     const title = strings.session.messageQueued(queued.length);

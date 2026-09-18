@@ -15,21 +15,23 @@ import {
   compactTail,
   compactText,
   compactWordmark,
+  sessionEmptyEl,
   sessionListEl,
 } from "./elements";
 import { StateStrip } from "./strip";
 import { createMessageBox, fillMessageBox, disposeMessageBox } from "./message";
-import { Attention, BadgeSpec, Session, Subagent, Task, RowVisibility } from "./types";
+import { Attention, Session, Subagent, Task, RowVisibility } from "./types";
 import type { ActionIdentity } from "./daemon-state";
 interface RowContext {
   readonly compactClean: boolean;
   readonly expanded: boolean;
   readonly visible: boolean;
+  readonly offline: boolean;
   readonly sessions: Session[];
   readonly show: RowVisibility;
   readonly forceFill: boolean;
   readonly LEAVE_MS: number;
-  jumpTo(session: Session, row: HTMLButtonElement): void;
+  jumpTo(session: Session, row: HTMLElement): void;
   reducedMotion(): boolean;
   render(): void;
   syncExpandedSize(): void;
@@ -39,10 +41,25 @@ interface RowContext {
 let context: RowContext;
 const displayedSessions = new WeakMap<HTMLLIElement, Session>();
 const headSignatures = new WeakMap<HTMLElement, string>();
+const openDetails = new Set<string>();
 export function initializeRows(value: RowContext): void { context = value; }
 
 function setHidden(element: HTMLElement, hidden: boolean): void {
   if (element.hidden !== hidden) element.hidden = hidden;
+}
+
+function setChildren(parent: HTMLElement, wanted: readonly HTMLElement[]): void {
+  const current = [...parent.children];
+  if (current.length === wanted.length && current.every((child, index): boolean => child === wanted[index])) return;
+  parent.replaceChildren(...wanted);
+}
+
+function setText(element: HTMLElement, value: string): void {
+  if (element.textContent !== value) element.textContent = value;
+}
+
+function setClass(element: HTMLElement, value: string): void {
+  if (element.className !== value) element.className = value;
 }
 
 export function listKey(list: Session[]): string {
@@ -83,20 +100,6 @@ interface CompactNeed {
 
 const compactStrip = new StateStrip(compactStripEl);
 compactWordmark.textContent = strings.island.wordmark;
-
-function setChildren(parent: HTMLElement, wanted: readonly HTMLElement[]): void {
-  const current = [...parent.children];
-  if (current.length === wanted.length && current.every((child, index): boolean => child === wanted[index])) return;
-  parent.replaceChildren(...wanted);
-}
-
-function setText(element: HTMLElement, value: string): void {
-  if (element.textContent !== value) element.textContent = value;
-}
-
-function setClass(element: HTMLElement, value: string): void {
-  if (element.className !== value) element.className = value;
-}
 
 function compactNeedOf(list: Session[], pending: CompactPending | null): CompactNeed | null {
   if (pending !== null) {
@@ -178,11 +181,25 @@ export function renderCompact(n: number, pending: CompactPending | null, offline
   setChildren(compactRowEl, [compactLeading, compactTail]);
 }
 
+const emptySprite = createSprite("unknown");
+const emptyTitle = document.createElement("b");
+emptyTitle.textContent = strings.island.empty;
+const emptyHint = document.createElement("span");
+emptyHint.textContent = strings.island.emptyHint;
+const emptyCopy = document.createElement("span");
+emptyCopy.className = "session-empty-copy";
+emptyCopy.append(emptyTitle, emptyHint);
+sessionEmptyEl.append(emptySprite, emptyCopy);
+
 export function renderList(): void {
   const owner = transcriptOwner(context.sessions);
   const fill = context.expanded || context.forceFill;
   const wanted = new Map(context.sessions.map((session) => [session.id, session]));
   const alive = new Map<string, HTMLLIElement>();
+  setHidden(sessionEmptyEl, context.sessions.length !== 0 || context.offline);
+  if (sessionListEl.classList.contains("is-offline") !== context.offline) {
+    sessionListEl.classList.toggle("is-offline", context.offline);
+  }
 
   for (const li of [...sessionListEl.children] as HTMLLIElement[]) {
     const id = li.dataset.sessionId;
@@ -222,6 +239,7 @@ function leaveRow(li: HTMLLIElement): void {
   li.style.height = "0px";
   const done = (): void => {
     disposeMessageBox(li);
+    openDetails.delete(li.dataset.sessionId ?? "");
     li.remove();
     context.syncExpandedSize();
   };
@@ -262,11 +280,12 @@ function ensureTerminalIcon(session: Session): void {
   if (!kind || kind === "unknown") return;
   if (terminalIconCache.has(kind) || terminalIconPending.has(kind)) return;
   terminalIconPending.add(kind);
-  void invoke<string | null>("terminal_icon", { pid: session.pid })
+  void invoke<unknown>("terminal_icon", { pid: session.pid })
     .then((url) => {
-      terminalIconCache.set(kind, url ?? null);
+      const icon = typeof url === "string" && url !== "" ? url : null;
+      terminalIconCache.set(kind, icon);
       terminalIconPending.delete(kind);
-      if (url) context.render();
+      if (icon !== null) context.render();
     })
     .catch(() => {
       terminalIconCache.set(kind, null);
@@ -274,37 +293,21 @@ function ensureTerminalIcon(session: Session): void {
     });
 }
 
-function badge(text: string, kind?: string, iconUrl?: string): HTMLSpanElement {
-  const element = document.createElement("span");
-  element.className = kind ? `row-badge row-badge-${kind}` : "row-badge";
-  if (iconUrl === undefined) {
-    element.textContent = text;
-    return element;
-  }
-  const image = document.createElement("img");
-  image.src = iconUrl;
-  image.alt = text;
-  element.append(image);
-  return element;
-}
-
 function blockedOnUser(session: Session): boolean {
   return session.question_state === "pending" || session.permission_state === "pending";
 }
 
-/// The third line, and the one the elapsed badge counts for: what the session is waiting on,
-/// then the running tool, then its last answer. Never empty, so the row keeps its height.
 function activityText(session: Session): string {
   if (session.question_state === "pending") return strings.session.waitingAnswer;
   if (session.permission_state === "pending") return strings.session.waitingApproval;
-  if (session.current_tool) {
-    return session.summary
-      ? `${session.current_tool} ${session.summary}`
-      : session.current_tool;
-  }
+  if (session.current_tool) return session.current_tool;
   if (session.last_message) return session.last_message;
   const attention = strings.attention[session.attention ?? "working"];
   return session.status ?? (attention === "" ? strings.session.working : attention);
+}
+
+function shortCwd(cwd: string): string {
+  return cwd.replace(/^\/(?:home|Users)\/[^/]+/, "~");
 }
 
 function clearOnAnimationEnd(element: HTMLElement, className: string): void {
@@ -327,63 +330,142 @@ function setAttention(element: HTMLElement, attention: Attention): void {
   element.classList.add(next);
 }
 
-function separatorSpan(): HTMLSpanElement {
-  const separator = document.createElement("span");
-  separator.className = "row-separator";
-  separator.setAttribute("aria-hidden", "true");
-  separator.textContent = strings.session.separator;
-  return separator;
+function mascotKind(agent: string): "sprite" | "logo" {
+  const logo = SESSION_ICONS[agent];
+  if (context.show.mascot === "logo" && logo !== undefined) return "logo";
+  if (spriteAgent(agent) !== "unknown") return "sprite";
+  return logo === undefined ? "sprite" : "logo";
 }
 
-export function badgeSpec(session: Session): BadgeSpec[] {
-  const specs: BadgeSpec[] = [];
-  if (session.mode === "bypassPermissions") specs.push(["mode", strings.session.bypass, "bypass"]);
-  const iconUrl = SESSION_ICONS[session.agent];
-  if (context.show.agentIcons && iconUrl !== undefined) {
-    specs.push(["session-icon", strings.session.agent(session.agent), "icon", iconUrl]);
-  } else {
-    specs.push(["agent", strings.session.agent(session.agent), session.agent]);
+function logoImage(agent: string): HTMLImageElement {
+  const image = document.createElement("img");
+  image.className = "row-logo";
+  image.src = SESSION_ICONS[agent] ?? "";
+  image.alt = "";
+  return image;
+}
+
+function fillMascot(head: HTMLElement, session: Session, walking: boolean): void {
+  const kind = mascotKind(session.agent);
+  const key = `${kind}:${session.agent}`;
+  let mascot = head.querySelector<HTMLElement | SVGElement>(".row-mascot");
+  if (mascot === null || mascot.dataset.mascot !== key) {
+    const next: HTMLElement | SVGElement = kind === "logo" ? logoImage(session.agent) : createSprite(session.agent);
+    next.classList.add("row-mascot");
+    next.dataset.mascot = key;
+    if (mascot === null) head.prepend(next);
+    else mascot.replaceWith(next);
+    mascot = next;
   }
-  if (session.model && context.show.model) specs.push(["model", strings.session.model(session.model), undefined]);
-  if (session.effort && context.show.effort) specs.push(["effort", session.effort, undefined]);
+  mascot.classList.toggle("is-walking", walking);
+}
+
+function metaDot(): HTMLSpanElement {
+  const dot = document.createElement("span");
+  dot.className = "meta-dot";
+  dot.setAttribute("aria-hidden", "true");
+  dot.textContent = strings.session.separator;
+  return dot;
+}
+
+function metaItem(className: string, text: string): HTMLSpanElement {
+  const item = document.createElement("span");
+  item.className = `meta-item ${className}`;
+  item.textContent = text;
+  return item;
+}
+
+function buildMeta(session: Session, terminalIcon: string | null | undefined): HTMLElement[] {
+  const parts: HTMLElement[] = [];
+  const push = (item: HTMLElement): void => {
+    if (parts.length > 0) parts.push(metaDot());
+    parts.push(item);
+  };
+  if (session.branch && context.show.worktree) {
+    const branch = document.createElement("span");
+    branch.className = "meta-item meta-branch";
+    branch.setAttribute("aria-label", strings.session.branchLabel(session.branch));
+    const glyph = document.createElement("span");
+    glyph.className = "meta-glyph";
+    glyph.innerHTML = BRANCH_GLYPH;
+    const name = document.createElement("span");
+    name.className = "meta-branch-name";
+    name.textContent = session.branch;
+    branch.append(glyph, name);
+    push(branch);
+  }
+  if (session.model && context.show.model) push(metaItem("meta-model", strings.session.model(session.model)));
+  if (session.effort && context.show.effort) push(metaItem("meta-effort", session.effort));
   if (session.terminal && session.terminal !== "unknown") {
-    const terminalUrl = terminalIconCache.get(session.terminal);
-    if (context.show.terminalIcons && terminalUrl) {
-      specs.push(["terminal-icon", session.terminal, "icon", terminalUrl]);
+    if (context.show.terminalIcons && terminalIcon) {
+      const item = document.createElement("span");
+      item.className = "meta-item meta-terminal";
+      const image = document.createElement("img");
+      image.className = "meta-terminal-icon";
+      image.src = terminalIcon;
+      image.alt = session.terminal;
+      item.append(image);
+      push(item);
     } else {
-      specs.push(["terminal", session.terminal, undefined]);
+      push(metaItem("meta-terminal", session.terminal));
     }
   }
-  if (session.since_ms !== undefined) {
-    specs.push(["elapsed", strings.session.elapsed(Date.now() - session.since_ms), "elapsed"]);
+  if (session.mode === "bypassPermissions") {
+    const chip = document.createElement("span");
+    chip.className = "row-state pixel bypass";
+    chip.textContent = strings.session.bypass;
+    parts.push(chip);
   }
-  return specs;
+  return parts;
 }
 
-export function fillBadges(container: HTMLElement, session: Session): void {
-  const specs = badgeSpec(session);
-  const wanted = new Set(specs.map(([key]) => key));
-  for (const existing of [...container.children]) {
-    const key = (existing as HTMLElement).dataset.badge;
-    if (key === undefined || !wanted.has(key)) existing.remove();
-  }
-  let previous: Element | null = null;
-  for (const [key, text, kind, iconUrl] of specs) {
-    let element = container.querySelector<HTMLSpanElement>(`[data-badge="${key}"]`);
-    if (element === null) {
-      element = badge(text, kind, iconUrl);
-      element.dataset.badge = key;
-      element.classList.add("is-entering");
-      clearOnAnimationEnd(element, "is-entering");
-      container.insertBefore(element, previous === null ? container.firstChild : previous.nextSibling);
-    } else if (iconUrl !== undefined) {
-      const image = element.firstElementChild as HTMLImageElement | null;
-      if (image !== null && image.getAttribute("src") !== iconUrl) image.src = iconUrl;
-    } else if (element.textContent !== text) {
-      element.textContent = text;
+function fillHead(row: HTMLElement, session: Session): void {
+  const head = row.querySelector<HTMLElement>(".row-head")!;
+  const project = head.querySelector<HTMLElement>(".row-project")!;
+  const name = head.querySelector<HTMLElement>(".row-name")!;
+  const meta = head.querySelector<HTMLElement>(".row-meta")!;
+  const terminalIcon = session.terminal ? terminalIconCache.get(session.terminal) : null;
+  const show = context.show;
+  setText(project, session.title);
+  setHidden(project, !show.project);
+  setText(name, session.name ?? "");
+  setHidden(name, !session.name);
+  const signature = JSON.stringify([
+    show.worktree ? session.branch ?? "" : "",
+    show.model ? session.model ?? "" : "",
+    show.effort ? session.effort ?? "" : "",
+    session.terminal,
+    show.terminalIcons ? terminalIcon ?? "" : "",
+    session.mode ?? "",
+  ]);
+  if (headSignatures.get(head) === signature) return;
+  headSignatures.set(head, signature);
+  meta.replaceChildren(...buildMeta(session, terminalIcon));
+  setHidden(meta, meta.childElementCount === 0);
+}
+
+function fillTail(row: HTMLElement, session: Session, attention: Attention): void {
+  const tail = row.querySelector<HTMLElement>(".row-tail")!;
+  const elapsed = tail.querySelector<HTMLElement>(".row-elapsed")!;
+  let state = tail.querySelector<HTMLElement>(".row-state");
+  if (attention === "working") {
+    state?.remove();
+  } else {
+    if (state === null) {
+      state = document.createElement("span");
+      tail.prepend(state);
     }
-    previous = element;
+    setClass(state, `row-state pixel ${attention}`);
+    setText(state, strings.session.stateChip[attention]);
   }
+  if (session.since_ms === undefined) {
+    setHidden(elapsed, true);
+    return;
+  }
+  setHidden(elapsed, false);
+  if (elapsed.dataset.since !== String(session.since_ms)) elapsed.dataset.since = String(session.since_ms);
+  setText(elapsed, strings.session.elapsed(Date.now() - session.since_ms));
+  if (tail.lastElementChild !== elapsed) tail.append(elapsed);
 }
 
 function fillActivity(label: HTMLElement, session: Session): void {
@@ -436,7 +518,7 @@ function agentItem(agent: Subagent): HTMLElement {
   name.className = "agent-name";
   name.textContent = agent.description ? `${agent.kind} (${agent.description})` : agent.kind;
   const state = document.createElement("span");
-  state.className = "agent-state";
+  state.className = "agent-state pixel";
   if (agent.done || agent.since_ms === undefined) {
     state.textContent = agent.done ? strings.session.done : "";
   } else {
@@ -475,21 +557,47 @@ function taskItem(task: Task): HTMLElement {
   return item;
 }
 
+function taskCounts(list: Task[]): { done: number; total: number } {
+  const done = list.filter((task) => task.status === "completed" || task.status === "cancelled").length;
+  return { done, total: list.length };
+}
+
+function fillChips(row: HTMLElement, session: Session): void {
+  const chips = row.querySelector<HTMLElement>(".row-chips")!;
+  const tasksChip = chips.querySelector<HTMLButtonElement>('[data-chip="tasks"]')!;
+  const agentsChip = chips.querySelector<HTMLButtonElement>('[data-chip="agents"]')!;
+  const tasks = session.tasks ?? [];
+  const agents = session.subagents ?? [];
+  const open = openDetails.has(session.id);
+  const showTasks = tasks.length > 0 && context.show.tasks;
+  setHidden(tasksChip, !showTasks);
+  if (showTasks) {
+    const { done, total } = taskCounts(tasks);
+    setText(tasksChip.querySelector<HTMLElement>(".chip-text")!, strings.session.tasksChip(done, total));
+    const width = `${Math.round((100 * done) / total)}%`;
+    const fill = tasksChip.querySelector<HTMLElement>(".chip-fill")!;
+    if (fill.style.width !== width) fill.style.width = width;
+  }
+  const showAgents = agents.length > 0;
+  setHidden(agentsChip, !showAgents);
+  if (showAgents) {
+    const live = agents.filter((agent) => !agent.done).length;
+    setText(agentsChip.querySelector<HTMLElement>(".chip-text")!, strings.session.agentsChip(live, agents.length));
+    agentsChip.classList.toggle("is-live", live > 0);
+    if (agentsChip.disabled !== !context.show.subagents) agentsChip.disabled = !context.show.subagents;
+  }
+  setHidden(chips, !showTasks && !showAgents);
+  const expanded = String(open);
+  if (tasksChip.getAttribute("aria-expanded") !== expanded) tasksChip.setAttribute("aria-expanded", expanded);
+  if (agentsChip.getAttribute("aria-expanded") !== expanded) agentsChip.setAttribute("aria-expanded", expanded);
+}
+
 function fillTasks(row: HTMLElement, session: Session): void {
   const block = row.querySelector<HTMLElement>(".row-tasks")!;
   const list = session.tasks ?? [];
-  const hidden = list.length === 0 || !context.show.tasks;
+  const hidden = list.length === 0 || !context.show.tasks || !openDetails.has(session.id);
   setHidden(block, hidden);
   if (hidden) return;
-
-  const done = list.filter(
-    (task) => task.status === "completed" || task.status === "cancelled",
-  ).length;
-  const progress = list.filter((task) => task.status === "in_progress").length;
-  const count = block.querySelector<HTMLElement>(".tasks-count")!;
-  const label = strings.session.tasks(done, progress, list.length - done - progress);
-  if (count.textContent !== label) count.textContent = label;
-
   const items = block.querySelector<HTMLElement>(".tasks-list")!;
   const signature = taskSignature(list);
   if (items.dataset.signature === signature) return;
@@ -500,16 +608,10 @@ function fillTasks(row: HTMLElement, session: Session): void {
 function fillAgents(row: HTMLElement, session: Session): void {
   const block = row.querySelector<HTMLElement>(".row-agents")!;
   const list = session.subagents ?? [];
-  setHidden(block, list.length === 0);
-  if (list.length === 0) return;
-
-  const count = block.querySelector<HTMLElement>(".agents-count")!;
-  const label = strings.session.subagents(list.length);
-  if (count.textContent !== label) count.textContent = label;
-
+  setHidden(block, list.length === 0 || !openDetails.has(session.id));
   const items = block.querySelector<HTMLElement>(".agents-list")!;
   setHidden(items, !context.show.subagents);
-  if (!context.show.subagents) return;
+  if (list.length === 0 || !context.show.subagents) return;
   const signature = agentSignature(list);
   if (items.dataset.signature === signature) return;
   items.dataset.signature = signature;
@@ -532,15 +634,14 @@ function fillTranscript(row: HTMLElement, session: Session, wanted: boolean): vo
   const promptText = session.summary
     ? `${strings.session.promptPrefix} ${session.summary}`
     : strings.session.promptPrefix;
-  if (prompt.textContent !== promptText) prompt.textContent = promptText;
-  const bodyText = session.last_message_body ?? "";
-  if (body.textContent !== bodyText) body.textContent = bodyText;
+  setText(prompt, promptText);
+  setText(body, session.last_message_body ?? "");
 }
 
 export function fillRow(li: HTMLLIElement, session: Session, transcript: boolean): void {
   displayedSessions.set(li, { ...session, action_identity: session.action_identity ? { ...session.action_identity } : undefined });
   const attention = session.attention ?? "working";
-  const row = li.firstElementChild as HTMLButtonElement;
+  const row = li.firstElementChild as HTMLElement;
   setAttention(row, attention);
   row.classList.toggle("collapsed", attention === "idle");
   const title = session.summary
@@ -549,131 +650,127 @@ export function fillRow(li: HTMLLIElement, session: Session, transcript: boolean
   if (row.title !== title) row.title = title;
 
   const head = row.querySelector<HTMLElement>(".row-head")!;
-  const badges = row.querySelector<HTMLElement>(".row-badges")!;
-  const dot = row.querySelector<HTMLElement>(".row-dot")!;
-  const sprite = row.querySelector<SVGSVGElement>(".row-sprite")!;
-  setAttention(dot, attention);
-  sprite.classList.toggle("is-walking", attention !== "idle");
-
-  const headSignature = JSON.stringify([
-    context.show.project ? session.title : "",
-    context.show.worktree ? session.branch ?? "" : "",
-    session.name ?? "",
-  ]);
-  if (headSignatures.get(head) !== headSignature) {
-    for (const stale of [...head.children]) {
-      if (stale !== dot && stale !== badges && stale !== sprite) stale.remove();
-    }
-
-    if (context.show.project) {
-      const project = document.createElement("span");
-      project.className = "row-project";
-      project.textContent = session.title;
-      head.insertBefore(project, badges);
-    }
-
-    if (session.branch && context.show.worktree) {
-      const glyph = document.createElement("span");
-      glyph.className = "row-branch-glyph";
-      glyph.innerHTML = BRANCH_GLYPH;
-      glyph.setAttribute("aria-label", strings.session.branchLabel(session.branch));
-      const branch = document.createElement("span");
-      branch.className = "row-branch";
-      branch.textContent = session.branch;
-      head.insertBefore(glyph, badges);
-      head.insertBefore(branch, badges);
-    }
-
-    if (session.name) {
-      const name = document.createElement("span");
-      name.className = "row-name";
-      name.textContent = session.name;
-      head.insertBefore(separatorSpan(), badges);
-      head.insertBefore(name, badges);
-    }
-    headSignatures.set(head, headSignature);
-  }
-
+  fillMascot(head, session, attention !== "idle");
   ensureTerminalIcon(session);
-  fillBadges(badges, session);
-  const age = badges.querySelector<HTMLElement>(".row-badge-elapsed");
-  if (age !== null && age.dataset.since !== String(session.since_ms)) age.dataset.since = String(session.since_ms);
+  fillHead(row, session);
+  fillTail(row, session, attention);
 
+  const line = row.querySelector<HTMLElement>(".row-line2")!;
+  setHidden(line, transcript);
   const prompt = row.querySelector<HTMLElement>(".row-prompt")!;
-  const promptText = session.summary
-    ? `${strings.session.promptPrefix} ${session.summary}`
-    : session.cwd;
-  if (prompt.textContent !== promptText) prompt.textContent = promptText;
-  setHidden(prompt, transcript);
+  setText(prompt, session.summary ? `${strings.session.promptPrefix} ${session.summary}` : shortCwd(session.cwd));
+  prompt.classList.toggle("is-cwd", !session.summary);
 
   const activity = row.querySelector<HTMLElement>(".row-activity")!;
-  setHidden(activity, (!context.show.activity && !blockedOnUser(session)) || transcript);
+  setHidden(activity, !context.show.activity && !blockedOnUser(session));
+  activity.classList.toggle("is-waiting", blockedOnUser(session));
   fillActivity(row.querySelector<HTMLElement>(".row-activity-label")!, session);
 
+  fillChips(row, session);
   fillTasks(row, session);
   fillAgents(row, session);
   fillTranscript(row, session, transcript);
   fillMessageBox(li, session);
 }
 
+function toggleDetails(li: HTMLLIElement): void {
+  const current = displayedSessions.get(li);
+  if (current === undefined) return;
+  if (openDetails.has(current.id)) openDetails.delete(current.id);
+  else openDetails.add(current.id);
+  const row = li.firstElementChild as HTMLElement;
+  fillChips(row, current);
+  fillTasks(row, current);
+  fillAgents(row, current);
+  context.syncExpandedSize();
+}
+
+function chip(kind: "tasks" | "agents"): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `row-chip row-chip-${kind}`;
+  button.dataset.chip = kind;
+  button.hidden = true;
+  button.setAttribute("aria-expanded", "false");
+  if (kind === "agents") {
+    const live = document.createElement("span");
+    live.className = "chip-live";
+    live.setAttribute("aria-hidden", "true");
+    button.append(live);
+  }
+  const text = document.createElement("span");
+  text.className = "chip-text";
+  button.append(text);
+  if (kind === "tasks") {
+    const bar = document.createElement("span");
+    bar.className = "chip-bar";
+    bar.setAttribute("aria-hidden", "true");
+    const fill = document.createElement("i");
+    fill.className = "chip-fill";
+    bar.append(fill);
+    button.append(bar);
+  }
+  return button;
+}
+
 export function createRow(session: Session, transcript: boolean): HTMLLIElement {
   const li = document.createElement("li");
   li.dataset.sessionId = session.id;
 
-  const row = document.createElement("button");
-  row.type = "button";
+  const row = document.createElement("div");
   row.className = "session-row";
+  row.setAttribute("role", "button");
+  row.tabIndex = 0;
 
   const head = document.createElement("span");
   head.className = "row-head";
-  const sprite = createSprite(session.agent);
-  sprite.classList.add("row-sprite");
-  const dot = document.createElement("span");
-  dot.className = "row-dot";
-  dot.setAttribute("aria-hidden", "true");
-  const badges = document.createElement("span");
-  badges.className = "row-badges";
-  head.append(sprite, badges, dot);
+  const project = document.createElement("span");
+  project.className = "row-project";
+  const name = document.createElement("span");
+  name.className = "row-name";
+  const meta = document.createElement("span");
+  meta.className = "row-meta";
+  const tail = document.createElement("span");
+  tail.className = "row-tail";
+  const elapsed = document.createElement("span");
+  elapsed.className = "row-elapsed pixel";
+  tail.append(elapsed);
+  head.append(project, name, meta, tail);
 
+  const line = document.createElement("span");
+  line.className = "row-line2";
   const prompt = document.createElement("span");
   prompt.className = "row-prompt";
-
   const activity = document.createElement("span");
   activity.className = "row-activity";
   const label = document.createElement("span");
   label.className = "row-activity-label";
   activity.append(label);
+  line.append(prompt, activity);
+
+  const chips = document.createElement("span");
+  chips.className = "row-chips";
+  chips.hidden = true;
+  chips.append(chip("tasks"), chip("agents"));
+  chips.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element) || event.target.closest(".row-chip") === null) return;
+    event.stopPropagation();
+    toggleDetails(li);
+  });
 
   const tasks = document.createElement("span");
   tasks.className = "row-tasks";
   tasks.hidden = true;
-  const tasksHead = document.createElement("span");
-  tasksHead.className = "tasks-head";
-  const tasksLabel = document.createElement("span");
-  tasksLabel.className = "tasks-label";
-  tasksLabel.textContent = strings.session.tasksLabel;
-  const tasksCount = document.createElement("span");
-  tasksCount.className = "tasks-count";
-  tasksHead.append(tasksLabel, tasksCount);
   const tasksList = document.createElement("span");
   tasksList.className = "tasks-list";
-  tasks.append(tasksHead, tasksList);
+  tasks.append(tasksList);
 
   const agents = document.createElement("span");
   agents.className = "row-agents";
   agents.hidden = true;
-  const agentsHead = document.createElement("span");
-  agentsHead.className = "agents-head";
-  const agentsGlyph = document.createElement("span");
-  agentsGlyph.className = "agents-glyph";
-  agentsGlyph.innerHTML = BRANCH_GLYPH;
-  agentsGlyph.setAttribute("aria-hidden", "true");
-  const agentsCount = document.createElement("span");
-  agentsCount.className = "agents-count";
-  agentsHead.append(agentsGlyph, agentsCount);
   const agentsList = document.createElement("span");
   agentsList.className = "agents-list";
-  agents.append(agentsHead, agentsList);
+  agents.append(agentsList);
 
   const card = document.createElement("span");
   card.className = "row-transcript";
@@ -682,32 +779,37 @@ export function createRow(session: Session, transcript: boolean): HTMLLIElement 
   cardHead.className = "transcript-head";
   const cardPrompt = document.createElement("span");
   cardPrompt.className = "transcript-prompt";
-  const cardStatus = document.createElement("span");
-  cardStatus.className = "transcript-status";
-  cardStatus.textContent = strings.session.done;
-  cardHead.append(cardPrompt, cardStatus);
+  cardHead.append(cardPrompt);
   const cardBody = document.createElement("span");
   cardBody.className = "transcript-body";
   card.append(cardHead, cardBody);
 
-  row.append(head, prompt, activity, tasks, agents, card);
+  row.append(head, line, chips, tasks, agents, card);
   li.append(row, createMessageBox(session.id, { resize: context.syncExpandedSize, error: context.showError, canUseTarget: context.canUseTarget }));
   fillRow(li, session, transcript);
-  row.addEventListener("click", () => {
+  const jump = (): void => {
     if (li.classList.contains("is-leaving")) return;
     const current = displayedSessions.get(li);
     if (current !== undefined) context.jumpTo(current, row);
+  };
+  row.addEventListener("click", (event) => {
+    if (event.target instanceof Element && event.target.closest(".row-chip") !== null) return;
+    jump();
+  });
+  row.addEventListener("keydown", (event) => {
+    if (event.target !== row) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    jump();
   });
   return li;
 }
 
-/// Only the elapsed text is rewritten, and only while the panel is open, so an idle island
-/// never wakes the webview and a tick never re-renders the list.
 export function tickElapsed(): void {
   if (!context.expanded || !context.visible) return;
   const now = Date.now();
   for (const element of sessionListEl.querySelectorAll<HTMLElement>(
-    ".row-badge-elapsed, .agent-elapsed",
+    ".row-elapsed, .agent-elapsed",
   )) {
     const since = Number(element.dataset.since);
     if (Number.isFinite(since)) {
