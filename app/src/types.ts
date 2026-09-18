@@ -76,12 +76,14 @@ export interface Subagent {
 }
 
 export type Mascot = "sprite" | "logo";
+export type ComposerMode = "on_demand" | "always";
 
 export interface RowVisibility {
   tasks: boolean;
   project: boolean;
   worktree: boolean;
   mascot: Mascot;
+  composer: ComposerMode;
   terminalIcons: boolean;
   model: boolean;
   effort: boolean;
