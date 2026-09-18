@@ -24,6 +24,7 @@ mock.module("@tauri-apps/api/event", () => ({ listen: tauri.listen }));
 mountIsland({ reducedMotion: true });
 const main = await import("../main");
 await new Promise((resolve) => setTimeout(resolve, 50));
+tauri.state.config({ display: { composer: "always" } });
 
 const identity = { daemon_epoch: "fixture-epoch", session_instance_id: "session-instance" };
 const base = {
@@ -207,4 +208,92 @@ test("identical queue updates keep the editor, caret and queue nodes", () => {
   expect(input.selectionEnd).toBe(3);
   expect(document.activeElement).toBe(input);
   li.remove();
+});
+
+function boxOf(li: HTMLLIElement): HTMLElement {
+  return li.querySelector<HTMLElement>(".row-message")!;
+}
+function toggleOf(li: HTMLLIElement): HTMLButtonElement {
+  return li.querySelector<HTMLButtonElement>(".row-message-toggle")!;
+}
+function listRows(): HTMLLIElement[] {
+  return [...document.querySelectorAll<HTMLLIElement>("#session-list > li")];
+}
+
+test("on demand, the composer stays hidden until its toggle opens it, and only one stays open", () => {
+  tauri.state.config({ display: { composer: "on_demand" } });
+  if (!main.expanded) tauri.emit("island-toggle", {});
+  tauri.state.sessions([
+    { ...base, id: "claude:c1", send_channel: "tmux" },
+    { ...base, id: "claude:c2", title: "outra", send_channel: "tmux" },
+  ]);
+  const [first, second] = listRows();
+  expect(boxOf(first).hidden).toBe(true);
+  expect(toggleOf(first).hidden).toBe(false);
+  expect(toggleOf(first).getAttribute("aria-expanded")).toBe("false");
+  toggleOf(first).click();
+  expect(boxOf(first).hidden).toBe(false);
+  expect(toggleOf(first).getAttribute("aria-expanded")).toBe("true");
+  expect(document.activeElement).toBe(first.querySelector(".message-input"));
+  toggleOf(second).click();
+  expect(boxOf(first).hidden).toBe(true);
+  expect(boxOf(second).hidden).toBe(false);
+  toggleOf(second).click();
+  expect(boxOf(second).hidden).toBe(true);
+});
+
+function publishDraftScenario(): void {
+  tauri.state.sessions([
+    { ...base, id: "claude:d1", send_channel: "tmux" },
+    { ...base, id: "claude:d2", title: "fila", send_channel: "tmux" },
+  ]);
+  const cache = tauri.state.read();
+  cache.snapshot!.snapshot.message_deliveries = [{
+    message_id: 3, session_id: "claude:d2", text: "na fila", queued_at_ms: 1, state: "queued",
+    identity: { daemon_epoch: "fixture-epoch", session_instance_id: "session-instance" },
+  }];
+  tauri.emit("daemon-ui-state", cache);
+}
+
+test("a draft or a queued message keeps an on-demand composer visible through re-renders", () => {
+  tauri.state.config({ display: { composer: "on_demand" } });
+  publishDraftScenario();
+  const [drafted, queued] = listRows();
+  expect(boxOf(queued).hidden).toBe(false);
+  toggleOf(drafted).click();
+  const input = drafted.querySelector<HTMLTextAreaElement>(".message-input")!;
+  input.value = "rascunho";
+  input.dispatchEvent(new window.Event("input"));
+  toggleOf(queued).click();
+  expect(boxOf(drafted).hidden).toBe(false);
+  publishDraftScenario();
+  expect(boxOf(listRows()[0]).hidden).toBe(false);
+  expect(boxOf(listRows()[1]).hidden).toBe(false);
+});
+
+test("Escape closes an empty on-demand composer and keeps one that holds text", () => {
+  tauri.state.config({ display: { composer: "on_demand" } });
+  tauri.state.sessions([{ ...base, id: "claude:e1", send_channel: "tmux" }]);
+  const [row] = listRows();
+  toggleOf(row).click();
+  const input = row.querySelector<HTMLTextAreaElement>(".message-input")!;
+  keydown(input, "Escape");
+  expect(boxOf(row).hidden).toBe(true);
+  expect(toggleOf(row).getAttribute("aria-expanded")).toBe("false");
+  toggleOf(row).click();
+  input.value = "ainda escrevendo";
+  keydown(input, "Escape");
+  expect(boxOf(row).hidden).toBe(false);
+});
+
+test("always mode shows every composer and hides the toggles", () => {
+  tauri.state.config({ display: { composer: "always" } });
+  tauri.state.sessions([
+    { ...base, id: "claude:a1", send_channel: "tmux" },
+    { ...base, id: "claude:a2", title: "outra", send_channel: "tmux" },
+  ]);
+  for (const li of listRows()) {
+    expect(boxOf(li).hidden).toBe(false);
+    expect(toggleOf(li).hidden).toBe(true);
+  }
 });

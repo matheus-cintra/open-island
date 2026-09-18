@@ -45,6 +45,14 @@ test("a save carries the touched path onto the document as it is on disk right n
   expect(lastWrite().display.completion_card_height).toBe(170);
 });
 
+test("the two new display choices travel as their string values", async () => {
+  settings.setValue("display.mascot", "logo");
+  settings.setValue("display.composer", "always");
+  await settings.flushSave();
+  expect(lastWrite().display.mascot).toBe("logo");
+  expect(lastWrite().display.composer).toBe("always");
+});
+
 test("a path the window never touched is never written back", async () => {
   onDisk.island.hover_dwell_ms = 900;
   settings.setValue("sound.quiet", true);
