@@ -3,6 +3,7 @@ import { FrameLoop } from "./frame-loop";
 import { RenderFrame } from "./render-frame";
 import { CompletionEdges, SubagentEdges } from "./activity-edges";
 import { UsageLane, type UsagePart } from "./usage-lane";
+import { StateStrip } from "./strip";
 import { IslandWindow, NativeResize } from "./island-window";
 import { snapshotSessions, snapshotApprovals, snapshotQuestions, pendingKey, detachedDeliveries } from "./island-state";
 import { DeliveryView } from "./message-deliveries";
@@ -33,6 +34,8 @@ import {
   compactViewEl,
   expandedViewEl,
   headerLabelEl,
+  headerNeedEl,
+  headerStripEl,
   headerUsageEl,
   headerUsageModelEl,
   sessionListEl,
@@ -58,7 +61,7 @@ import {
   muteWavesEl,
   muteCrossEl,
 } from "./elements";
-import { initializeRows, renderCompact, renderList, tickElapsed } from "./row";
+import { initializeRows, renderCompact, renderList, tickElapsed, type CompactPending } from "./row";
 import {
   initializeQuestions,
   setQuestionConnection,
@@ -502,9 +505,14 @@ function paint(): void {
   detachedView.update(detachedRecords, daemonConnected);
   if (connectionStatusEl.hidden !== connectionStatusHidden) connectionStatusEl.hidden = connectionStatusHidden;
   if (connectionStatusEl.textContent !== connectionLabel) connectionStatusEl.textContent = connectionLabel;
-  renderCompact(n, pendingApproval !== null || pendingQuestion !== null);
-  const headerLabel = strings.island.sessions(n);
+  const pending: CompactPending | null = pendingApproval !== null
+    ? { kind: "approval", sessionId: pendingApproval.session_id }
+    : pendingQuestion !== null ? { kind: "question", sessionId: pendingQuestion.session_id } : null;
+  renderCompact(n, pending, !daemonConnected);
+  headerStrip.update(sessions, !daemonConnected);
+  const headerLabel = daemonConnected ? strings.island.sessions(n) : strings.island.noConnection;
   if (headerLabelEl.textContent !== headerLabel) headerLabelEl.textContent = headerLabel;
+  paintHeaderNeed();
   renderUsage();
   renderList();
   renderApproval();
@@ -542,7 +550,7 @@ function usageSeverity(percent: number): string {
 
 function usageWindow(key: string, name: string, percent: number, resetsAt: number | undefined, now: number): UsagePart {
   const remaining = resetsAt === undefined ? 0 : resetsAt - now;
-  return { key, label: name, value: strings.usage.percent(usageValue(percent)), severity: usageSeverity(percent),
+  return { key, label: name, value: strings.usage.percent(usageValue(percent)), percent: usageValue(percent), severity: usageSeverity(percent),
     ...(remaining > 0 ? { reset: strings.usage.resetIn(remaining) } : {}) };
 }
 
@@ -556,9 +564,19 @@ function creditText(credits: { balance: number; unlimited: boolean }): string | 
 
 const usageLane = new UsageLane(headerUsageEl);
 const modelLane = new UsageLane(headerUsageModelEl);
+const headerStrip = new StateStrip(headerStripEl);
+function paintHeaderNeed(): void {
+  const waiting = sessions.filter((session): boolean => session.attention === "waiting_for_input").length;
+  const finished = sessions.filter((session): boolean => session.attention === "needs_attention").length;
+  const kind = !daemonConnected ? "" : waiting > 0 ? "waiting_for_input" : finished > 0 ? "needs_attention" : "";
+  const label = kind === "waiting_for_input" ? strings.island.waiting(waiting) : kind === "needs_attention" ? strings.island.finished(finished) : "";
+  const className = `header-need pixel ${kind}`.trim();
+  if (headerNeedEl.className !== className) headerNeedEl.className = className;
+  if (headerNeedEl.textContent !== label) headerNeedEl.textContent = label;
+  setHidden(headerNeedEl, label === "");
+}
 function renderUsage(): void {
   const snapshot = usageOptions.showLimits ? usageProvider() : null;
-  if (headerLabelEl.hidden !== (snapshot !== null)) headerLabelEl.hidden = snapshot !== null;
   if (snapshot === null) { usageLane.update([], false); modelLane.update([], false); return; }
   const now = Date.now();
   const stale = now - snapshot.fetched_at_ms > USAGE_STALE_AFTER_MS;

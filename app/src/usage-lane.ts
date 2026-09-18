@@ -1,9 +1,14 @@
 import { strings } from "./strings";
 export interface UsagePart {
-  key: string; label: string; marker?: boolean; value?: string; severity?: string; reset?: string;
+  key: string; label: string; marker?: boolean; value?: string; percent?: number; severity?: string; reset?: string;
 }
 interface Entry {
-  element: HTMLElement; label: HTMLElement; value: HTMLElement; reset: HTMLElement; separator: HTMLElement;
+  element: HTMLElement; label: HTMLElement; track: HTMLElement; fill: HTMLElement; value: HTMLElement; reset: HTMLElement; separator: HTMLElement;
+}
+function setChildren(parent: HTMLElement, wanted: readonly HTMLElement[]): void {
+  const current = [...parent.children];
+  if (current.length === wanted.length && current.every((child, index): boolean => child === wanted[index])) return;
+  parent.replaceChildren(...wanted);
 }
 function text(element: HTMLElement, value: string): void {
   if (element.textContent !== value) element.textContent = value;
@@ -32,27 +37,38 @@ export class UsageLane {
       if (!entry) {
         const element = document.createElement("span");
         const label = document.createElement("span"); label.className = "usage-name";
+        const track = document.createElement("span"); track.className = "usage-track"; track.setAttribute("aria-hidden", "true");
+        const fill = document.createElement("span"); fill.className = "usage-fill"; track.append(fill);
         const value = document.createElement("span");
         const reset = document.createElement("span"); reset.className = "usage-reset";
         const separator = document.createElement("span"); separator.className = "usage-separator"; separator.textContent = strings.usage.separator;
         element.append(label);
-        entry = { element, label, value, reset, separator }; this.entries.set(key, entry);
+        entry = { element, label, track, fill, value, reset, separator }; this.entries.set(key, entry);
       }
-      const kind = part.marker ? "usage-stale" : "usage-window";
+      const kind = part.marker ? "usage-stale" : `usage-window ${part.severity ?? ""}`.trim();
       if (entry.element.className !== kind) entry.element.className = kind;
       const labelClass = part.marker ? "" : "usage-name";
       if (entry.label.className !== labelClass) entry.label.className = labelClass;
       text(entry.label, part.label);
+      const children: HTMLElement[] = [entry.label];
+      if (part.percent !== undefined) {
+        const width = `${Math.max(0, Math.min(100, Math.round(part.percent)))}%`;
+        if (entry.fill.style.width !== width) entry.fill.style.width = width;
+        children.push(entry.track);
+      }
       if (part.value !== undefined) {
         text(entry.value, part.value);
         const className = `usage-percent ${part.severity ?? ""}`.trim();
         if (entry.value.className !== className) entry.value.className = className;
-        if (entry.value.parentElement !== entry.element) entry.element.insertBefore(entry.value, entry.label.nextSibling);
-      } else entry.value.remove();
+        children.push(entry.value);
+      }
       if (part.reset !== undefined) {
         text(entry.reset, part.reset);
-        if (entry.reset.parentElement !== entry.element) entry.element.append(entry.reset);
-      } else entry.reset.remove();
+        children.push(entry.reset);
+      }
+      setChildren(entry.element, children);
+      const title = part.value === undefined ? "" : strings.usage.windowTitle(part.label, part.value, part.reset);
+      if (entry.element.title !== title) entry.element.title = title;
       if (!part.marker && windows++ > 0) place(entry.separator); else entry.separator.remove();
       place(entry.element);
     }
