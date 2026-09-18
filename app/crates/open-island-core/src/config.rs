@@ -95,6 +95,29 @@ impl UsageProviderChoice {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mascot {
+    Sprite,
+    Logo,
+}
+
+impl Mascot {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Sprite => "sprite",
+            Self::Logo => "logo",
+        }
+    }
+
+    fn parse(text: &str) -> Option<Self> {
+        match text {
+            "sprite" => Some(Self::Sprite),
+            "logo" => Some(Self::Logo),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompactLayout {
     Clean,
     Detailed,
@@ -227,7 +250,7 @@ pub struct DisplayConfig {
     pub island_height: u32,
     pub project: bool,
     pub worktree: bool,
-    pub agent_icons: bool,
+    pub mascot: Mascot,
     pub terminal_icons: bool,
     pub model: bool,
     pub effort: bool,
@@ -251,7 +274,7 @@ impl Default for DisplayConfig {
             island_height: 0,
             project: true,
             worktree: true,
-            agent_icons: true,
+            mascot: Mascot::Sprite,
             terminal_icons: true,
             model: true,
             effort: false,
@@ -522,7 +545,7 @@ impl Config {
                 "island_height": self.display.island_height,
                 "project": self.display.project,
                 "worktree": self.display.worktree,
-                "agent_icons": self.display.agent_icons,
+                "mascot": self.display.mascot.as_str(),
                 "terminal_icons": self.display.terminal_icons,
                 "model": self.display.model,
                 "effort": self.display.effort,
@@ -769,7 +792,7 @@ fn display_from(value: Option<&Value>, defaults: DisplayConfig) -> DisplayConfig
         ),
         project: boolean(value, "project", defaults.project),
         worktree: boolean(value, "worktree", defaults.worktree),
-        agent_icons: boolean(value, "agent_icons", defaults.agent_icons),
+        mascot: choice(value, "mascot", Mascot::parse, defaults.mascot),
         terminal_icons: boolean(value, "terminal_icons", defaults.terminal_icons),
         model: boolean(value, "model", defaults.model),
         effort: boolean(value, "effort", defaults.effort),

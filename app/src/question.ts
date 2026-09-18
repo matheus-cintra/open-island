@@ -13,6 +13,7 @@ import { Question, QuestionRequest } from "./types";
 
 interface QuestionContext {
   childLabel(id: string): string;
+  projectOf(id: string): string;
   jumpToId(id: string, expected?: ActionIdentity): void;
   render(): void;
   resetIdle(): void;
@@ -275,7 +276,7 @@ export function renderQuestion(): void {
     questionCardEl.setAttribute("aria-label", strings.question.label);
   }
   const owner = context.childLabel(pendingQuestion.session_id);
-  const kicker = strings.question.kicker(pendingQuestion.agent) + (owner ? ` · ${owner}` : "");
+  const kicker = strings.question.kickerFor(context.projectOf(pendingQuestion.session_id)) + (owner ? ` · ${owner}` : "");
   if (questionKickerEl.textContent !== kicker) questionKickerEl.textContent = kicker;
   const count = strings.question.count(pendingQuestion.questions.length);
   if (questionCountEl.textContent !== count) questionCountEl.textContent = count;

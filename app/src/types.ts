@@ -75,11 +75,13 @@ export interface Subagent {
   done?: boolean;
 }
 
+export type Mascot = "sprite" | "logo";
+
 export interface RowVisibility {
   tasks: boolean;
   project: boolean;
   worktree: boolean;
-  agentIcons: boolean;
+  mascot: Mascot;
   terminalIcons: boolean;
   model: boolean;
   effort: boolean;
@@ -173,7 +175,6 @@ export interface UsageReport {
   providers: ProviderUsage[];
 }
 
-export type BadgeSpec = [string, string, string | undefined, string?];
 
 export interface DiffLine {
   sign: "-" | "+";

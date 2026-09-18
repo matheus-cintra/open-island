@@ -370,7 +370,7 @@ fn a_config_with_every_field_moved_off_its_default() -> Config {
             island_height: 60,
             project: false,
             worktree: false,
-            agent_icons: false,
+            mascot: Mascot::Logo,
             terminal_icons: false,
             model: false,
             effort: true,
@@ -749,6 +749,16 @@ fn an_absolute_island_height_defaults_to_automatic_and_survives_a_round_trip() {
         0,
         "a negative value is not an unsigned integer and falls back to automatic"
     );
+}
+
+#[test]
+fn the_mascot_reads_its_two_choices_and_ignores_anything_else() {
+    let display = |document: &str| Config::from_json_str(document).display;
+    assert_eq!(display(r#"{"display": {"mascot": "logo"}}"#).mascot, Mascot::Logo);
+    assert_eq!(display(r#"{"display": {"mascot": "sprite"}}"#).mascot, Mascot::Sprite);
+    assert_eq!(display(r#"{"display": {"mascot": "emoji"}}"#).mascot, Mascot::Sprite);
+    assert_eq!(display(r#"{"display": {"agent_icons": false}}"#).mascot, Mascot::Sprite);
+    assert_eq!(Config::default().to_json_value()["display"]["mascot"], "sprite");
 }
 
 #[test]

@@ -8,6 +8,7 @@ export const headerNeedEl = document.getElementById("header-need")!;
 export const headerUsageEl = document.getElementById("header-usage")!;
 export const headerUsageModelEl = document.getElementById("header-usage-model")!;
 export const sessionListEl = document.getElementById("session-list")!;
+export const sessionEmptyEl = document.getElementById("session-empty")!;
 export const jumpErrorEl = document.getElementById("jump-error")!;
 export const approvalCardEl = document.getElementById("approval-card")!;
 export const approvalToolEl = document.getElementById("approval-tool")!;

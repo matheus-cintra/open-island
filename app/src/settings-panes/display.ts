@@ -38,10 +38,15 @@ export const display: Pane = {
         { path: "display.project", label: copy.display.project, control: { kind: "switch" } },
         { path: "display.worktree", label: copy.display.worktree, control: { kind: "switch" } },
         {
-          path: "display.agent_icons",
-          label: copy.display.agentIcons,
-          hint: copy.display.agentIconsHint,
-          control: { kind: "switch" },
+          path: "display.mascot",
+          label: copy.display.mascot,
+          control: {
+            kind: "tiles",
+            choices: [
+              ["sprite", copy.display.mascotSprite, copy.display.mascotSpriteHint],
+              ["logo", copy.display.mascotLogo, copy.display.mascotLogoHint],
+            ],
+          },
         },
         {
           path: "display.terminal_icons",
