@@ -67,6 +67,22 @@ test("a blocked session shows the field disabled with the reason in Portuguese",
   expect(input.title).toBe(hint.textContent ?? "");
 });
 
+test("a target the daemon has not verified yet explains itself in Portuguese", () => {
+  const li = main.createRow({ ...base, send_blocked: "unverified_target" }, false);
+  const hint = li.querySelector<HTMLElement>(".message-hint")!;
+  expect(hint.hidden).toBe(false);
+  expect(hint.textContent).toBe(
+    "A ilha ainda não confirmou o destino desta sessão. Tente de novo em instantes.",
+  );
+});
+
+test("a blocked code the island does not know never leaks as raw text", () => {
+  const li = main.createRow({ ...base, send_blocked: "some_future_code" }, false);
+  const hint = li.querySelector<HTMLElement>(".message-hint")!;
+  expect(hint.textContent).toBe("Não dá para enviar daqui agora. Confira a sessão no terminal.");
+  expect(hint.textContent).not.toContain("some_future_code");
+});
+
 test("Enter sends the text, Shift+Enter keeps typing, Escape drops the focus", async () => {
   tauri.state.sessions([{ ...base, send_channel: "kitty" }]);
   if (!main.expanded) tauri.emit("island-toggle", {});
