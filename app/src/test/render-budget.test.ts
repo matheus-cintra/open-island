@@ -42,15 +42,18 @@ test("200 equal snapshots preserve usage, delivery nodes and the draft selection
 
 test("usage values update and reorder by key without replacing retained nodes", (): void => {
   const root = document.createElement("div"); const view = new UsageLane(root);
-  const first = { key: "a", label: "5h", value: "10%", reset: "1h" };
+  const first = { key: "a", label: "5h", value: "10%", percent: 10, reset: "1h" };
   const second = { key: "b", label: "7d", value: "20%" };
   view.update([first, second], false);
   const a = root.children[0]; const b = root.children[2];
-  view.update([second, { ...first, value: "30%", reset: "59m", severity: "is-high" }], true);
+  view.update([second, { ...first, value: "30%", percent: 30, reset: "59m", severity: "is-high" }], true);
   expect(root.children[0]).toBe(b); expect(root.children[2]).toBe(a);
   expect(a.querySelector(".usage-percent")!.textContent).toBe("30%");
   expect(a.querySelector(".usage-reset")!.textContent).toBe("59m");
   expect(a.querySelector(".usage-percent")!.classList.contains("is-high")).toBe(true);
+  expect(a.querySelector<HTMLElement>(".usage-fill")!.style.width).toBe("30%");
+  expect((a as HTMLElement).title).toBe("5h: 30%, reseta em 59m");
+  expect(b.querySelector(".usage-track")).toBeNull();
   view.update([first, { ...first, label: "duplicate" }], false);
   expect(root.querySelectorAll(".usage-window")).toHaveLength(2);
   view.update([], false); expect(root.children.length).toBe(0); expect(root.hidden).toBe(true);
