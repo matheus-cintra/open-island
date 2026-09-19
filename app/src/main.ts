@@ -70,7 +70,7 @@ import {
   renderQuestion,
 } from "./question";
 
-export { badgeSpec, createRow, fillBadges, fillRow } from "./row";
+export { createRow, fillRow } from "./row";
 
 export let compactClean = false;
 let notchWidth = 0;
@@ -83,7 +83,7 @@ export let show: RowVisibility = {
   tasks: true,
   project: true,
   worktree: true,
-  agentIcons: true,
+  mascot: "sprite",
   terminalIcons: true,
   model: true,
   effort: false,
@@ -194,6 +194,7 @@ function setHidden(element: HTMLElement, hidden: boolean): void {
 initializeRows({
   get compactClean(): boolean { return compactClean; },
   get expanded(): boolean { return expanded; },
+  get offline(): boolean { return !daemonConnected; },
   get visible(): boolean { return visualVisible(); },
   get sessions(): Session[] { return sessions; },
   get show(): RowVisibility { return show; },
@@ -201,7 +202,7 @@ initializeRows({
   LEAVE_MS, jumpTo, reducedMotion, render, syncExpandedSize, showError,
   canUseTarget,
 });
-initializeQuestions({ childLabel, jumpToId, render, resetIdle, showCard, showError });
+initializeQuestions({ childLabel, projectOf, jumpToId, render, resetIdle, showCard, showError });
 
 /* ------------------------------------------------------------------ */
 /* Window morph                                                        */
@@ -610,7 +611,7 @@ export function showError(message: string): void {
   }, 4000);
 }
 
-export function jumpTo(session: Session, row: HTMLButtonElement): void {
+export function jumpTo(session: Session, row: HTMLElement): void {
   if (!clickToJump || !session.action_identity || !canUseTarget(session.id, session.action_identity)) return;
   jumpErrorEl.hidden = true;
   clearTimeout(errTimer);
@@ -633,6 +634,10 @@ function canUseTarget(id: string, identity: ActionIdentity, writing = false): bo
 export function familySession(id: string): Session | undefined {
   return sessions.find((entry) => entry.id === id || (entry.agent === "opencode" &&
     entry.subagents?.some((child) => `opencode:${child.id}` === id)));
+}
+
+export function projectOf(id: string): string {
+  return (familySession(id) ?? [...sessions, ...childSessions].find((entry) => entry.id === id))?.title ?? "";
 }
 
 export function childLabel(id: string): string {
@@ -738,6 +743,8 @@ function renderApproval(): void {
     return;
   }
   showCard(approvalCardEl, true);
+  const kicker = strings.approval.kickerFor(projectOf(pendingApproval.session_id));
+  if (approvalKickerEl.textContent !== kicker) approvalKickerEl.textContent = kicker;
   approvalToolEl.textContent =
     pendingApproval.tool_name === PLAN_TOOL
       ? strings.approval.planTool
@@ -1063,7 +1070,7 @@ export function applyConfig(next: Record<string, unknown>): void {
     tasks: display.tasks !== false,
     project: display.project !== false,
     worktree: display.worktree !== false,
-    agentIcons: display.agent_icons !== false,
+    mascot: display.mascot === "logo" ? "logo" : "sprite",
     terminalIcons: display.terminal_icons !== false,
     model: display.model !== false,
     effort: display.effort === true,

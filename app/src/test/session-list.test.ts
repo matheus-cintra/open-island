@@ -39,12 +39,6 @@ function rows(): HTMLLIElement[] {
   return [...list.children] as HTMLLIElement[];
 }
 
-function renderedBadgeKeys(li: HTMLLIElement): string[] {
-  return [...li.querySelectorAll<HTMLElement>("[data-badge]")].map((element) =>
-    String(element.dataset.badge),
-  );
-}
-
 function activityText(li: HTMLLIElement): string {
   return li.querySelector<HTMLElement>(".row-activity")!.textContent ?? "";
 }
@@ -54,11 +48,15 @@ test("a sessions-updated event renders one row per session, in the emitted order
   expect(rows().map((li) => li.dataset.sessionId)).toEqual(["s1", "s2"]);
 });
 
-test("each rendered row carries the badges its session asks for", () => {
+test("each rendered row carries its project, its meta and its state", () => {
   if (!main.expanded) tauri.emit("island-toggle", {});
   tauri.state.sessions([sessionA, sessionB]);
-  expect(renderedBadgeKeys(rows()[0])).toEqual(main.badgeSpec(sessionA).map(([key]) => key));
-  expect(renderedBadgeKeys(rows()[1])).toEqual(main.badgeSpec(sessionB).map(([key]) => key));
+  expect(rows()[0].querySelector(".row-project")!.textContent).toBe("open-island");
+  expect(rows()[0].querySelector(".meta-model")!.textContent).toBe("Sonnet 4.5");
+  expect(rows()[0].querySelector<HTMLImageElement>(".meta-terminal-icon")!.src).toBe(TERMINAL_ICON);
+  expect(rows()[0].querySelector(".row-state")).toBeNull();
+  expect(rows()[1].querySelector(".meta-model")!.textContent).toBe("gpt-5-codex");
+  expect(rows()[1].querySelector(".row-state")!.textContent).toBe("concluído");
 });
 
 test("every rendered row keeps an activity line", () => {
