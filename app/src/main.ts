@@ -4,6 +4,7 @@ import { RenderFrame } from "./render-frame";
 import { CompletionEdges, SubagentEdges } from "./activity-edges";
 import { UsageLane, type UsagePart } from "./usage-lane";
 import { StateStrip } from "./strip";
+import { configureComposer } from "./message";
 import { IslandWindow, NativeResize } from "./island-window";
 import { snapshotSessions, snapshotApprovals, snapshotQuestions, pendingKey, detachedDeliveries } from "./island-state";
 import { DeliveryView } from "./message-deliveries";
@@ -84,6 +85,7 @@ export let show: RowVisibility = {
   project: true,
   worktree: true,
   mascot: "sprite",
+  composer: "on_demand",
   terminalIcons: true,
   model: true,
   effort: false,
@@ -1071,12 +1073,14 @@ export function applyConfig(next: Record<string, unknown>): void {
     project: display.project !== false,
     worktree: display.worktree !== false,
     mascot: display.mascot === "logo" ? "logo" : "sprite",
+    composer: display.composer === "always" ? "always" : "on_demand",
     terminalIcons: display.terminal_icons !== false,
     model: display.model !== false,
     effort: display.effort === true,
     activity: display.activity !== false,
     subagents: display.subagents !== false,
   };
+  configureComposer(show.composer);
   const usageSection = section(next, "usage");
   usageOptions = {
     showLimits: usageSection.show_limits !== false,

@@ -3,7 +3,7 @@ import { strings } from "./strings";
 import { reasonOf } from "./json";
 import type { ActionIdentity } from "./daemon-state";
 import { MessageComposer } from "./message-controller";
-import { attachVoice, updateVoiceBox } from "./voice";
+import { attachVoice, updateVoiceBox, voice } from "./voice";
 import { DeliveryView } from "./message-deliveries";
 
 interface MessageActions {
@@ -14,7 +14,46 @@ interface MessageActions {
 const targetFor = new WeakMap<HTMLElement, { identity?: ActionIdentity; blocked: boolean }>();
 const actionsFor = new WeakMap<HTMLElement, MessageActions>();
 const deliveriesFor = new WeakMap<HTMLElement, DeliveryView>();
+const sessionFor = new WeakMap<HTMLElement, Session>();
+const hostHiddenFor = new WeakMap<HTMLElement, boolean>();
 import { Session } from "./types";
+
+let composerOnDemand = true;
+const openComposers = new Set<string>();
+export function configureComposer(mode: "on_demand" | "always"): void {
+  composerOnDemand = mode === "on_demand";
+}
+export function composerOpen(sessionId: string): boolean {
+  return openComposers.has(sessionId);
+}
+export function openComposer(sessionId: string | null): void {
+  openComposers.clear();
+  if (sessionId !== null) openComposers.add(sessionId);
+}
+function composerKeeps(box: HTMLElement, session: Session): boolean {
+  if (!composerOnDemand || openComposers.has(session.id)) return true;
+  if ((box.querySelector<HTMLTextAreaElement>(".message-input")?.value ?? "") !== "") return true;
+  if ((session.queued_messages ?? []).length > 0) return true;
+  if (!(box.querySelector<HTMLElement>(".message-deliveries")?.hidden ?? true)) return true;
+  if (!(box.querySelector<HTMLElement>(".message-recovery")?.hidden ?? true)) return true;
+  return voice.active() && voice.state.target?.session_id === session.id;
+}
+function syncComposerToggle(box: HTMLElement): void {
+  const toggle = box.parentElement?.querySelector<HTMLElement>(".row-message-toggle");
+  if (!toggle) return;
+  const expanded = String(!box.hidden);
+  if (toggle.getAttribute("aria-expanded") !== expanded) toggle.setAttribute("aria-expanded", expanded);
+}
+function applyComposerVisibility(box: HTMLElement, session: Session): void {
+  setHidden(box, (hostHiddenFor.get(box) ?? false) || !composerKeeps(box, session));
+  syncComposerToggle(box);
+}
+export function closeComposer(box: HTMLElement): void {
+  const session = sessionFor.get(box);
+  if (session === undefined) return;
+  openComposers.delete(session.id);
+  applyComposerVisibility(box, session);
+}
 
 function setHidden(element: HTMLElement, hidden: boolean): void {
   if (element.hidden !== hidden) element.hidden = hidden;
@@ -109,6 +148,10 @@ export function createMessageBox(sessionId: string, actions: MessageActions): HT
   input.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       input.blur();
+      if (composerOnDemand) {
+        closeComposer(box);
+        actions.resize();
+      }
       return;
     }
     if (event.key !== "Enter" || event.shiftKey) return;
@@ -121,6 +164,12 @@ export function createMessageBox(sessionId: string, actions: MessageActions): HT
 
 export function fillMessageBox(li: HTMLLIElement, session: Session): void {
   const box = li.querySelector<HTMLElement>(".row-message")!;
+  sessionFor.set(box, session);
+  fillMessageBoxBody(li, box, session);
+  applyComposerVisibility(box, session);
+}
+
+function fillMessageBoxBody(li: HTMLLIElement, box: HTMLElement, session: Session): void {
   const input = box.querySelector<HTMLTextAreaElement>(".message-input")!;
   const hint = box.querySelector<HTMLElement>(".message-hint")!;
   const blocked = session.send_blocked ?? (session.action_identity ? undefined : "daemon_unavailable");
@@ -140,7 +189,7 @@ export function fillMessageBox(li: HTMLLIElement, session: Session): void {
   const queued = session.queued_messages ?? [];
   // Keep queued messages cancellable if a session loses its supported host.
   const boxHidden = unsupported && queued.length === 0 && !session.message_deliveries?.length && (box.querySelector<HTMLElement>(".message-recovery")?.hidden ?? true);
-  setHidden(box, boxHidden);
+  hostHiddenFor.set(box, boxHidden);
   const tail = li.querySelector<HTMLElement>(".row-tail")!;
   let badge = tail.querySelector<HTMLElement>(".badge-queue");
   if (queued.length === 0) {
@@ -205,5 +254,6 @@ export function fillMessageBox(li: HTMLLIElement, session: Session): void {
 
 export function disposeMessageBox(li: HTMLElement): void {
   const box = li.querySelector<HTMLElement>(".row-message");
+  openComposers.delete((li as HTMLLIElement).dataset.sessionId ?? "");
   if (box) deliveriesFor.get(box)?.dispose();
 }

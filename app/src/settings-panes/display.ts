@@ -49,6 +49,17 @@ export const display: Pane = {
           },
         },
         {
+          path: "display.composer",
+          label: copy.display.composer,
+          control: {
+            kind: "tiles",
+            choices: [
+              ["on_demand", copy.display.composerOnDemand, copy.display.composerOnDemandHint],
+              ["always", copy.display.composerAlways, copy.display.composerAlwaysHint],
+            ],
+          },
+        },
+        {
           path: "display.terminal_icons",
           label: copy.display.terminalIcons,
           hint: copy.display.terminalIconsHint,

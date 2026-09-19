@@ -371,6 +371,7 @@ fn a_config_with_every_field_moved_off_its_default() -> Config {
             project: false,
             worktree: false,
             mascot: Mascot::Logo,
+            composer: Composer::Always,
             terminal_icons: false,
             model: false,
             effort: true,
@@ -759,6 +760,15 @@ fn the_mascot_reads_its_two_choices_and_ignores_anything_else() {
     assert_eq!(display(r#"{"display": {"mascot": "emoji"}}"#).mascot, Mascot::Sprite);
     assert_eq!(display(r#"{"display": {"agent_icons": false}}"#).mascot, Mascot::Sprite);
     assert_eq!(Config::default().to_json_value()["display"]["mascot"], "sprite");
+}
+
+#[test]
+fn the_composer_opens_on_demand_unless_the_user_wants_it_always_there() {
+    let display = |document: &str| Config::from_json_str(document).display;
+    assert_eq!(display("{}").composer, Composer::OnDemand);
+    assert_eq!(display(r#"{"display": {"composer": "always"}}"#).composer, Composer::Always);
+    assert_eq!(display(r#"{"display": {"composer": "sometimes"}}"#).composer, Composer::OnDemand);
+    assert_eq!(Config::default().to_json_value()["display"]["composer"], "on_demand");
 }
 
 #[test]

@@ -95,6 +95,29 @@ impl UsageProviderChoice {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Composer {
+    OnDemand,
+    Always,
+}
+
+impl Composer {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OnDemand => "on_demand",
+            Self::Always => "always",
+        }
+    }
+
+    fn parse(text: &str) -> Option<Self> {
+        match text {
+            "on_demand" => Some(Self::OnDemand),
+            "always" => Some(Self::Always),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mascot {
     Sprite,
     Logo,
@@ -251,6 +274,7 @@ pub struct DisplayConfig {
     pub project: bool,
     pub worktree: bool,
     pub mascot: Mascot,
+    pub composer: Composer,
     pub terminal_icons: bool,
     pub model: bool,
     pub effort: bool,
@@ -275,6 +299,7 @@ impl Default for DisplayConfig {
             project: true,
             worktree: true,
             mascot: Mascot::Sprite,
+            composer: Composer::OnDemand,
             terminal_icons: true,
             model: true,
             effort: false,
@@ -546,6 +571,7 @@ impl Config {
                 "project": self.display.project,
                 "worktree": self.display.worktree,
                 "mascot": self.display.mascot.as_str(),
+                "composer": self.display.composer.as_str(),
                 "terminal_icons": self.display.terminal_icons,
                 "model": self.display.model,
                 "effort": self.display.effort,
@@ -793,6 +819,7 @@ fn display_from(value: Option<&Value>, defaults: DisplayConfig) -> DisplayConfig
         project: boolean(value, "project", defaults.project),
         worktree: boolean(value, "worktree", defaults.worktree),
         mascot: choice(value, "mascot", Mascot::parse, defaults.mascot),
+        composer: choice(value, "composer", Composer::parse, defaults.composer),
         terminal_icons: boolean(value, "terminal_icons", defaults.terminal_icons),
         model: boolean(value, "model", defaults.model),
         effort: boolean(value, "effort", defaults.effort),

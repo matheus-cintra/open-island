@@ -19,7 +19,7 @@ import {
   sessionListEl,
 } from "./elements";
 import { StateStrip } from "./strip";
-import { createMessageBox, fillMessageBox, disposeMessageBox } from "./message";
+import { createMessageBox, fillMessageBox, disposeMessageBox, composerOpen, openComposer } from "./message";
 import { Attention, Session, Subagent, Task, RowVisibility } from "./types";
 import type { ActionIdentity } from "./daemon-state";
 interface RowContext {
@@ -265,6 +265,10 @@ function strongestAttention(list: Session[]): Attention {
   return order.find((state) => states.includes(state)) ?? "working";
 }
 
+const MESSAGE_GLYPH =
+  `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" ` +
+  `stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>`;
+
 const BRANCH_GLYPH =
   `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" ` +
   `stroke-linecap="round" aria-hidden="true">` +
@@ -458,6 +462,10 @@ function fillTail(row: HTMLElement, session: Session, attention: Attention): voi
     setClass(state, `row-state pixel ${attention}`);
     setText(state, strings.session.stateChip[attention]);
   }
+  const toggle = tail.querySelector<HTMLElement>(".row-message-toggle")!;
+  setHidden(toggle, context.show.composer !== "on_demand");
+  if (tail.lastElementChild !== toggle) tail.append(toggle);
+  if (elapsed.nextElementSibling !== toggle) tail.insertBefore(elapsed, toggle);
   if (session.since_ms === undefined) {
     setHidden(elapsed, true);
     return;
@@ -465,7 +473,6 @@ function fillTail(row: HTMLElement, session: Session, attention: Attention): voi
   setHidden(elapsed, false);
   if (elapsed.dataset.since !== String(session.since_ms)) elapsed.dataset.since = String(session.since_ms);
   setText(elapsed, strings.session.elapsed(Date.now() - session.since_ms));
-  if (tail.lastElementChild !== elapsed) tail.append(elapsed);
 }
 
 function fillActivity(label: HTMLElement, session: Session): void {
@@ -673,6 +680,19 @@ export function fillRow(li: HTMLLIElement, session: Session, transcript: boolean
   fillMessageBox(li, session);
 }
 
+function toggleComposer(li: HTMLLIElement): void {
+  const current = displayedSessions.get(li);
+  if (current === undefined) return;
+  const wasOpen = composerOpen(current.id);
+  openComposer(wasOpen ? null : current.id);
+  for (const other of [...sessionListEl.children] as HTMLLIElement[]) {
+    const session = displayedSessions.get(other);
+    if (session !== undefined) fillMessageBox(other, session);
+  }
+  if (!wasOpen) li.querySelector<HTMLTextAreaElement>(".message-input")?.focus();
+  context.syncExpandedSize();
+}
+
 function toggleDetails(li: HTMLLIElement): void {
   const current = displayedSessions.get(li);
   if (current === undefined) return;
@@ -734,7 +754,17 @@ export function createRow(session: Session, transcript: boolean): HTMLLIElement 
   tail.className = "row-tail";
   const elapsed = document.createElement("span");
   elapsed.className = "row-elapsed pixel";
-  tail.append(elapsed);
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "row-message-toggle";
+  toggle.innerHTML = MESSAGE_GLYPH;
+  toggle.setAttribute("aria-label", strings.session.messageOpen);
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleComposer(li);
+  });
+  tail.append(elapsed, toggle);
   head.append(project, name, meta, tail);
 
   const line = document.createElement("span");
@@ -793,7 +823,7 @@ export function createRow(session: Session, transcript: boolean): HTMLLIElement 
     if (current !== undefined) context.jumpTo(current, row);
   };
   row.addEventListener("click", (event) => {
-    if (event.target instanceof Element && event.target.closest(".row-chip") !== null) return;
+    if (event.target instanceof Element && event.target.closest(".row-chip, .row-message-toggle") !== null) return;
     jump();
   });
   row.addEventListener("keydown", (event) => {
