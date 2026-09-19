@@ -43,9 +43,13 @@ jobs:
       - run: bun run build
         working-directory: app
       - if: runner.os == 'macOS'
-        run: >-
-          bun run tauri build --bundles app,dmg
-          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+        run: |
+          for attempt in 1 2 3; do
+            bun run tauri build -v --bundles app,dmg --config '{"bundle":{"createUpdaterArtifacts":false}}' && exit 0
+            echo "tauri build attempt $attempt failed"
+            sleep 15
+          done
+          exit 1
         working-directory: app
       - if: runner.os == 'macOS'
         run: sh scripts/verify-macos-bundle.sh "$OPEN_ISLAND_RELEASE_DIR/bundle/macos/Open Island.app" "$(uname -m)"
