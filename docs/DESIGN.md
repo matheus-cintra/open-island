@@ -23,6 +23,49 @@ sempre devolve texto em português; um código desconhecido recebe a frase
 genérica, nunca o código cru. Falhas de envio usam `messageReason`, que
 conserva o motivo original quando ele não está no mapa.
 
+## Componentes da ilha
+
+A faixa de estado (`strip.ts`, `StateStrip`) desenha uma célula por sessão,
+na ordem da lista e na cor do estado, com teto de doze células e um marcador
+de excedente. Ela conserva nós por `session.id`, aparece na pílula compacta e
+no cabeçalho expandido, e fica apagada (`is-off`) sem conexão com o daemon.
+
+A pílula compacta (`renderCompact`) mantém `.compact-leading` e
+`.compact-tail`, que o grid do notch posiciona. À esquerda vai o sprite do
+agente principal e, quando alguém espera o usuário, um kicker em fonte pixel
+(`permissão`, `pergunta`, `concluído`) seguido do projeto; no layout
+Detalhado, sem pendência, vão o projeto e a ferramenta em uso. À direita vão a
+faixa e a contagem. Sem sessão a pílula mostra o wordmark; sem daemon, `sem
+conexão`. A pendência de um cartão cujo dono ainda não tem linha também gera
+kicker, sem projeto.
+
+O cabeçalho expandido tem a faixa, o título pixel `N sessões` e um sufixo
+colorido (`K esperando` em âmbar ou `K concluídas` em azul). As janelas de uso
+são medidores: rótulo, barra (`.usage-track`/`.usage-fill`, largura igual ao
+valor exibido, cor pela severidade) e percentual. O tempo até o reset vai
+para `title` e continua no DOM oculto para leitor de tela. Com notch, a barra
+some. `UsageLane` continua sem mutar o DOM quando o snapshot não muda.
+
+A linha de sessão (`createRow`/`fillRow`) é um `div[role=button]` em duas
+linhas. Na primeira: mascote, projeto, nome, grupo de meta em mono (branch,
+modelo, esforço, terminal ou ícone, chip `BYPASS`) e a cauda com o chip de
+estado (só fora de "trabalhando"), a fila, o tempo decorrido em pixel e o
+botão do composer. Na segunda: o pedido do usuário, ou o caminho curto quando
+não há pedido, e a ferramenta atual à direita. Tarefas e subagentes viram
+chips que abrem as listas ao clicar; o estado aberto vive em `row.ts` por
+`session.id` e sobrevive a re-render. Linha esperando ganha borda âmbar,
+concluída ganha borda azul, parada colapsa para a primeira linha. A mascote é
+o sprite do agente; `display.mascot = logo` usa o PNG, e agente sem sprite usa
+o logo quando existe. Cliques em chips e no botão do composer não pulam para
+a sessão.
+
+O composer (`message.ts`) existe sempre no DOM de cada linha, porque rascunho,
+fila, entregas, recuperação e voz vivem nele. Com `display.composer =
+on_demand`, a caixa fica oculta até o botão da linha abrir; abrir uma fecha as
+outras e foca o campo; Esc fecha uma caixa vazia. Rascunho, mensagem na fila,
+entrega ainda na tela, texto recuperado ou gravação ativa para aquela sessão
+mantêm a caixa visível sem botão. `always` mostra todas, como antes.
+
 As áreas compacta e expandida compartilham a janela. Apenas a área ativa
 fica acessível: a outra recebe `inert` e `aria-hidden=true`. Abrir por hover
 preserva o foco do terminal. Abertura explícita e seleção de um editor seguem
