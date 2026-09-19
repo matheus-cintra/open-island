@@ -1,6 +1,14 @@
 /* ------------------------------------------------------------------ */
 /* Open Island — design tokens                                         */
 /* ------------------------------------------------------------------ */
+@font-face {
+  font-family: "Departure Mono";
+  src: url("./assets/fonts/DepartureMono-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
   font-family: "Inter Display", "Inter", system-ui, sans-serif;
   color: var(--fg);
@@ -17,13 +25,18 @@
 
   --bg: #000000;
   --fg: #f2f2f2;
-  --muted: #8a8a8e;
+  --muted: #8e9096;
   --separator: #1c1c1e;
-  --accent: #0a84ff;
-  --danger: #ff453a;
-  --success: #32d74b;
-  --warning: #ffd60a;
-  --fg-secondary: #c0c0c4;
+  --accent: #5b8def;
+  --danger: #ff5a52;
+  --success: #3ddc84;
+  --warning: #ffc53d;
+  --fg-secondary: #c3c6cf;
+  --idle: #6f7279;
+  --surface: rgb(255 255 255 / 4%);
+  --surface-2: rgb(255 255 255 / 7%);
+  --line: rgb(255 255 255 / 7%);
+  --line-2: rgb(255 255 255 / 12%);
   --badge-bg: #3a3a3c;
   --badge-fg: #c7c7cc;
   --agent-claude-bg: #3a2a1e;
@@ -48,6 +61,7 @@
   --usage-high: #f09748;
   --usage-reset: #4d4d4d;
   --font-mono: "JetBrainsMono Nerd Font", ui-monospace, monospace;
+  --font-pixel: "Departure Mono", var(--font-mono);
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);

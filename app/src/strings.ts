@@ -6,6 +6,24 @@ const AGENT_LABELS: Record<string, string> = {
 
 const CLAUDE_MODEL = /^claude-([a-z]+)-(\d+)(?:-(\d+))?$/;
 
+const BLOCKED_REASONS: Record<string, string> = {
+  daemon_unavailable: "Aguarde a reconexão para enviar mensagens.",
+  daemon_incompatible: "Atualize o daemon para enviar mensagens por esta versão da ilha.",
+  stale_epoch: "A conexão mudou. Confira a sessão antes de enviar novamente.",
+  stale_session: "A sessão mudou. O texto continua preservado.",
+  message_too_large: "A mensagem deve conter no máximo 65536 bytes.",
+  recovery_full: "Copie ou descarte um texto recuperado antes de enviar outra mensagem.",
+  queue_full: "A fila está cheia. O texto continua no editor.",
+  delivery_in_progress: "A entrega já está em andamento e não pode ser cancelada.",
+  host_unsupported: "Este terminal não tem como receber texto pela ilha.",
+  kitty_remote_control_off:
+    "Ligue allow_remote_control e listen_on no kitty para escrever daqui.",
+  wezterm_socket_missing: "O socket da GUI do wezterm não foi encontrado.",
+  pane_gone: "O pane desta sessão não existe mais.",
+  unverified_target: "A ilha ainda não confirmou o destino desta sessão. Tente de novo em instantes.",
+  unaddressable_child: "Subagente não recebe mensagem direta. Escreva para a sessão principal.",
+};
+
 export const strings = {
   voice: {
     title: "Voz local", start: "Gravar mensagem", stop: "Parar gravação", cancel: "Cancelar gravação",
@@ -100,21 +118,9 @@ export const strings = {
     messageCopyFailed: "Não foi possível copiar. Selecione o texto para copiá-lo.",
     messageFailed: (reason: string): string => `Não deu para mandar a mensagem: ${reason}`,
     messageBlocked: (code: string): string =>
-      ({
-        daemon_unavailable: "Aguarde a reconexão para enviar mensagens.",
-        daemon_incompatible: "Atualize o daemon para enviar mensagens por esta versão da ilha.",
-        stale_epoch: "A conexão mudou. Confira a sessão antes de enviar novamente.",
-        stale_session: "A sessão mudou. O texto continua preservado.",
-        message_too_large: "A mensagem deve conter no máximo 65536 bytes.",
-        recovery_full: "Copie ou descarte um texto recuperado antes de enviar outra mensagem.",
-        queue_full: "A fila está cheia. O texto continua no editor.",
-        delivery_in_progress: "A entrega já está em andamento e não pode ser cancelada.",
-        host_unsupported: "Este terminal não tem como receber texto pela ilha.",
-        kitty_remote_control_off:
-          "Ligue allow_remote_control e listen_on no kitty para escrever daqui.",
-        wezterm_socket_missing: "O socket da GUI do wezterm não foi encontrado.",
-        pane_gone: "O pane desta sessão não existe mais.",
-      })[code] ?? code,
+      BLOCKED_REASONS[code] ?? "Não dá para enviar daqui agora. Confira a sessão no terminal.",
+    messageReason: (reason: string): string =>
+      BLOCKED_REASONS[reason] ?? reason,
     promptPrefix: "Você:",
     done: "Concluído",
     tasksLabel: "Tarefas",

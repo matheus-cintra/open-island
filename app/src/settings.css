@@ -14,12 +14,12 @@
   -webkit-font-smoothing: antialiased;
 
   --fg: #f2f2f2;
-  --muted: #8a8a8e;
+  --muted: #8e9096;
   --separator: #1c1c1e;
-  --accent: #0a84ff;
-  --danger: #ff453a;
-  --success: #32d74b;
-  --warning: #ff9f0a;
+  --accent: #5b8def;
+  --danger: #ff5a52;
+  --success: #3ddc84;
+  --warning: #ffc53d;
   --font-mono: "JetBrainsMono Nerd Font", ui-monospace, monospace;
   --font-numeric: "Departure Mono", var(--font-mono);
 

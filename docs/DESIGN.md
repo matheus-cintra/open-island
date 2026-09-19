@@ -2,12 +2,26 @@
 
 ## Tokens e componentes
 
-A ilha usa os tokens de `app/src/styles.css`: fundo `--bg`, texto `--fg`,
-texto secundário `--muted`/`--fg-secondary`, separadores `--separator` e
-`--row-stroke`, foco `--accent`, estados `--danger`/`--warning`/`--success`.
+A ilha usa os tokens de `app/src/styles.css`: fundo `--bg` (preto puro, sem
+aro nem gradiente, por causa do OLED), texto `--fg`, texto secundário
+`--muted`/`--fg-secondary`, superfícies translúcidas `--surface`/`--surface-2`
+e traços `--line`/`--line-2`, foco `--accent`. Estados têm uma cor cada e valem
+igual na compacta e na expandida: `--warning` (âmbar) é "esperando você",
+`--accent` (azul) é "concluída e não vista", `--success` (verde) é
+"trabalhando" e `--idle` (cinza) é "parada". A cor do agente aparece só no
+sprite (`--sprite-*`). `--danger` fica para Negar, diff removido e BYPASS.
+
 Tipografia de conteúdo usa `--content-font`, `--content-sm`, `--content-md` e
-`--font-mono`. Ícones de controles são SVG de 16 unidades, com `currentColor`
+`--font-mono`. `--font-pixel` (Departure Mono, empacotada em
+`app/src/assets/fonts`) é só para números e kickers: contagem, tempo
+decorrido, percentuais e rótulos curtos em caixa alta. Texto corrido nunca usa
+a fonte pixel. Ícones de controles são SVG de 16 unidades, com `currentColor`
 e `aria-hidden`; o botão fornece o nome acessível.
+
+Códigos de bloqueio de envio passam por `strings.session.messageBlocked`, que
+sempre devolve texto em português; um código desconhecido recebe a frase
+genérica, nunca o código cru. Falhas de envio usam `messageReason`, que
+conserva o motivo original quando ele não está no mapa.
 
 As áreas compacta e expandida compartilham a janela. Apenas a área ativa
 fica acessível: a outra recebe `inert` e `aria-hidden=true`. Abrir por hover

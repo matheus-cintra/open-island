@@ -89,7 +89,7 @@ export function createMessageBox(sessionId: string, actions: MessageActions): HT
       const reason = reasonOf(error);
       actions.error(reason.includes("daemon_response_timeout") || reason.includes("daemon_unavailable")
         ? strings.session.messageUnconfirmed
-        : strings.session.messageFailed(strings.session.messageBlocked(reason)));
+        : strings.session.messageFailed(strings.session.messageReason(reason)));
     },
   );
   input.addEventListener("input", () => {
