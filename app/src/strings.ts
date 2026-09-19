@@ -71,15 +71,20 @@ export const strings = {
   },
   island: {
     label: "Open Island",
-    sessions: (count: number): string =>
-      count === 1 ? "1 sessão ativa" : `${count} sessões ativas`,
-    compactSessions: (count: number): string => (count === 1 ? "sessão" : "sessões"),
+    sessions: (count: number): string => (count === 1 ? "1 sessão" : `${count} sessões`),
+    wordmark: "open island",
+    noConnection: "sem conexão",
+    waiting: (count: number): string => `${count} esperando`,
+    finished: (count: number): string => (count === 1 ? "1 concluída" : `${count} concluídas`),
+    kicker: { permission: "permissão", question: "pergunta", done: "concluído" },
   },
   usage: {
     label: "Limites de uso",
     stale: "antigo",
     unavailable: "sem dados de uso",
     separator: "|",
+    windowTitle: (label: string, value: string, reset?: string): string =>
+      reset === undefined ? `${label}: ${value}` : `${label}: ${value}, reseta em ${reset}`,
     resetIn: (milliseconds: number): string => {
       const minutes = Math.max(0, Math.round(milliseconds / 60_000));
       if (minutes < 60) return `${minutes}m`;

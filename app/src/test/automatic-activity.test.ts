@@ -59,10 +59,11 @@ test("a pending card is indicated compactly before there is a session row", () =
     answerable: false, questions: [{ question: "Continue?", options: [] }],
   });
   tauri.state.sessions([]);
-  const pending = document.querySelector<HTMLElement>(".compact-pending");
-  expect(pending?.hidden).toBe(false);
+  const kicker = document.querySelector<HTMLElement>(".compact-kicker")!;
+  expect(kicker.textContent).toBe("pergunta");
+  expect(kicker.classList.contains("waiting_for_input")).toBe(true);
   expect(document.querySelector(".compact-count")?.textContent).toBe("");
-  expect(document.querySelector<HTMLElement>(".compact-label")?.hidden).toBe(true);
+  expect(document.querySelector<HTMLElement>(".compact-tail")!.hidden).toBe(true);
 });
 
 test("a custom question draft and its focus survive duplicate delivery and ordinary snapshots", () => {

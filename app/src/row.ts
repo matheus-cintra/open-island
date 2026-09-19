@@ -3,15 +3,21 @@ import { strings } from "./strings";
 import { SESSION_ICONS } from "./session-icons";
 import { createSprite, spriteAgent } from "./sprites";
 import {
+  compactActivity,
   compactCount,
-  compactLabel,
-  compactPending,
+  compactKicker,
+  compactLeading,
+  compactNeed,
   compactProject,
   compactRowEl,
   compactSpriteEl,
+  compactStripEl,
   compactTail,
+  compactText,
+  compactWordmark,
   sessionListEl,
 } from "./elements";
+import { StateStrip } from "./strip";
 import { createMessageBox, fillMessageBox, disposeMessageBox } from "./message";
 import { Attention, BadgeSpec, Session, Subagent, Task, RowVisibility } from "./types";
 import type { ActionIdentity } from "./daemon-state";
@@ -63,44 +69,113 @@ export function listKey(list: Session[]): string {
     .join("\n");
 }
 
-export function renderCompact(n: number, pending = false): void {
-  if (n === 0) {
-    setHidden(compactPending, !pending);
-    if (compactCount.textContent !== "") compactCount.textContent = "";
-    if (compactLabel.textContent !== "") compactLabel.textContent = "";
-    setHidden(compactLabel, true);
-    const hasTail = compactRowEl.contains(compactTail);
-    if (pending && !hasTail) compactRowEl.replaceChildren(compactTail);
-    else if (!pending && hasTail) compactRowEl.replaceChildren();
-    return;
+export interface CompactPending {
+  readonly kind: "approval" | "question";
+  readonly sessionId: string;
+}
+
+type NeedKind = "permission" | "question" | "done";
+
+interface CompactNeed {
+  readonly kind: NeedKind;
+  readonly session: Session | undefined;
+}
+
+const compactStrip = new StateStrip(compactStripEl);
+compactWordmark.textContent = strings.island.wordmark;
+
+function setChildren(parent: HTMLElement, wanted: readonly HTMLElement[]): void {
+  const current = [...parent.children];
+  if (current.length === wanted.length && current.every((child, index): boolean => child === wanted[index])) return;
+  parent.replaceChildren(...wanted);
+}
+
+function setText(element: HTMLElement, value: string): void {
+  if (element.textContent !== value) element.textContent = value;
+}
+
+function setClass(element: HTMLElement, value: string): void {
+  if (element.className !== value) element.className = value;
+}
+
+function compactNeedOf(list: Session[], pending: CompactPending | null): CompactNeed | null {
+  if (pending !== null) {
+    return {
+      kind: pending.kind === "question" ? "question" : "permission",
+      session: list.find((session) => session.id === pending.sessionId),
+    };
   }
-  const lead = context.sessions[0];
-  const wanted = spriteAgent(lead.agent);
+  const waiting = list.find((session) => session.attention === "waiting_for_input");
+  if (waiting !== undefined) {
+    return { kind: waiting.question_state === "pending" ? "question" : "permission", session: waiting };
+  }
+  const done = list.find((session) => session.attention === "needs_attention");
+  return done === undefined ? null : { kind: "done", session: done };
+}
+
+function setCompactSprite(agent: string, walking: boolean): void {
+  const wanted = spriteAgent(agent);
   let sprite = compactSpriteEl.firstElementChild as SVGSVGElement | null;
   if (sprite === null || sprite.dataset.agent !== wanted) {
-    sprite = createSprite(lead.agent);
+    sprite = createSprite(agent);
     compactSpriteEl.replaceChildren(sprite);
   }
-  sprite.classList.toggle("is-walking", strongestAttention(context.sessions) !== "idle");
-  if (!compactRowEl.contains(compactSpriteEl)) {
-    const leading = document.createElement("div");
-    leading.className = "compact-leading";
-    leading.append(compactSpriteEl, compactProject);
-    compactRowEl.append(leading, compactTail);
+  sprite.classList.toggle("is-walking", walking);
+}
+
+function setCompactCount(n: number, tone: string): void {
+  setClass(compactCount, `compact-count pixel ${tone}`.trim());
+  const next = n === 0 ? "" : String(n);
+  if (compactCount.textContent === next) return;
+  compactCount.textContent = next;
+  if (next === "") return;
+  compactCount.classList.remove("is-rolling");
+  void compactCount.offsetWidth;
+  compactCount.classList.add("is-rolling");
+}
+
+export function renderCompact(n: number, pending: CompactPending | null, offline: boolean): void {
+  const list = context.sessions;
+  const need = offline ? null : compactNeedOf(list, pending);
+  const lead = list[0];
+  compactStrip.update(list, offline);
+  setCompactCount(n, need === null ? "" : need.kind === "done" ? "needs_attention" : "waiting_for_input");
+  setHidden(compactTail, n === 0);
+  if (offline) {
+    setCompactSprite("unknown", false);
+    setClass(compactKicker, "compact-kicker pixel offline");
+    setText(compactKicker, strings.island.noConnection);
+    setChildren(compactNeed, [compactKicker]);
+    setChildren(compactLeading, [compactSpriteEl, compactNeed]);
+    setChildren(compactRowEl, [compactLeading, compactTail]);
+    return;
   }
-  setHidden(compactProject, context.compactClean || !context.show.project);
-  if (compactProject.textContent !== lead.title) compactProject.textContent = lead.title;
-  setHidden(compactLabel, context.compactClean);
-  setHidden(compactPending, !pending);
-  const label = strings.island.compactSessions(n);
-  if (compactLabel.textContent !== label) compactLabel.textContent = label;
-  const next = String(n);
-  if (compactCount.textContent !== next) {
-    compactCount.textContent = next;
-    compactCount.classList.remove("is-rolling");
-    void compactCount.offsetWidth;
-    compactCount.classList.add("is-rolling");
+  if (need !== null) {
+    setClass(compactKicker, `compact-kicker pixel ${need.kind === "done" ? "needs_attention" : "waiting_for_input"}`);
+    setText(compactKicker, strings.island.kicker[need.kind]);
+    const project = need.session?.title ?? "";
+    setText(compactProject, project);
+    setChildren(compactNeed, project === "" ? [compactKicker] : [compactKicker, compactProject]);
+    if (lead !== undefined) setCompactSprite(lead.agent, strongestAttention(list) !== "idle");
+    setChildren(compactLeading, lead === undefined ? [compactNeed] : [compactSpriteEl, compactNeed]);
+    setChildren(compactRowEl, [compactLeading, compactTail]);
+    return;
   }
+  if (lead === undefined) {
+    setChildren(compactRowEl, [compactWordmark]);
+    return;
+  }
+  setCompactSprite(lead.agent, strongestAttention(list) !== "idle");
+  if (context.compactClean || !context.show.project) {
+    setChildren(compactLeading, [compactSpriteEl]);
+  } else {
+    setText(compactProject, lead.title);
+    const tool = lead.current_tool ?? "";
+    setText(compactActivity, tool);
+    setChildren(compactText, tool === "" ? [compactProject] : [compactProject, compactActivity]);
+    setChildren(compactLeading, [compactSpriteEl, compactText]);
+  }
+  setChildren(compactRowEl, [compactLeading, compactTail]);
 }
 
 export function renderList(): void {
