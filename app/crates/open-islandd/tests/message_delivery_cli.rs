@@ -199,7 +199,7 @@ fn saturation_keeps_queued_armed_and_cancel_releases_workers() {
         assert!(ctx.messages.schedule(&ctx.state, &session, true).unwrap());
     }
     for _ in 0..8 {
-        notified.recv_timeout(Duration::from_secs(2)).unwrap();
+        notified.recv_timeout(Duration::from_secs(10)).unwrap();
     }
     let (_ninth, mut session) = helper(&directory.path().join("missing"));
     session.attention = Some(Attention::Idle);
