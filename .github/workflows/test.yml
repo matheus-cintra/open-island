@@ -111,6 +111,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: app
         run: bun install --frozen-lockfile
+      - name: Stage the daemon sidecar
+        working-directory: app
+        run: bun run prebundle
       - name: Build the product transcription probe
         working-directory: app
         run: bun scripts/portable-build.mjs cargo build --release -p open-island --example voice_probe
