@@ -3039,7 +3039,7 @@ dependencies = [
 
 [[package]]
 name = "open-island"
-version = "0.9.4-linux"
+version = "0.10.0-linux"
 dependencies = [
  "audioadapter-buffers",
  "base64 0.22.1",
@@ -3068,7 +3068,7 @@ dependencies = [
 
 [[package]]
 name = "open-island-core"
-version = "0.9.4-linux"
+version = "0.10.0-linux"
 dependencies = [
  "cc",
  "libc",
@@ -3078,7 +3078,7 @@ dependencies = [
 
 [[package]]
 name = "open-islandd"
-version = "0.9.4-linux"
+version = "0.10.0-linux"
 dependencies = [
  "libc",
  "open-island-core",
