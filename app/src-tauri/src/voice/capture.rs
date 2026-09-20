@@ -8,6 +8,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+const CALLBACK_LOCK_PATIENCE: Duration = Duration::from_millis(2);
 #[derive(Clone, Default)]
 pub struct Controls {
     pub samples: Arc<AtomicU64>,
@@ -32,9 +33,16 @@ impl Sink {
         {
             return;
         }
-        let Ok(mut guard) = self.buffer.try_lock() else {
-            self.fail(Error::Overrun);
-            return;
+        let deadline = Instant::now() + CALLBACK_LOCK_PATIENCE;
+        let mut guard = loop {
+            if let Ok(guard) = self.buffer.try_lock() {
+                break guard;
+            }
+            if Instant::now() >= deadline {
+                self.fail(Error::Overrun);
+                return;
+            }
+            thread::yield_now();
         };
         let Some(buffer) = guard.as_mut() else {
             return;
@@ -141,33 +149,35 @@ fn run_until_with(
         if started.elapsed() >= next {
             next += interval;
             // try_lock only: the audio callback owns this mutex and must never wait.
-            if let Ok(guard) = sink.buffer.try_lock() {
-                if let Some(buffer) = guard.as_ref() {
-                    if buffer.is_empty() {
-                        level(0.0);
-                    } else {
-                        let value = buffer.tail_level(window);
-                        level(value);
-                        if let Some(vad) = activity {
-                            seen += 1;
-                            if seen <= 5 {
-                                // Learn the ambient floor before judging speech, so
-                                // microphones whose noise sits above the absolute
-                                // minimum still reach silence.
-                                floor = floor.min(value);
-                            } else {
-                                if value >= (floor * 3.0).max(vad.speech) {
-                                    spoken += reading;
-                                    quiet = 0;
-                                } else if spoken >= arm {
-                                    quiet += reading;
-                                    if quiet >= vad.silence.as_millis() as u64 {
-                                        controls.stop.store(true, Ordering::Release);
-                                    }
+            let sampled = sink.buffer.try_lock().ok().and_then(|guard| {
+                guard
+                    .as_ref()
+                    .map(|buffer| (!buffer.is_empty()).then(|| buffer.tail_level(window)))
+            });
+            match sampled {
+                None => {}
+                Some(None) => level(0.0),
+                Some(Some(value)) => {
+                    level(value);
+                    if let Some(vad) = activity {
+                        seen += 1;
+                        if seen <= 5 {
+                            // Learn the ambient floor before judging speech, so
+                            // microphones whose noise sits above the absolute
+                            // minimum still reach silence.
+                            floor = floor.min(value);
+                        } else {
+                            if value >= (floor * 3.0).max(vad.speech) {
+                                spoken += reading;
+                                quiet = 0;
+                            } else if spoken >= arm {
+                                quiet += reading;
+                                if quiet >= vad.silence.as_millis() as u64 {
+                                    controls.stop.store(true, Ordering::Release);
                                 }
-                                if value < floor * 2.0 {
-                                    floor += (value - floor) * 0.1;
-                                }
+                            }
+                            if value < floor * 2.0 {
+                                floor += (value - floor) * 0.1;
                             }
                         }
                     }

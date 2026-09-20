@@ -16,9 +16,11 @@ const target = (index >= 0 ? args[index + 1] : args.find(arg => arg.startsWith('
 const x86 = /^x86_64-(unknown-linux-gnu|apple-darwin)$/.test(target ?? '');
 const arm = target === 'aarch64-apple-darwin';
 if (!x86 && !arm) throw new Error('unsupported portable target');
-const off = ['NATIVE','SSE42','AVX','AVX2','BMI2','AVX_VNNI','AVX512','AVX512_VBMI','AVX512_VNNI','AVX512_BF16','FMA','F16C','AMX_TILE','AMX_INT8','AMX_BF16','CPU_ALL_VARIANTS','CPU_KLEIDIAI','OPENMP','CUDA','VULKAN','METAL','HIP','SYCL','BLAS'];
+const off = ['NATIVE','SSE42','AVX','AVX2','BMI2','AVX_VNNI','AVX512','AVX512_VBMI','AVX512_VNNI','AVX512_BF16','FMA','F16C','AMX_TILE','AMX_INT8','AMX_BF16','CPU_ALL_VARIANTS','CPU_KLEIDIAI','OPENMP','CUDA','VULKAN','METAL','HIP','SYCL'];
 const policy = Object.fromEntries(off.map(key => [`GGML_${key}`, 'OFF']));
-Object.assign(policy, { CMAKE_EXPORT_COMPILE_COMMANDS: 'ON', WHISPER_COREML: 'OFF', GGML_ACCELERATE: target.endsWith('apple-darwin') ? 'ON' : 'OFF' });
+const apple = target.endsWith('apple-darwin');
+Object.assign(policy, { CMAKE_EXPORT_COMPILE_COMMANDS: 'ON', WHISPER_COREML: 'OFF', GGML_ACCELERATE: apple ? 'ON' : 'OFF', GGML_BLAS: apple ? 'ON' : 'OFF' });
+if (apple) policy.GGML_BLAS_VENDOR = 'Apple';
 if (arm) policy.GGML_CPU_ARM_ARCH = 'armv8-a';
 const env = { ...process.env };
 if (args.some(arg => /target-(?:cpu|feature)|-m(?:arch|cpu|avx|sse)|(?:cuda|vulkan|metal|coreml|openmp)/i.test(arg))) throw new Error('conflicting command-line CPU/GPU option');
@@ -33,7 +35,7 @@ for (const key of Object.keys(env)) {
 // the relative, private cache location when it exists.
 const localTools = resolve(root, 'target', 'qa-tools', 'bin');
 if (existsSync(localTools)) env.PATH = `${localTools}${process.platform === 'win32' ? ';' : ':'}${env.PATH ?? ''}`;
-Object.assign(env, policy, { CFLAGS: x86 ? '-march=x86-64 -mtune=generic' : '-march=armv8-a', CXXFLAGS: x86 ? '-march=x86-64 -mtune=generic' : '-march=armv8-a', RUSTFLAGS: `-C target-cpu=${x86 ? 'x86-64' : 'generic'}`, CARGO_BUILD_TARGET: target });
+Object.assign(env, policy, { CFLAGS: x86 ? '-march=x86-64 -mtune=generic' : '-march=armv8-a', CXXFLAGS: x86 ? '-march=x86-64 -mtune=generic' : '-march=armv8-a', RUSTFLAGS: `-C target-cpu=${x86 ? 'x86-64' : 'apple-m1'}`, CARGO_BUILD_TARGET: target });
 const lock = readFileSync(resolve(root, 'Cargo.lock'), 'utf8');
 if (!/name = "whisper-rs-sys"\nversion = "0\.15\.0"/.test(lock)) throw new Error('unexpected whisper-rs-sys version');
 const hash = createHash('sha256').update(JSON.stringify({ target, policy, c: env.CFLAGS, rust: env.RUSTFLAGS })).digest('hex').slice(0, 16);

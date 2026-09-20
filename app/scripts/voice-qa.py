@@ -17,8 +17,11 @@ MODEL_HASH = "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"
 
 
 def digest(path):
+    sha256 = hashlib.sha256()
     with path.open("rb") as source:
-        return hashlib.file_digest(source, "sha256").hexdigest()
+        for chunk in iter(lambda: source.read(1 << 20), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
 
 
 def words(text):

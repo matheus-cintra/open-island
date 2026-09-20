@@ -13,6 +13,7 @@ export function audit(directory, target, policy) {
   walk(directory);
   const caches = files.filter(file => file.endsWith('CMakeCache.txt') && file.includes('whisper-rs-sys'));
   const allowed = new Set(target.startsWith('x86_64') ? ['-m64', '-march=x86-64', '-mtune=generic', '-msse', '-msse2', '-mfpmath=sse'] : ['-march=armv8-a', '-mtune=generic']);
+  if (target.endsWith('apple-darwin')) allowed.add('-mmacosx-version-min=12.0');
   const checkFlags = text => {
     for (const match of text.matchAll(/(?:^|\s)(-m[^\s"']+)/g)) if (!allowed.has(match[1])) throw new Error(`nonbaseline machine flag: ${match[1]}`);
   };

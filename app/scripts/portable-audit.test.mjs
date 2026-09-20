@@ -22,3 +22,18 @@ test('native audit rejects compiler extensions even when CMake native is off', (
     assert.throws(() => audit(root, 'x86_64-unknown-linux-gnu', { GGML_NATIVE: 'OFF' }), /mismatch/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+test('native audit accepts only the pinned macOS deployment target on Apple targets', () => {
+  const root = mkdtempSync(join(tmpdir(), 'oi-isa-'));
+  try {
+    const build = join(root, 'whisper-rs-sys-fixture', 'out', 'build');
+    mkdirSync(build, { recursive: true });
+    writeFileSync(join(build, 'CMakeCache.txt'), 'GGML_NATIVE:BOOL=OFF\n');
+    const commands = flag => writeFileSync(join(build, 'compile_commands.json'), JSON.stringify([{ command: `cc -march=armv8-a ${flag} -c ggml.c` }]));
+    commands('-mmacosx-version-min=12.0');
+    assert.equal(audit(root, 'aarch64-apple-darwin', { GGML_NATIVE: 'OFF' }).compilation_units, 1);
+    commands('-mmacosx-version-min=11.0');
+    assert.throws(() => audit(root, 'aarch64-apple-darwin', { GGML_NATIVE: 'OFF' }), /nonbaseline/);
+    commands('-mmacosx-version-min=12.0');
+    assert.throws(() => audit(root, 'x86_64-unknown-linux-gnu', { GGML_NATIVE: 'OFF' }), /nonbaseline/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

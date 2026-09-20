@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn configuration_is_private_atomic_and_does_not_store_audio_or_text() {
         let dir = tempfile::tempdir().unwrap();
-        let selected = dir.path().join("selected.bin");
+        let selected = dir.path().canonicalize().unwrap().join("selected.bin");
         model(&selected, 51865);
         let state = dir.path().join("state");
         save(&state, &selected).unwrap();
