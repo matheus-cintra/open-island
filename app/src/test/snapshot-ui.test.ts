@@ -51,7 +51,7 @@ test("initial discovery is distinct from a connected empty session list", () => 
   tauri.emit("daemon-ui-state", initial);
   const status = document.querySelector<HTMLElement>(".daemon-connection-status")!;
   expect(status.hidden).toBe(false);
-  expect(status.textContent).toBe("Identificando as sessões locais…");
+  expect(status.textContent).toBe("Procurando sessões…");
   initial.snapshot!.snapshot.discovering = false;
   initial.snapshot!.snapshot.publication_revision += 1;
   tauri.emit("daemon-ui-state", initial);

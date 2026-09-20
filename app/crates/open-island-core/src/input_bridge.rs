@@ -115,7 +115,7 @@ pub fn send(path: &Path, pid: u32, text: &str) -> Result<(), String> {
         Ok(Response { error: None, .. }) => Ok(()),
         Ok(Response { error: Some(error), .. }) => Err(error),
         // A lost acknowledgement is ambiguous: never retry automatically.
-        Err(error) => Err(format!("Não foi possível confirmar o envio à sessão: {error}. Confira o terminal antes de reenviar.")),
+        Err(error) => Err(format!("Não deu para confirmar o envio à sessão: {error}. Confira o terminal antes de reenviar.")),
     }
 }
 

@@ -19,7 +19,7 @@ test("denied permission and an unshared status are explained without claiming DN
   expect(denied.textContent).toContain("Acesso negado");
   expect(denied.querySelector("button")).toBeNull();
   const unknown = focusPermissionSection({ authorization: 3, silenced: null });
-  expect(unknown.textContent).toContain("não foi compartilhado");
+  expect(unknown.textContent).toContain("não compartilhou o estado");
   const authorized = focusPermissionSection({ authorization: 3, silenced: false });
   expect(authorized.textContent).toContain("Autorizado.");
 });

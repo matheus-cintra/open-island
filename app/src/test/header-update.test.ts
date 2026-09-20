@@ -44,7 +44,7 @@ test("clicking the icon asks the app to run the installer with the closing promp
   button.click();
   await new Promise((resolve) => setTimeout(resolve, 10));
   const call = tauri.calls.filter((entry) => entry.command === "run_update").pop();
-  expect(call?.args).toEqual({ prompt: "Pressione Enter para fechar." });
+  expect(call?.args).toEqual({ prompt: "Aperte Enter para fechar." });
   expect(error.hidden).toBe(true);
 });
 

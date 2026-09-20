@@ -199,7 +199,7 @@ fn activate_ancestor(
             Some(true) => return Ok(()),
             Some(false) => {
                 return Err(format!(
-                    "O macOS recusou ativar o aplicativo do processo {current}. Verifique se ele ainda está aberto."
+                    "O macOS recusou ativar o aplicativo do processo {current}. Confira se ele ainda está aberto."
                 ))
             }
             None => {}
@@ -207,7 +207,9 @@ fn activate_ancestor(
         let Some(next) = parent(current) else { break };
         current = next;
     }
-    Err(format!("Não foi encontrado um aplicativo aberto para o processo {pid}. Abra a sessão novamente no terminal."))
+    Err(format!(
+        "Nenhum aplicativo aberto para o processo {pid}. Abra a sessão de novo no terminal."
+    ))
 }
 
 #[cfg(test)]

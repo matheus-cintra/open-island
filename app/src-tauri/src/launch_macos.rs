@@ -73,7 +73,7 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
     let bridge = crate::client::daemon_candidates()
         .into_iter()
         .find(|path| path.is_file())
-        .ok_or("O componente de entrada não foi encontrado. Reinstale o aplicativo.")?;
+        .ok_or("Falta o componente de entrada. Reinstale o Open Island.")?;
     let command = format!(
         "{} run -- {}",
         quote_shell(&bridge.to_string_lossy()),
@@ -88,7 +88,7 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
         _ => return Err("Terminal não suportado. Escolha outro em Ajustes → Geral.".into()),
     };
     let application = crate::platform::application_path(bundle).ok_or_else(|| {
-        format!("{name} não está instalado. Instale-o ou escolha outro em Ajustes → Geral.")
+        format!("{name} não está instalado. Instale ou escolha outro em Ajustes → Geral.")
     })?;
     if kind == "warp" {
         let home = std::env::var_os("HOME").ok_or("Pasta pessoal indisponível.")?;
@@ -126,7 +126,7 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
             .map_err(|e| e.to_string());
         if !status.as_ref().is_ok_and(|s| s.success()) {
             let _ = fs::remove_file(path);
-            return Err("Não foi possível abrir a configuração de sessão no Warp.".into());
+            return Err("Não deu para abrir a configuração de sessão no Warp.".into());
         }
         // Warp reads the file asynchronously, so it must outlive this request.
         return Ok(());
@@ -154,7 +154,7 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| format!("Não foi possível iniciar {name}: {e}"))?;
+            .map_err(|e| format!("Não deu para abrir {name}: {e}"))?;
         std::thread::spawn(move || {
             let _ = child.wait();
         });
@@ -170,7 +170,7 @@ pub fn open(folder: &str, agent: &str, kind: &str) -> Result<(), String> {
     if output.status.success() {
         Ok(())
     } else {
-        Err(format!("Não foi possível abrir {name}. Em Ajustes do Sistema → Privacidade e Segurança → Automação, permita que Open Island controle {name}. {}", String::from_utf8_lossy(&output.stderr).trim()))
+        Err(format!("Não deu para abrir {name}. Em Ajustes do Sistema → Privacidade e Segurança → Automação, permita que Open Island controle {name}. {}", String::from_utf8_lossy(&output.stderr).trim()))
     }
 }
 
