@@ -11,12 +11,12 @@ export const integrations: Pane = {
   tint: "var(--tint-integrations)",
   sections: [
     {
-      title: "Mensagens pela ilha",
-      footer: "Vale para novas sessões em Bash, Zsh e Fish, em qualquer terminal. Após ativar ou desativar, abra uma nova aba. Aliases e funções personalizados são preservados.",
+      title: copy.integrations.input,
+      footer: copy.integrations.inputFooter,
       rows: [{
         path: "integration.input",
-        label: "Enviar mensagens aos agentes pelo terminal",
-        hint: "Sessões abertas pelo botão + já incluem esse recurso. Ative também para os comandos digitados no terminal.",
+        label: copy.integrations.inputLabel,
+        hint: copy.integrations.inputHint,
         control: { kind: "integration", name: "input" },
       }],
     },

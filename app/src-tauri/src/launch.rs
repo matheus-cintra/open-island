@@ -45,7 +45,7 @@ pub fn open(folder: &str, agent: &str) -> Result<(), String> {
         .into_iter()
         .find(|path| path.is_file())
         .or_else(|| terminal::on_path("open-islandd"))
-        .ok_or("O componente de entrada não foi encontrado. Reinstale o aplicativo.")?;
+        .ok_or("Falta o componente de entrada. Reinstale o Open Island.")?;
     terminal::spawn_detached(session_argv(&program, folder, &bridge, agent))
 }
 

@@ -52,7 +52,7 @@ test("usage values update and reorder by key without replacing retained nodes", 
   expect(a.querySelector(".usage-reset")!.textContent).toBe("59m");
   expect(a.querySelector(".usage-percent")!.classList.contains("is-high")).toBe(true);
   expect(a.querySelector<HTMLElement>(".usage-fill")!.style.width).toBe("30%");
-  expect((a as HTMLElement).title).toBe("5h: 30%, reseta em 59m");
+  expect((a as HTMLElement).title).toBe("5h: 30%, zera em 59m");
   expect(b.querySelector(".usage-track")).toBeNull();
   view.update([first, { ...first, label: "duplicate" }], false);
   expect(root.querySelectorAll(".usage-window")).toHaveLength(2);

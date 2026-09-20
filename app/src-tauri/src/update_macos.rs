@@ -80,7 +80,7 @@ fn stop_daemon() -> Result<(), String> {
         }
         thread::sleep(Duration::from_millis(100));
     }
-    Err("O daemon não encerrou a tempo. A atualização foi cancelada.".into())
+    Err("O daemon não fechou a tempo. A atualização parou aqui.".into())
 }
 
 fn start_daemon(bundle: &Path, version: &str) -> Result<(), String> {
@@ -252,7 +252,7 @@ pub async fn run(app: tauri::AppHandle) -> Result<(), String> {
     // Tauri caches this path before startup and rejects symlinked macOS paths.
     // Use the same location for replacement and relaunch, even if the bundle moves later.
     let executable = tauri::process::current_binary(&app.env())
-        .map_err(|e| format!("Não foi possível determinar um local seguro para reiniciar: {e}"))?;
+        .map_err(|e| format!("Não deu para achar um local seguro para reiniciar: {e}"))?;
     let installed = executable
         .ancestors()
         .find(|p| p.extension().is_some_and(|e| e == "app"))
@@ -267,7 +267,7 @@ pub async fn run(app: tauri::AppHandle) -> Result<(), String> {
     let update = updater
         .check()
         .await
-        .map_err(|e| format!("Não foi possível consultar o pacote assinado: {e}"))?
+        .map_err(|e| format!("Não deu para consultar o pacote assinado: {e}"))?
         .ok_or("Nenhuma atualização assinada disponível para este Mac.")?;
     let _ = app.emit("update-progress", "Baixando e verificando assinatura…");
     // download() verifies the signature with the embedded public key before returning bytes.

@@ -184,19 +184,19 @@ export function renderPane(): void {
     for (const row of section.rows) {
       if (row.visible?.() === false || !supportsRow(capabilities, row.path)) continue;
       const effectiveRow = capabilities.os === "macos" && row.path === "integration.autostart"
-        ? { ...row, hint: "Inicia a ilha e o daemon ao entrar na sua conta do Mac." }
+        ? { ...row, hint: strings.settings.macos.autostartHint }
         : capabilities.os === "macos" && row.path === "display.island_height"
-          ? { ...row, hint: "0 usa a altura automática. Valores menores que 16 usam 16 pontos; 40 define a altura em 40 pontos." }
+          ? { ...row, hint: strings.settings.macos.islandHeightHint }
           : { ...row };
       if (capabilities.os === "macos" && ["sound.follow_dnd", "filters.quiet.focus_mode"].includes(row.path)) {
-        effectiveRow.hint = "Respeita o estado de Foco compartilhado pelo macOS. Requer a autorização acima.";
+        effectiveRow.hint = strings.settings.macos.focusHint;
       }
       if (capabilities.os === "macos" && row.path === "filters.quiet.screen_off") {
-        effectiveRow.label = "Telas desligadas ou sessão bloqueada";
-        effectiveRow.hint = "Silencia com todas as telas em repouso, ao bloquear o Mac ou trocar de usuário. A detecção de bloqueio é experimental.";
+        effectiveRow.label = strings.settings.macos.screenOff;
+        effectiveRow.hint = strings.settings.macos.screenOffHint;
       }
       if (capabilities.os === "macos" && row.path === "island.hide_in_fullscreen") {
-        effectiveRow.hint = "Oculta enquanto o aplicativo ativo estiver no modo de tela cheia do macOS. Janelas apenas maximizadas não ativam esta opção.";
+        effectiveRow.hint = strings.settings.macos.fullscreenHint;
       }
       const built = buildRow(effectiveRow);
       if (row.visibleWhen !== undefined)
@@ -223,7 +223,7 @@ export function renderPane(): void {
       const footer = document.createElement("p");
       footer.className = "section-footer";
       footer.textContent = capabilities.os === "macos" && section.rows.some((row) => row.path === "display.notch_width_offset")
-        ? "Ajuste a largura e a altura da ilha recolhida em pontos da tela. Os ajustes relativos partem de 0; a área da câmera continua reservada entre os conteúdos."
+        ? strings.settings.macos.notchFooter
         : section.footer;
       wrapper.append(footer);
     }
@@ -235,7 +235,7 @@ export function renderPane(): void {
   }
 
   if (capabilities.experimental && pane.id === "about") {
-    body.prepend(buildNote("macOS experimental — validação em um Mac real pendente. O foco ativa o aplicativo; a janela ou aba exata depende da integração do terminal.", "warning"));
+    body.prepend(buildNote(strings.settings.macos.experimental, "warning"));
   }
   if (capabilities.os === "macos" && (pane.id === "sound" || pane.id === "filters")) {
     body.prepend(focusPermissionSection(focusStatus));
@@ -245,7 +245,7 @@ export function renderPane(): void {
     section.className = "section";
     const heading = document.createElement("h2");
     heading.className = "section-title";
-    heading.textContent = "Atalho global";
+    heading.textContent = strings.settings.shortcut.title;
     const card = document.createElement("div");
     card.className = "card";
     const row = document.createElement("form");
@@ -255,10 +255,10 @@ export function renderPane(): void {
     const label = document.createElement("label");
     label.className = "row-label";
     label.htmlFor = "global-shortcut";
-    label.textContent = "Mostrar ou ocultar a ilha";
+    label.textContent = strings.settings.shortcut.label;
     const hint = document.createElement("span");
     hint.className = "row-hint";
-    hint.textContent = "Deixe vazio para desativar.";
+    hint.textContent = strings.settings.shortcut.hint;
     copy.append(label, hint);
     const controls = document.createElement("div");
     controls.className = "row-control shortcut-controls";
@@ -267,12 +267,12 @@ export function renderPane(): void {
     input.type = "text";
     input.className = "field shortcut-input";
     input.value = shortcutStatus.shortcut;
-    input.placeholder = "Command+Shift+I";
-    input.setAttribute("aria-label", "Atalho global");
+    input.placeholder = strings.settings.shortcut.placeholder;
+    input.setAttribute("aria-label", strings.settings.shortcut.title);
     const button = document.createElement("button");
     button.type = "submit";
     button.className = "row-button";
-    button.textContent = "Salvar";
+    button.textContent = strings.settings.shortcut.save;
     const status = document.createElement("p");
     status.className = "section-footer shortcut-status";
     status.setAttribute("role", "status");
@@ -283,7 +283,7 @@ export function renderPane(): void {
       button.disabled = true;
       void invoke<typeof shortcutStatus>("set_shortcut", { shortcut: input.value }).then((reply) => {
         shortcutStatus = reply;
-        status.textContent = reply.error ?? "Atalho salvo.";
+        status.textContent = reply.error ?? strings.settings.shortcut.saved;
         status.hidden = false;
       }).catch((error: unknown) => { status.textContent = String(error); status.hidden = false; })
         .finally(() => { button.disabled = false; });
@@ -295,7 +295,7 @@ export function renderPane(): void {
     body.insertBefore(section, body.children[1] ?? null);
   }
   if (capabilities.manual_update && pane.id === "about") {
-    body.append(buildNote("A atualização abre o DMG da sua arquitetura. Substitua o aplicativo manualmente em Aplicativos.", "warning"));
+    body.append(buildNote(strings.settings.macos.manualUpdate, "warning"));
   }
   contentEl.append(body);
   refreshDependencies();

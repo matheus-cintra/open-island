@@ -65,7 +65,7 @@ test("removed destination preserves text and requires selection plus explicit in
   await ready("texto para revisar");
   expect(old.input.value).toBe(""); old.element.remove();
   const result = document.querySelector<HTMLElement>(".voice-result")!;
-  const insert = Array.from(result.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("composer"))!;
+  const insert = Array.from(result.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("campo de mensagem"))!;
   expect(insert.disabled).toBe(true);
   const selected = row("selected"); selected.input.focus();
   expect(insert.disabled).toBe(false); expect(insert.textContent).toBe("Inserir em selected");

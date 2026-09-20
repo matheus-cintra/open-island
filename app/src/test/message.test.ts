@@ -73,7 +73,7 @@ test("a target the daemon has not verified yet explains itself in Portuguese", (
   const hint = li.querySelector<HTMLElement>(".message-hint")!;
   expect(hint.hidden).toBe(false);
   expect(hint.textContent).toBe(
-    "A ilha ainda não confirmou o destino desta sessão. Tente de novo em instantes.",
+    "A ilha ainda não confirmou o destino desta sessão. Tente de novo em alguns segundos.",
   );
 });
 

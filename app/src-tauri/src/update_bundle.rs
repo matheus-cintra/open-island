@@ -97,7 +97,7 @@ impl Drop for BundleTransaction {
             if let Some(staging) = self.staging.take() {
                 let backup = staging.keep();
                 eprintln!(
-                    "Não foi possível restaurar o aplicativo: {error}. Backup preservado em {}",
+                    "Não deu para restaurar o Open Island: {error}. O backup ficou em {}",
                     backup.display()
                 );
             }

@@ -28,11 +28,11 @@ export const general: Pane = {
       ],
     },
     {
-      title: "Novas sessões",
+      title: copy.macos.newSessions,
       rows: [{
         path: "integrations.macos_terminal",
-        label: "Abrir no terminal",
-        hint: "Escolha um aplicativo instalado. A sessão abre na pasta selecionada em uma nova janela.",
+        label: copy.macos.terminal,
+        hint: copy.macos.terminalHint,
         control: { kind: "options", choices: [["terminal", "Terminal.app"], ["iterm2", "iTerm2"], ["warp", "Warp"], ["wezterm", "WezTerm"], ["kitty", "Kitty"]] },
       }],
     },
