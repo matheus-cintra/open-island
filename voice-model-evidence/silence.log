@@ -1,0 +1,1 @@
+{"cancellation":{"after_ms":null,"requested_at_ms":null},"cpu":{"avx":true,"avx2":true,"bmi2":true,"f16c":true,"fma":true,"sse3":true,"sse4.1":true,"sse4.2":true,"ssse3":true},"elapsed_ms":0,"result":{"Err":"no_speech"}}

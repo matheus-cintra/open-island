@@ -1,0 +1,54 @@
+{
+  "status": "PASS",
+  "failures": [],
+  "mode": "host",
+  "probe_sha256": "0a8af3bae6fd0d35a2c9a9004dcb442f1a50317af6f5d281aab210332e144c53",
+  "model_sha256": "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+  "manifest_sha256": "aa1bd70be0e5af75cb112468afdb25b3625c430f25f1ca0476971b3f70862784",
+  "normalized_wer": 0.21428571428571427,
+  "results": {
+    "pt-br": {
+      "cancellation": {
+        "after_ms": null,
+        "requested_at_ms": null
+      },
+      "cpu": {
+        "avx": true,
+        "avx2": true,
+        "bmi2": true,
+        "f16c": true,
+        "fma": true,
+        "sse3": true,
+        "sse4.1": true,
+        "sse4.2": true,
+        "ssse3": true
+      },
+      "elapsed_ms": 111342,
+      "result": {
+        "Ok": "Mostre os testes do projeto e verifique-se a mensagem chegou da sessão de header."
+      }
+    },
+    "silence": {
+      "cancellation": {
+        "after_ms": null,
+        "requested_at_ms": null
+      },
+      "cpu": {
+        "avx": true,
+        "avx2": true,
+        "bmi2": true,
+        "f16c": true,
+        "fma": true,
+        "sse3": true,
+        "sse4.1": true,
+        "sse4.2": true,
+        "ssse3": true
+      },
+      "elapsed_ms": 0,
+      "result": {
+        "Err": "no_speech"
+      }
+    }
+  },
+  "scope": "synthetic transcription and silence; no microphone or GUI proof"
+}

@@ -1,0 +1,790 @@
+[1m[92m   Compiling[0m proc-macro2 v1.0.107
+[1m[92m   Compiling[0m quote v1.0.47
+[1m[92m   Compiling[0m unicode-ident v1.0.24
+[1m[92m   Compiling[0m libc v0.2.189
+[1m[92m   Compiling[0m serde_core v1.0.229
+[1m[92m   Compiling[0m shlex v2.0.1
+[1m[92m   Compiling[0m syn v2.0.119
+[1m[92m   Compiling[0m syn v3.0.4
+[1m[92m   Compiling[0m find-msvc-tools v0.1.11
+[1m[92m   Compiling[0m cc v1.4.4
+[1m[92m   Compiling[0m zmij v1.0.23
+[1m[92m   Compiling[0m synstructure v0.13.2
+[1m[92m   Compiling[0m bitflags v2.13.1
+[1m[92m   Compiling[0m serde_derive v1.0.229
+[1m[92m   Compiling[0m zerofrom-derive v0.1.7
+[1m[92m   Compiling[0m yoke-derive v0.8.2
+[1m[92m   Compiling[0m zerovec-derive v0.11.6
+[1m[92m   Compiling[0m displaydoc v0.2.7
+[1m[92m   Compiling[0m thiserror v1.0.69
+[1m[92m   Compiling[0m thiserror-impl v1.0.69
+[1m[92m   Compiling[0m getrandom v0.4.3
+[1m[92m   Compiling[0m cfg-if v1.0.4
+[1m[92m   Compiling[0m anyhow v1.0.104
+[1m[92m   Compiling[0m memchr v2.8.3
+[1m[92m   Compiling[0m icu_normalizer_data v2.3.0
+[1m[92m   Compiling[0m icu_properties_data v2.3.0
+[1m[92m   Compiling[0m serde v1.0.229
+[1m[92m   Compiling[0m siphasher v1.0.3
+[1m[92m   Compiling[0m itoa v1.0.18
+[1m[92m   Compiling[0m phf_shared v0.13.1
+[1m[92m   Compiling[0m fastrand v2.5.0
+[1m[92m   Compiling[0m autocfg v1.5.1
+[1m[92m   Compiling[0m phf_generator v0.13.1
+[1m[92m   Compiling[0m stable_deref_trait v1.2.1
+[1m[92m   Compiling[0m bytes v1.12.1
+[1m[92m   Compiling[0m zerofrom v0.1.8
+[1m[92m   Compiling[0m smallvec v1.16.0
+[1m[92m   Compiling[0m yoke v0.8.3
+[1m[92m   Compiling[0m once_cell v1.21.4
+[1m[92m   Compiling[0m thiserror v2.0.20
+[1m[92m   Compiling[0m zerovec v0.11.8
+[1m[92m   Compiling[0m http v1.5.0
+[1m[92m   Compiling[0m phf_macros v0.13.1
+[1m[92m   Compiling[0m thiserror-impl v2.0.20
+[1m[92m   Compiling[0m log v0.4.34
+[1m[92m   Compiling[0m percent-encoding v2.3.2
+[1m[92m   Compiling[0m serde_json v1.0.151
+[1m[92m   Compiling[0m typeid v1.0.3
+[1m[92m   Compiling[0m glob v0.3.4
+[1m[92m   Compiling[0m time-core v0.1.9
+[1m[92m   Compiling[0m num-conv v0.2.2
+[1m[92m   Compiling[0m tinystr v0.8.4
+[1m[92m   Compiling[0m phf_codegen v0.13.1
+[1m[92m   Compiling[0m aho-corasick v1.1.5
+[1m[92m   Compiling[0m semver v1.0.28
+[1m[92m   Compiling[0m erased-serde v0.4.10
+[1m[92m   Compiling[0m writeable v0.6.4
+[1m[92m   Compiling[0m ident_case v1.0.1
+[1m[92m   Compiling[0m strsim v0.11.1
+[1m[92m   Compiling[0m regex-syntax v0.8.11
+[1m[92m   Compiling[0m litemap v0.8.3
+[1m[92m   Compiling[0m icu_locale_core v2.3.0
+[1m[92m   Compiling[0m darling_core v0.23.0
+[1m[92m   Compiling[0m regex-automata v0.4.18
+[1m[92m   Compiling[0m potential_utf v0.1.6
+[1m[92m   Compiling[0m zerotrie v0.2.5
+[1m[92m   Compiling[0m objc2-exception-helper v0.1.1
+[1m[92m   Compiling[0m parking_lot_core v0.9.12
+[1m[92m   Compiling[0m rustc-hash v2.1.3
+[1m[92m   Compiling[0m utf8_iter v1.0.4
+[1m[92m   Compiling[0m icu_collections v2.3.0
+[1m[92m   Compiling[0m darling_macro v0.23.0
+[1m[92m   Compiling[0m regex v1.13.1
+[1m[92m   Compiling[0m icu_provider v2.3.1
+[1m[92m   Compiling[0m scopeguard v1.2.0
+[1m[92m   Compiling[0m new_debug_unreachable v1.0.6
+[1m[92m   Compiling[0m lock_api v0.4.14
+[1m[92m   Compiling[0m darling v0.23.0
+[1m[92m   Compiling[0m phf v0.13.1
+[1m[92m   Compiling[0m string_cache_codegen v0.6.1
+[1m[92m   Compiling[0m objc2 v0.6.4
+[1m[92m   Compiling[0m precomputed-hash v0.1.1
+[1m[92m   Compiling[0m winnow v1.0.4
+[1m[92m   Compiling[0m serde_with_macros v3.22.0
+[1m[92m   Compiling[0m toml_parser v1.1.3+spec-1.1.0
+[1m[92m   Compiling[0m web_atoms v0.2.6
+[1m[92m   Compiling[0m parking_lot v0.12.5
+[1m[92m   Compiling[0m icu_properties v2.3.0
+[1m[92m   Compiling[0m icu_normalizer v2.3.0
+[1m[92m   Compiling[0m serde_spanned v1.1.1
+[1m[92m   Compiling[0m ctor-proc-macro v0.0.7
+[1m[92m   Compiling[0m objc2-encode v4.1.0
+[1m[92m   Compiling[0m toml_writer v1.1.2+spec-1.1.0
+[1m[92m   Compiling[0m idna_adapter v1.2.2
+[1m[92m   Compiling[0m string_cache v0.9.0
+[1m[92m   Compiling[0m dtoa v1.0.11
+[1m[92m   Compiling[0m form_urlencoded v1.2.2
+[1m[92m   Compiling[0m dtoa-short v0.3.5
+[1m[92m   Compiling[0m uuid v1.26.0
+[1m[92m   Compiling[0m idna v1.1.0
+[1m[92m   Compiling[0m tendril v0.5.1
+[1m[92m   Compiling[0m selectors v0.36.1
+[1m[92m   Compiling[0m indexmap v1.9.3
+[1m[92m   Compiling[0m toml_datetime v1.1.1+spec-1.1.0
+[1m[92m   Compiling[0m derive_more-impl v2.1.1
+[1m[92m   Compiling[0m cssparser-macros v0.6.1
+[1m[92m   Compiling[0m unic-char-range v0.9.0
+[1m[92m   Compiling[0m unic-common v0.9.0
+[1m[92m   Compiling[0m byteorder v1.5.0
+[1m[92m   Compiling[0m camino v1.2.5
+[1m[92m   Compiling[0m alloc-no-stdlib v2.0.4
+[1m[92m   Compiling[0m alloc-stdlib v0.2.4
+[1m[92m   Compiling[0m cssparser v0.36.0
+[1m[92m   Compiling[0m unic-ucd-version v0.9.0
+[1m[92m   Compiling[0m unic-char-property v0.9.0
+[1m[92m   Compiling[0m toml v1.1.4+spec-1.1.0
+[1m[92m   Compiling[0m derive_more v2.1.1
+[1m[92m   Compiling[0m url v2.5.8
+[1m[92m   Compiling[0m markup5ever v0.38.0
+[1m[92m   Compiling[0m block2 v0.6.2
+[1m[92m   Compiling[0m swift-rs v1.0.8
+[1m[92m   Compiling[0m servo_arc v0.4.3
+[1m[92m   Compiling[0m ring v0.17.14
+[1m[92m   Compiling[0m serde_derive_internals v0.29.1
+[1m[92m   Compiling[0m powerfmt v0.2.0
+[1m[92m   Compiling[0m equivalent v1.0.2
+[1m[92m   Compiling[0m fnv v1.0.7
+[1m[92m   Compiling[0m bit-vec v0.8.0
+[1m[92m   Compiling[0m hashbrown v0.17.1
+[1m[92m   Compiling[0m hashbrown v0.12.3
+[1m[92m   Compiling[0m deranged v0.5.8
+[1m[92m   Compiling[0m schemars v0.8.22
+[1m[92m   Compiling[0m schemars_derive v0.8.22
+[1m[92m   Compiling[0m indexmap v2.14.1
+[1m[92m   Compiling[0m time v0.3.55
+[1m[92m   Compiling[0m bit-set v0.8.0
+[1m[92m   Compiling[0m cfb v0.7.3
+[1m[92m   Compiling[0m dispatch2 v0.3.1
+[1m[92m   Compiling[0m html5ever v0.38.0
+[1m[92m   Compiling[0m unic-ucd-ident v0.9.0
+[1m[92m   Compiling[0m brotli-decompressor v5.0.3
+[1m[92m   Compiling[0m jsonptr v0.6.3
+[1m[92m   Compiling[0m cargo-platform v0.1.9
+[1m[92m   Compiling[0m quick-xml v0.41.0
+[1m[92m   Compiling[0m dyn-clone v1.0.20
+[1m[92m   Compiling[0m same-file v1.0.6
+[1m[92m   Compiling[0m base64 v0.22.1
+[1m[92m   Compiling[0m base64 v0.21.7
+[1m[92m   Compiling[0m zeroize v1.9.0
+[1m[92m   Compiling[0m dunce v1.0.5
+[1m[92m   Compiling[0m foldhash v0.2.0
+[1m[92m   Compiling[0m rustls-pki-types v1.15.1
+[1m[92m   Compiling[0m dom_query v0.27.0
+[1m[92m   Compiling[0m plist v1.10.0
+[1m[92m   Compiling[0m walkdir v2.5.0
+[1m[92m   Compiling[0m brotli v8.0.4
+[1m[92m   Compiling[0m json-patch v3.0.1
+[1m[92m   Compiling[0m cargo_metadata v0.19.2
+[1m[92m   Compiling[0m urlpattern v0.3.0
+[1m[92m   Compiling[0m objc2-core-foundation v0.3.2
+[1m[92m   Compiling[0m serde-untagged v0.1.9
+[1m[92m   Compiling[0m infer v0.19.0
+[1m[92m   Compiling[0m ctor v0.8.0
+[1m[92m   Compiling[0m serde_with v3.22.0
+[1m[92m   Compiling[0m getrandom v0.2.17
+[1m[92m   Compiling[0m untrusted v0.9.0
+[1m[92m   Compiling[0m httparse v1.10.1
+[1m[92m   Compiling[0m tauri-utils v2.9.3
+[1m[92m   Compiling[0m rustls v0.23.43
+[1m[92m   Compiling[0m rustls-webpki v0.103.15
+[1m[92m   Compiling[0m objc2-foundation v0.3.2
+[1m[92m   Compiling[0m errno v0.3.14
+[1m[92m   Compiling[0m subtle v2.6.1
+[1m[92m   Compiling[0m rustix v1.1.4
+[1m[92m   Compiling[0m version_check v0.9.5
+[1m[92m   Compiling[0m open-island-core v0.10.1-linux (/Users/runner/work/open-island/open-island/app/crates/open-island-core)
+[1m[92m   Compiling[0m core-foundation-sys v0.8.7
+[1m[92m   Compiling[0m crc32fast v1.5.1
+[1m[92m   Compiling[0m objc2-app-kit v0.3.2
+[1m[92m   Compiling[0m rustc_version v0.4.1
+[1m[92m   Compiling[0m toml_datetime v0.7.5+spec-1.1.0
+[1m[92m   Compiling[0m option-ext v0.2.0
+[1m[92m   Compiling[0m winnow v0.7.15
+[1m[92m   Compiling[0m pin-project-lite v0.2.17
+[1m[92m   Compiling[0m tempfile v3.27.0
+[1m[92m   Compiling[0m toml v0.9.12+spec-1.1.0
+[1m[92m   Compiling[0m dirs-sys v0.5.0
+[1m[92m   Compiling[0m embed-resource v3.0.11
+[1m[92m   Compiling[0m heck v0.5.0
+[1m[92m   Compiling[0m cargo_toml v0.22.3
+[1m[92m   Compiling[0m tauri-winres v0.3.6
+[1m[92m   Compiling[0m dirs v6.0.0
+[1m[92m   Compiling[0m tauri-build v2.6.3
+[1m[92m   Compiling[0m tauri-plugin v2.6.3
+[1m[92m   Compiling[0m mio v1.2.2
+[1m[92m   Compiling[0m socket2 v0.6.5
+[1m[92m   Compiling[0m tokio v1.53.1
+[1m[92m   Compiling[0m generic-array v0.14.7
+[1m[92m   Compiling[0m cfg_aliases v0.1.1
+[1m[92m   Compiling[0m crossbeam-utils v0.8.22
+[1m[92m   Compiling[0m simd-adler32 v0.3.10
+[1m[92m   Compiling[0m nix v0.28.0
+[1m[92m   Compiling[0m tauri v2.11.5
+[1m[92m   Compiling[0m core-foundation v0.10.1
+[1m[92m   Compiling[0m time-macros v0.2.32
+[1m[92m   Compiling[0m adler2 v2.0.1
+[1m[92m   Compiling[0m typenum v1.20.1
+[1m[92m   Compiling[0m num-traits v0.2.19
+[1m[92m   Compiling[0m dpi v0.1.2
+[1m[92m   Compiling[0m signal-hook v0.4.4
+[1m[92m   Compiling[0m raw-window-handle v0.6.2
+[1m[92m   Compiling[0m base64 v0.23.1
+[1m[92m   Compiling[0m ureq-proto v0.6.2
+[1m[92m   Compiling[0m crossbeam-channel v0.5.16
+[1m[92m   Compiling[0m miniz_oxide v0.9.1
+[1m[92m   Compiling[0m cookie v0.18.2
+[1m[92m   Compiling[0m signal-hook-registry v1.4.8
+[1m[92m   Compiling[0m webpki-roots v1.0.9
+[1m[92m   Compiling[0m filedescriptor v0.8.3
+[1m[92m   Compiling[0m serial2 v0.2.38
+[1m[92m   Compiling[0m futures-core v0.3.34
+[1m[92m   Compiling[0m utf8-zero v0.8.1
+[1m[92m   Compiling[0m shell-words v1.1.1
+[1m[92m   Compiling[0m downcast-rs v1.2.1
+[1m[92m   Compiling[0m portable-pty v0.9.0
+[1m[92m   Compiling[0m ureq v3.4.1
+[1m[92m   Compiling[0m flate2 v1.1.10
+[1m[92m   Compiling[0m block-buffer v0.10.4
+[1m[92m   Compiling[0m crypto-common v0.1.7
+[1m[92m   Compiling[0m miniz_oxide v0.8.9
+[1m[92m   Compiling[0m fdeflate v0.3.7
+[1m[92m   Compiling[0m foreign-types-macros v0.2.4
+[1m[92m   Compiling[0m foreign-types-shared v0.3.1
+[1m[92m   Compiling[0m unicode-segmentation v1.13.3
+[1m[92m   Compiling[0m bitflags v1.3.2
+[1m[92m   Compiling[0m png v0.17.16
+[1m[92m   Compiling[0m keyboard-types v0.7.0
+[1m[92m   Compiling[0m foreign-types v0.5.0
+[1m[92m   Compiling[0m digest v0.10.7
+[1m[92m   Compiling[0m core-graphics-types v0.2.0
+[1m[92m   Compiling[0m objc2-web-kit v0.3.2
+[1m[92m   Compiling[0m cpufeatures v0.2.17
+[1m[92m   Compiling[0m wry v0.55.1
+[1m[92m   Compiling[0m tauri-runtime v2.11.3
+[1m[92m   Compiling[0m sha2 v0.10.9
+[1m[92m   Compiling[0m core-graphics v0.25.0
+[1m[92m   Compiling[0m png v0.18.1
+[1m[92m   Compiling[0m ico v0.5.0
+[1m[92m   Compiling[0m open-islandd v0.10.1-linux (/Users/runner/work/open-island/open-island/app/crates/open-islandd)
+[1m[92m   Compiling[0m clang-sys v1.9.1
+[1m[92m   Compiling[0m getrandom v0.3.4
+[1m[92m   Compiling[0m tauri-runtime-wry v2.11.4
+[1m[92m   Compiling[0m prettyplease v0.2.37
+[1m[33mwarning[0m[1m: constant `SYSTEMD_MANAGED_MARKER` is never used[0m
+  [1m[94m--> [0mcrates/open-islandd/src/installer.rs:18:7
+   [1m[94m|[0m
+[1m[94m18[0m [1m[94m|[0m const SYSTEMD_MANAGED_MARKER: &str = "X-OpenIsland-Managed=1";
+   [1m[94m|[0m       [1m[33m^^^^^^^^^^^^^^^^^^^^^^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[1m[33mwarning[0m[1m: constant `DESKTOP_MANAGED_MARKER` is never used[0m
+  [1m[94m--> [0mcrates/open-islandd/src/installer.rs:19:7
+   [1m[94m|[0m
+[1m[94m19[0m [1m[94m|[0m const DESKTOP_MANAGED_MARKER: &str = "X-OpenIsland-Managed=true";
+   [1m[94m|[0m       [1m[33m^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `ICONS` is never used[0m
+   [1m[94m--> [0mcrates/open-islandd/src/installer.rs:509:7
+    [1m[94m|[0m
+[1m[94m509[0m [1m[94m|[0m const ICONS: &[(u32, &[u8])] = &[
+    [1m[94m|[0m       [1m[33m^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `icon_path` is never used[0m
+   [1m[94m--> [0mcrates/open-islandd/src/installer.rs:517:4
+    [1m[94m|[0m
+[1m[94m517[0m [1m[94m|[0m fn icon_path(home: &Path, size: u32) -> PathBuf {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `merge_managed_icon` is never used[0m
+   [1m[94m--> [0mcrates/open-islandd/src/installer.rs:523:4
+    [1m[94m|[0m
+[1m[94m523[0m [1m[94m|[0m fn merge_managed_icon(
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `systemd_unit` is never used[0m
+   [1m[94m--> [0mcrates/open-islandd/src/installer.rs:563:4
+    [1m[94m|[0m
+[1m[94m563[0m [1m[94m|[0m fn systemd_unit(description: &str, executable: &Path, after_daemon: bool) -> String {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `settings_desktop_entry` is never used[0m
+   [1m[94m--> [0mcrates/open-islandd/src/installer.rs:589:4
+    [1m[94m|[0m
+[1m[94m589[0m [1m[94m|[0m fn settings_desktop_entry(executable: &Path) -> String {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `write_bytes_atomic` is never used[0m
+   [1m[94m--> [0mcrates/open-islandd/src/installer.rs:810:4
+    [1m[94m|[0m
+[1m[94m810[0m [1m[94m|[0m fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `LOCK_PROBE_TTL` is never used[0m
+  [1m[94m--> [0mcrates/open-islandd/src/scenes.rs:12:7
+   [1m[94m|[0m
+[1m[94m12[0m [1m[94m|[0m const LOCK_PROBE_TTL: Duration = Duration::from_secs(15);
+   [1m[94m|[0m       [1m[33m^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `hypr_socket` is never used[0m
+  [1m[94m--> [0mcrates/open-islandd/src/scenes.rs:38:4
+   [1m[94m|[0m
+[1m[94m38[0m [1m[94m|[0m fn hypr_socket() -> Option<PathBuf> {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `hypr_request` is never used[0m
+  [1m[94m--> [0mcrates/open-islandd/src/scenes.rs:48:4
+   [1m[94m|[0m
+[1m[94m48[0m [1m[94m|[0m fn hypr_request(command: &str) -> Option<String> {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `graphical_session` is never used[0m
+  [1m[94m--> [0mcrates/open-islandd/src/scenes.rs:78:4
+   [1m[94m|[0m
+[1m[94m78[0m [1m[94m|[0m fn graphical_session() -> Option<String> {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: fields `session`, `session_probed`, and `locked_cache` are never read[0m
+   [1m[94m--> [0mcrates/open-islandd/src/scenes.rs:100:5
+    [1m[94m|[0m
+[1m[94m 98[0m [1m[94m|[0m pub struct SystemScenes {
+    [1m[94m|[0m            [1m[94m------------[0m [1m[94mfields in this struct[0m
+[1m[94m 99[0m [1m[94m|[0m     dnd: Box<dyn FnMut() -> bool + Send>,
+[1m[94m100[0m [1m[94m|[0m     session: Option<String>,
+    [1m[94m|[0m     [1m[33m^^^^^^^[0m
+[1m[94m101[0m [1m[94m|[0m     session_probed: bool,
+    [1m[94m|[0m     [1m[33m^^^^^^^^^^^^^^[0m
+[1m[94m102[0m [1m[94m|[0m     locked_cache: Option<(std::time::Instant, bool)>,
+    [1m[94m|[0m     [1m[33m^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: method `locked` is never used[0m
+   [1m[94m--> [0mcrates/open-islandd/src/scenes.rs:115:8
+    [1m[94m|[0m
+[1m[94m105[0m [1m[94m|[0m impl SystemScenes {
+    [1m[94m|[0m [1m[94m-----------------[0m [1m[94mmethod in this implementation[0m
+[1m[94m...[0m
+[1m[94m115[0m [1m[94m|[0m     fn locked(&mut self) -> bool {
+    [1m[94m|[0m        [1m[33m^^^^^^[0m
+
+[1m[92m   Compiling[0m muda v0.19.3
+[1m[92m   Compiling[0m tauri-codegen v2.6.3
+[1m[33mwarning[0m: `open-islandd` (lib) generated 14 warnings
+[1m[92m   Compiling[0m tao v0.35.3
+[1m[92m   Compiling[0m objc2-core-graphics v0.3.2
+[1m[92m   Compiling[0m serialize-to-javascript-impl v0.1.2
+[1m[92m   Compiling[0m minimal-lexical v0.2.1
+[1m[92m   Compiling[0m nom v7.1.3
+[1m[92m   Compiling[0m serialize-to-javascript v0.1.2
+[1m[92m   Compiling[0m tray-icon v0.24.2
+[1m[92m   Compiling[0m tauri-macros v2.6.3
+[1m[92m   Compiling[0m window-vibrancy v0.6.0
+[1m[92m   Compiling[0m http-body v1.1.0
+[1m[92m   Compiling[0m libloading v0.8.9
+[1m[92m   Compiling[0m futures-macro v0.3.34
+[1m[92m   Compiling[0m serde_repr v0.1.21
+[1m[92m   Compiling[0m system-configuration-sys v0.6.0
+[1m[92m   Compiling[0m slab v0.4.12
+[1m[92m   Compiling[0m mime v0.3.17
+[1m[92m   Compiling[0m futures-task v0.3.34
+[1m[92m   Compiling[0m either v1.18.0
+[1m[92m   Compiling[0m embed_plist v1.2.2
+[1m[92m   Compiling[0m bindgen v0.72.1
+[1m[92m   Compiling[0m itertools v0.13.0
+[1m[92m   Compiling[0m futures-util v0.3.34
+[1m[92m   Compiling[0m cexpr v0.6.0
+[1m[92m   Compiling[0m tracing-core v0.1.36
+[1m[92m   Compiling[0m tracing-attributes v0.1.31
+[1m[92m   Compiling[0m shlex v1.3.0
+[1m[92m   Compiling[0m tower-service v0.3.3
+[1m[92m   Compiling[0m try-lock v0.2.5
+[1m[92m   Compiling[0m want v0.3.1
+[1m[92m   Compiling[0m tracing v0.1.44
+[1m[92m   Compiling[0m num-integer v0.1.47
+[1m[92m   Compiling[0m futures-channel v0.3.34
+[1m[92m   Compiling[0m tauri-plugin-fs v2.5.2
+[1m[92m   Compiling[0m core-foundation v0.9.4
+[1m[92m   Compiling[0m cmake v0.1.58
+[1m[92m   Compiling[0m atomic-waker v1.1.2
+[1m[92m   Compiling[0m fs_extra v1.3.0
+[1m[92m   Compiling[0m hyper v1.11.1
+[1m[92m   Compiling[0m system-configuration v0.7.0
+[1m[92m   Compiling[0m sync_wrapper v1.0.2
+[1m[92m   Compiling[0m security-framework-sys v2.17.0
+[1m[92m   Compiling[0m objc2-core-audio-types v0.3.2
+[1m[92m   Compiling[0m strength_reduce v0.2.4
+[1m[92m   Compiling[0m audio-core v0.2.1
+[1m[92m   Compiling[0m ipnet v2.12.1
+[1m[92m   Compiling[0m tower-layer v0.3.3
+[1m[92m   Compiling[0m tower v0.5.3
+[1m[92m   Compiling[0m hyper-util v0.1.20
+[1m[92m   Compiling[0m objc2-core-audio v0.3.2
+[1m[92m   Compiling[0m transpose v0.2.3
+[1m[92m   Compiling[0m security-framework v3.7.0
+[1m[92m   Compiling[0m primal-check v0.3.4
+[1m[92m   Compiling[0m num-complex v0.4.6
+[1m[92m   Compiling[0m tokio-rustls v0.26.5
+[1m[92m   Compiling[0m tauri-plugin-dialog v2.7.3
+[1m[92m   Compiling[0m tauri-plugin-updater v2.11.0
+[1m[92m   Compiling[0m tauri-plugin-global-shortcut v2.3.2
+[1m[92m   Compiling[0m tauri-plugin-opener v2.5.5
+[1m[92m   Compiling[0m rfd v0.16.0
+[1m[92m   Compiling[0m futures-sink v0.3.34
+[1m[92m   Compiling[0m tokio-util v0.7.19
+[1m[92m   Compiling[0m whisper-rs-sys v0.15.0
+[1m[92m   Compiling[0m hyper-rustls v0.27.9
+[1m[92m   Compiling[0m rustfft v6.4.1
+[1m[92m   Compiling[0m rustls-platform-verifier v0.7.0
+[1m[92m   Compiling[0m objc2-audio-toolbox v0.3.2
+[1m[92m   Compiling[0m tower-http v0.6.11
+[1m[92m   Compiling[0m audioadapter v4.0.0
+[1m[92m   Compiling[0m audioadapter-sample v4.0.0
+[1m[92m   Compiling[0m http-body-util v0.1.5
+[1m[92m   Compiling[0m objc2-osa-kit v0.3.2
+[1m[92m   Compiling[0m xattr v1.6.1
+[1m[92m   Compiling[0m filetime v0.2.29
+[1m[92m   Compiling[0m whisper-rs v0.16.0
+[1m[92m   Compiling[0m cpal v0.18.2
+[1m[92m   Compiling[0m tar v0.4.46
+[1m[92m   Compiling[0m realfft v3.5.0
+[1m[92m   Compiling[0m osakit v0.3.1
+[1m[92m   Compiling[0m reqwest v0.13.4
+[1m[92m   Compiling[0m audioadapter-buffers v4.0.0
+[1m[92m   Compiling[0m coreaudio-rs v0.14.2
+[1m[92m   Compiling[0m global-hotkey v0.8.0
+[1m[92m   Compiling[0m windowfunctions v0.1.1
+[1m[92m   Compiling[0m open-island v0.10.1-linux (/Users/runner/work/open-island/open-island/app/src-tauri)
+[1m[92m   Compiling[0m visibility v0.1.1
+[1m[92m   Compiling[0m open v5.4.2
+[1m[92m   Compiling[0m mach2 v0.6.0
+[1m[92m   Compiling[0m minisign-verify v0.2.5
+[1m[92m   Compiling[0m dasp_sample v0.11.0
+[1m[92m   Compiling[0m rubato v4.0.0
+[1m[92m   Compiling[0m tauri-plugin-single-instance v2.4.4
+[1m[33mwarning[0m[1m: function `autostart_paths` is never used[0m
+    [1m[94m--> [0mcrates/open-islandd/src/installer.rs:1499:8
+     [1m[94m|[0m
+[1m[94m1499[0m [1m[94m|[0m     fn autostart_paths(root: &Path) -> Vec<PathBuf> {
+     [1m[94m|[0m        [1m[33m^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m: `open-islandd` (lib test) generated 15 warnings (14 duplicates)
+[1m[33mwarning[0m[1m: unused import: `crate::update`[0m
+ [1m[94m--> [0msrc-tauri/src/commands.rs:5:5
+  [1m[94m|[0m
+[1m[94m5[0m [1m[94m|[0m use crate::update;
+  [1m[94m|[0m     [1m[33m^^^^^^^^^^^^^[0m
+  [1m[94m|[0m
+  [1m[94m= [0m[1mnote[0m: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+[1m[33mwarning[0m[1m: constant `MAX_DEPTH` is never used[0m
+ [1m[94m--> [0msrc-tauri/src/appicon.rs:6:7
+  [1m[94m|[0m
+[1m[94m6[0m [1m[94m|[0m const MAX_DEPTH: usize = 5;
+  [1m[94m|[0m       [1m[33m^^^^^^^^^[0m
+  [1m[94m|[0m
+  [1m[94m= [0m[1mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+[1m[33mwarning[0m[1m: constant `MAX_BYTES` is never used[0m
+ [1m[94m--> [0msrc-tauri/src/appicon.rs:7:7
+  [1m[94m|[0m
+[1m[94m7[0m [1m[94m|[0m const MAX_BYTES: u64 = 512 * 1024;
+  [1m[94m|[0m       [1m[33m^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `window_class` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/appicon.rs:36:4
+   [1m[94m|[0m
+[1m[94m36[0m [1m[94m|[0m fn window_class(pid: u32) -> Option<String> {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `data_dirs` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/appicon.rs:40:4
+   [1m[94m|[0m
+[1m[94m40[0m [1m[94m|[0m fn data_dirs() -> Vec<PathBuf> {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `desktop_entry` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/appicon.rs:58:4
+   [1m[94m|[0m
+[1m[94m58[0m [1m[94m|[0m fn desktop_entry(class: &str) -> Option<PathBuf> {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `reads_key` is never used[0m
+   [1m[94m--> [0msrc-tauri/src/appicon.rs:100:4
+    [1m[94m|[0m
+[1m[94m100[0m [1m[94m|[0m fn reads_key(path: &Path, key: &str) -> Option<String> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `icon_name` is never used[0m
+   [1m[94m--> [0msrc-tauri/src/appicon.rs:109:4
+    [1m[94m|[0m
+[1m[94m109[0m [1m[94m|[0m fn icon_name(entry: &Path) -> Option<String> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `current_theme` is never used[0m
+   [1m[94m--> [0msrc-tauri/src/appicon.rs:113:4
+    [1m[94m|[0m
+[1m[94m113[0m [1m[94m|[0m fn current_theme() -> Option<String> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `icon_path` is never used[0m
+   [1m[94m--> [0msrc-tauri/src/appicon.rs:123:4
+    [1m[94m|[0m
+[1m[94m123[0m [1m[94m|[0m fn icon_path(name: &str) -> Option<PathBuf> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `collect` is never used[0m
+   [1m[94m--> [0msrc-tauri/src/appicon.rs:154:4
+    [1m[94m|[0m
+[1m[94m154[0m [1m[94m|[0m fn collect(dir: &Path, name: &str, depth: usize, theme: &str, best: &mut Option<(u32, PathBuf)>) {
+    [1m[94m|[0m    [1m[33m^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `score_into` is never used[0m
+   [1m[94m--> [0msrc-tauri/src/appicon.rs:181:4
+    [1m[94m|[0m
+[1m[94m181[0m [1m[94m|[0m fn score_into(path: &Path, theme: &str, best: &mut Option<(u32, PathBuf)>) {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `score` is never used[0m
+   [1m[94m--> [0msrc-tauri/src/appicon.rs:188:4
+    [1m[94m|[0m
+[1m[94m188[0m [1m[94m|[0m fn score(path: &Path, theme: &str) -> u32 {
+    [1m[94m|[0m    [1m[33m^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `data_uri` is never used[0m
+   [1m[94m--> [0msrc-tauri/src/appicon.rs:210:4
+    [1m[94m|[0m
+[1m[94m210[0m [1m[94m|[0m fn data_uri(path: &Path) -> Option<String> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `REVEAL_REMAP` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/commands.rs:14:11
+   [1m[94m|[0m
+[1m[94m14[0m [1m[94m|[0m pub const REVEAL_REMAP: Duration = Duration::from_millis(80);
+   [1m[94m|[0m           [1m[33m^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: method `window_class` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/compositor/mod.rs:44:8
+   [1m[94m|[0m
+[1m[94m38[0m [1m[94m|[0m pub trait Compositor {
+   [1m[94m|[0m           [1m[94m----------[0m [1m[94mmethod in this trait[0m
+[1m[94m...[0m
+[1m[94m44[0m [1m[94m|[0m     fn window_class(&self, pid: u32) -> Option<String>;
+   [1m[94m|[0m        [1m[33m^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `MONITOR_CACHE_TTL` is never used[0m
+ [1m[94m--> [0msrc-tauri/src/geometry.rs:6:11
+  [1m[94m|[0m
+[1m[94m6[0m [1m[94m|[0m pub const MONITOR_CACHE_TTL: Duration = Duration::from_millis(1000);
+  [1m[94m|[0m           [1m[33m^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: fields `x`, `y`, and `width` are never read[0m
+  [1m[94m--> [0msrc-tauri/src/geometry.rs:27:5
+   [1m[94m|[0m
+[1m[94m26[0m [1m[94m|[0m struct MonitorBox {
+   [1m[94m|[0m        [1m[94m----------[0m [1m[94mfields in this struct[0m
+[1m[94m27[0m [1m[94m|[0m     x: i32,
+   [1m[94m|[0m     [1m[33m^[0m
+[1m[94m28[0m [1m[94m|[0m     y: i32,
+   [1m[94m|[0m     [1m[33m^[0m
+[1m[94m29[0m [1m[94m|[0m     width: u32,
+   [1m[94m|[0m     [1m[33m^^^^^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mnote[0m: `MonitorBox` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+[1m[33mwarning[0m[1m: function `remember_origin` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/geometry.rs:80:8
+   [1m[94m|[0m
+[1m[94m80[0m [1m[94m|[0m pub fn remember_origin(window: &tauri::WebviewWindow, width: f64, height: f64) {
+   [1m[94m|[0m        [1m[33m^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `monitor_box` is never used[0m
+   [1m[94m--> [0msrc-tauri/src/geometry.rs:102:4
+    [1m[94m|[0m
+[1m[94m102[0m [1m[94m|[0m fn monitor_box(window: &tauri::WebviewWindow) -> Result<Option<MonitorBox>, String> {
+    [1m[94m|[0m    [1m[33m^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `centered_origin` is never used[0m
+   [1m[94m--> [0msrc-tauri/src/geometry.rs:133:8
+    [1m[94m|[0m
+[1m[94m133[0m [1m[94m|[0m pub fn centered_origin(
+    [1m[94m|[0m        [1m[33m^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `SESSION_SCRIPT` is never used[0m
+ [1m[94m--> [0msrc-tauri/src/launch.rs:9:7
+  [1m[94m|[0m
+[1m[94m9[0m [1m[94m|[0m const SESSION_SCRIPT: &str = "cd \"$1\" && exec \"$2\" run -- \"$3\"";
+  [1m[94m|[0m       [1m[33m^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `session_argv` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/launch.rs:28:8
+   [1m[94m|[0m
+[1m[94m28[0m [1m[94m|[0m pub fn session_argv(program: &Path, folder: &Path, bridge: &Path, agent: &str) -> Vec<String> {
+   [1m[94m|[0m        [1m[33m^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `terminal_script` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/launch.rs:57:4
+   [1m[94m|[0m
+[1m[94m57[0m [1m[94m|[0m fn terminal_script(folder: &str, agent: &str) -> String {
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `open` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/launch.rs:61:8
+   [1m[94m|[0m
+[1m[94m61[0m [1m[94m|[0m pub fn open(folder: &str, agent: &str) -> Result<(), String> {
+   [1m[94m|[0m        [1m[33m^^^^[0m
+
+[1m[33mwarning[0m[1m: function `terminal_command` is never used[0m
+ [1m[94m--> [0msrc-tauri/src/launch_macos.rs:8:4
+  [1m[94m|[0m
+[1m[94m8[0m [1m[94m|[0m fn terminal_command(folder: &str, executable: &str, iterm: bool) -> String {
+  [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `applescript` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/launch_macos.rs:21:8
+   [1m[94m|[0m
+[1m[94m21[0m [1m[94m|[0m pub fn applescript(folder: &str, executable: &str, iterm: bool) -> String {
+   [1m[94m|[0m        [1m[33m^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `warp_configuration` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/launch_macos.rs:36:8
+   [1m[94m|[0m
+[1m[94m36[0m [1m[94m|[0m pub fn warp_configuration(folder: &str, executable: &str) -> serde_json::Value {
+   [1m[94m|[0m        [1m[33m^^^^^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: constant `TERMINALS` is never used[0m
+ [1m[94m--> [0msrc-tauri/src/terminal.rs:8:7
+  [1m[94m|[0m
+[1m[94m8[0m [1m[94m|[0m const TERMINALS: [&str; 8] = [
+  [1m[94m|[0m       [1m[33m^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `pick` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/terminal.rs:20:8
+   [1m[94m|[0m
+[1m[94m20[0m [1m[94m|[0m pub fn pick() -> Option<PathBuf> {
+   [1m[94m|[0m        [1m[33m^^^^[0m
+
+[1m[33mwarning[0m[1m: function `spawn_detached` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/terminal.rs:26:8
+   [1m[94m|[0m
+[1m[94m26[0m [1m[94m|[0m pub fn spawn_detached(argv: Vec<String>) -> Result<(), String> {
+   [1m[94m|[0m        [1m[33m^^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `pick_terminal` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/terminal.rs:39:4
+   [1m[94m|[0m
+[1m[94m39[0m [1m[94m|[0m fn pick_terminal(
+   [1m[94m|[0m    [1m[33m^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m[1m: function `terminal_argv` is never used[0m
+  [1m[94m--> [0msrc-tauri/src/terminal.rs:54:8
+   [1m[94m|[0m
+[1m[94m54[0m [1m[94m|[0m pub fn terminal_argv(program: &Path, script: &str, args: &[&str]) -> Vec<String> {
+   [1m[94m|[0m        [1m[33m^^^^^^^^^^^^^[0m
+
+[1m[33mwarning[0m: `open-island` (lib test) generated 20 warnings (19 duplicates) (run `cargo fix --lib -p open-island --tests` to apply 1 suggestion)
+[1m[33mwarning[0m: `open-island` (lib) generated 33 warnings (1 duplicate)
+[1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 3m 04s
+[1m[92m     Running[0m unittests src/lib.rs (target/portable/aarch64-apple-darwin/c5875c1b27a395c8/aarch64-apple-darwin/debug/deps/open_island_lib-7e802c9402e8a176)
+
+running 106 tests
+test appicon::tests::base64_matches_the_rfc_test_vectors ... ok
+test appicon::tests::base64_survives_every_byte_value ... ok
+test appicon::tests::scalable_beats_every_raster_size_inside_the_same_theme ... ok
+test appicon::tests::the_current_theme_outscores_hicolor_and_a_bigger_size_outscores_a_smaller_one ... ok
+test compositor::tests::a_4k_tv_and_a_4k_monitor_disagree ... ok
+test compositor::tests::a_missing_edid_size_falls_back ... ok
+test compositor::tests::a_named_monitor_wins_over_the_focused_one ... ok
+test compositor::tests::an_absurd_dpi_falls_back ... ok
+test compositor::tests::an_unknown_or_empty_name_falls_back_to_the_focused_monitor ... ok
+test compositor::tests::logical_display_width_does_not_apply_retina_backing_scale_twice ... ok
+test compositor::tests::a_reserved_top_outside_the_sane_range_is_ignored ... ok
+test appicon::tests::a_desktop_key_is_read_and_a_missing_one_is_none ... ok
+test compositor::tests::the_compact_height_is_the_reserved_top_plus_the_overhang ... ok
+test compositor::tests::the_compositor_scale_is_divided_out ... ok
+test compositor::tests::the_scale_is_bounded ... ok
+test compositor::tests::ui_scale_reads_the_selected_monitor ... ok
+test compositor::tests::monitor_names_keep_the_compositor_order ... ok
+test compositor::tests::no_monitors_means_no_monitor ... ok
+test compositor::tests::with_nothing_focused_the_first_monitor_is_used ... ok
+test compositor::tests::ui_scale_tracks_dpi_not_resolution ... ok
+test daemon_transport::tests::daemon_transport_old_generation_and_disconnect ... ok
+test daemon_transport::tests::daemon_transport_parallel_requests ... ok
+test daemon_transport::refresh_tests::incompatible_daemon_is_not_restarted_or_polled_repeatedly ... ok
+test daemon_transport::refresh_tests::refresh_dirty_during_snapshot_and_late_webview ... ok
+test daemon_transport::tests::daemon_transport_unavailable_boot_and_reconnect_without_respawn ... ok
+test geometry::tests::one_pixel_above_the_top_is_outside ... ok
+test geometry::tests::the_far_right_edge_is_outside ... ok
+test geometry::tests::the_last_pixel_before_the_far_edges_is_inside ... ok
+test geometry::tests::the_top_left_corner_is_inside ... ok
+test launch::tests::a_relative_or_missing_folder_is_refused_before_anything_spawns ... ok
+test launch::tests::alacritty_takes_the_same_command_after_dash_e ... ok
+test launch::tests::an_unknown_agent_is_refused_even_with_a_real_folder ... ok
+test launch::tests::anything_else_is_refused_by_name ... ok
+test launch::tests::available_keeps_the_shipped_order_and_only_what_resolves ... ok
+test launch::tests::kitty_runs_the_agent_inside_the_folder_through_sh ... ok
+test launch::tests::terminal_applescript_keeps_shell_and_applescript_quoting_separate ... ok
+test launch::tests::the_three_shipped_agents_are_known ... ok
+test launch_macos::tests::iterm_creates_a_new_window_instead_of_writing_to_the_current_session ... ok
+test launch_macos::tests::profile_shell_runs_the_agent_in_the_literal_selected_directory ... ok
+test launch_macos::tests::warp_launch_resolves_the_unique_yaml_name_and_keeps_the_bridge_command ... ok
+test launch_macos::tests::warp_values_round_trip_without_becoming_yaml_structure_or_url_parameters ... ok
+test message_recovery::tests::confirmed_discard_releases_missing_record_only_with_exact_origin ... ok
+test message_recovery::tests::missing_admitted_record_stays_visible_and_a_late_matching_confirmation_releases_it ... ok
+test daemon_transport::tests::daemon_transport_timeout_cleanup ... ok
+test message_recovery::tests::restart_queued_sending_and_before_response_preserves_original_without_rebinding ... ok
+test message_recovery::tests::webview_reload_reads_same_shell_ledger_and_only_matching_delivery_releases_slot ... ok
+test pointer::tests::the_focus_payload_carries_pid ... ok
+test pointer::tests::the_fullscreen_payload_carries_fullscreen ... ok
+test pointer::tests::the_pointer_payload_carries_inside ... ok
+test screen_geometry::tests::manual_height_can_be_smaller_than_the_camera_strip ... ok
+test screen_geometry::tests::no_notch_uses_the_visible_top_without_extra_padding ... ok
+test screen_geometry::tests::notch_is_inside_the_panel_and_negative_monitors_stay_centered ... ok
+test screen_geometry::tests::retina_coordinates_are_already_points ... ok
+test terminal::tests::a_terminal_variable_that_does_not_resolve_falls_back_to_the_list_in_order ... ok
+test terminal::tests::gnome_terminal_gets_the_double_dash_before_the_same_two_arguments ... ok
+test terminal::tests::kitty_and_foot_take_the_command_positionally ... ok
+test terminal::tests::kitty_gets_the_folder_and_the_agent_as_two_arguments_after_the_script ... ok
+test terminal::tests::no_extra_arguments_ends_right_after_the_script_name ... ok
+test terminal::tests::nothing_available_means_none ... ok
+test terminal::tests::the_dash_e_family_and_any_unknown_emulator_get_dash_e ... ok
+test terminal::tests::the_script_and_the_prompt_each_stay_one_argument ... ok
+test terminal::tests::the_terminal_variable_wins_when_it_resolves ... ok
+test terminal::tests::wezterm_needs_start_and_gnome_terminal_needs_a_double_dash ... ok
+test update::tests::the_shipped_script_reinstalls_then_restarts_both_units_and_waits ... ok
+test update_bundle::tests::commit_retains_new_bundle_and_removes_old_bundle ... ok
+test update_bundle::tests::failed_rollback_preserves_the_backup_for_recovery ... ok
+test update_bundle::tests::failed_verification_and_panic_restore_old_bundle ... ok
+test update_bundle::tests::missing_candidate_and_symlink_leave_installed_bundle_intact ... ok
+test update_macos::tests::signed_bundle_rejects_tampering_and_restarts_the_real_daemon ... ignored, requires OPEN_ISLAND_UPDATER_ARCHIVE from a native signed build
+test message_recovery::tests::recovery_capacity_refuses_before_submission_and_discard_releases_capacity ... ok
+test voice::capture::tests::full_buffer_stops_fixture_and_returns_exactly_sixty_seconds ... ok
+test voice::capture::tests::stream_drops_on_duration_stop_cancel_device_loss_and_overrun ... ok
+test voice::capture::tests::live_levels_are_reported_while_streaming_and_stopped_with_it ... ok
+test daemon_transport::tests::incremental_snapshot_does_not_block_reader_and_checks_epoch_before_returning ... ok
+test voice::commands::tests::completion_revalidates_disappearance_recycled_instance_and_restart ... ok
+test voice::commands::tests::disconnected_or_incompatible_cache_is_rejected_before_job_creation ... ok
+test voice::commands::tests::only_main_window_can_access_draft_audio_jobs ... ok
+test voice::controller::tests::cancel_discards_late_result_and_shutdown_joins_worker ... ok
+test voice::controller::tests::events_publish_transitions_without_holding_state_and_match_late_snapshot ... ok
+test voice::controller::tests::exhausted_job_counter_refuses_without_starting_or_changing_view ... ok
+test voice::controller::tests::model_dialog_lease_and_voice_job_exclude_each_other_and_release_on_drop ... ok
+test voice::controller::tests::model_removal_cancels_and_joins_before_configuration_can_change ... ok
+test voice::controller::tests::one_worker_stop_is_idempotent_and_ready_preserves_original_target ... ok
+test voice::controller::tests::pending_permission_stop_and_worker_failure_release_the_global_slot ... ok
+test voice::controller::tests::successful_backend_cannot_skip_recording_and_transcription_states ... ok
+test voice::controller::tests::target_validation_uses_child_identity_and_epoch_not_group_or_cwd ... ok
+test voice::controller::tests::unavailable_return_target_preserves_text_and_cancellation_wins_during_revalidation ... ok
+test voice::model::tests::configuration_is_private_atomic_and_does_not_store_audio_or_text ... ok
+test voice::model::tests::invalid_deleted_oversized_and_nonregular_models_are_rejected ... ok
+test voice::model::tests::removal_only_deletes_local_configuration_and_is_idempotent ... ok
+test voice::native_capture::tests::permission_is_required_and_qa_never_calls_the_native_permission_adapter ... ok
+test voice::pcm::tests::duration_limit_never_reallocates_or_exceeds_memory_budget ... ok
+test voice::pcm::tests::every_supported_pcm_storage_type_converts_to_mono_float ... ok
+test voice::pcm::tests::integer_unsigned_float_and_downmix_are_normalized ... ok
+test voice::pcm::tests::malformed_frames_nonfinite_samples_and_unsupported_config_fail ... ok
+test voice::pcm::tests::tail_level_measures_only_the_recent_window ... ok
+test voice::permission::tests::denied_restricted_authorized_and_unknown_do_not_prompt ... ok
+test voice::permission::tests::permission_requests_once_and_wait_can_be_cancelled ... ok
+test voice::resample::tests::partial_blocks_preserve_duration_and_signal_without_filter_delay ... ok
+test voice::resample::tests::short_clips_keep_the_first_sample_instead_of_filter_startup_silence ... ok
+test voice::resample::tests::silence_empty_passthrough_and_invalid_audio_are_handled ... ok
+test voice::settings::tests::model_status_exposes_no_file_path_and_unknown_windows_are_rejected ... ok
+test voice::transcribe::tests::abort_callback_reads_the_owned_job_flag ... ok
+test voice::transcribe::tests::silence_cancel_and_invalid_audio_never_need_a_model ... ok
+test voice::capture::tests::voice_activity_stops_after_speech_settles_and_ignores_leading_silence ... FAILED
+test voice::capture::tests::voice_activity_adapts_to_ambient_noise_above_the_floor ... ok
+
+failures:
+
+---- voice::capture::tests::voice_activity_stops_after_speech_settles_and_ignores_leading_silence stdout ----
+
+thread 'voice::capture::tests::voice_activity_stops_after_speech_settles_and_ignores_leading_silence' (67608) panicked at src-tauri/src/voice/capture.rs:368:9:
+2400
+
+
+failures:
+    voice::capture::tests::voice_activity_stops_after_speech_settles_and_ignores_leading_silence
+
+test result: FAILED. 104 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.30s
+
+[1m[91merror[0m: test failed, to rerun pass `-p open-island --lib`
