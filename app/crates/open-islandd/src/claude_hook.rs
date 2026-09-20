@@ -53,9 +53,10 @@ pub fn handle(
     socket_path: &Path,
     timeout: Duration,
 ) -> Result<String, ClaudeHookError> {
-    let Some(parsed) = parse_claude(input).map_err(ClaudeHookError::Parse)? else {
+    let Some(mut parsed) = parse_claude(input).map_err(ClaudeHookError::Parse)? else {
         return Ok(String::new());
     };
+    parsed.resolve_agent_pid(std::process::id());
     let is_approval = parsed.approval.is_some();
     let question = parsed.question.clone();
     let tool_input = parsed.event.tool_input.clone();

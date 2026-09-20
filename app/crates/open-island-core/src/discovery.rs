@@ -171,19 +171,65 @@ pub fn agent_for_argv0(argv0: &str) -> Option<&'static AgentSpec> {
 
 const HELPER_FLAGS: &[&[u8]] = &[b"--chrome-native-host"];
 
+const SERVICE_SUBCOMMANDS: &[(&str, &[&[u8]])] =
+    &[("codex", &[b"app-server", b"mcp", b"mcp-server", b"proto"])];
+
 pub(crate) fn agent_for_cmdline(command: &[u8]) -> Option<String> {
-    let mut args = command.split(|byte| *byte == 0);
+    let mut args = command
+        .split(|byte| *byte == 0)
+        .filter(|arg| !arg.is_empty());
     let agent = args
         .next()
-        .filter(|arg| !arg.is_empty())
         .and_then(|argv0| std::str::from_utf8(argv0).ok())
         .and_then(|argv0| Path::new(argv0).file_name())
         .and_then(|name| name.to_str())
         .and_then(agent_for_argv0)?;
-    if args.any(|arg| HELPER_FLAGS.contains(&arg)) {
+    let rest: Vec<&[u8]> = args.collect();
+    if rest.iter().any(|arg| HELPER_FLAGS.contains(arg)) {
         return None;
     }
+    if let Some(subcommand) = rest.iter().find(|arg| !arg.starts_with(b"-")) {
+        if SERVICE_SUBCOMMANDS
+            .iter()
+            .any(|(id, names)| *id == agent.id && names.contains(subcommand))
+        {
+            return None;
+        }
+    }
     Some(agent.id.to_owned())
+}
+
+pub fn agent_pid_of_ancestor(agent: &str, from: u32) -> Option<u32> {
+    agent_pid_of_ancestor_with(
+        agent,
+        from,
+        |pid| crate::process::parent_and_comm(pid).map(|(parent, _)| parent),
+        crate::process::command,
+    )
+}
+
+fn agent_pid_of_ancestor_with(
+    agent: &str,
+    from: u32,
+    parent_of: impl Fn(u32) -> Option<u32>,
+    command_of: impl Fn(u32) -> Option<Vec<u8>>,
+) -> Option<u32> {
+    let mut pid = from;
+    let mut visited = HashSet::new();
+    for _ in 0..32 {
+        let parent = parent_of(pid)?;
+        if parent <= 1 || !visited.insert(parent) {
+            return None;
+        }
+        let matched = command_of(parent)
+            .and_then(|command| agent_for_cmdline(&command))
+            .is_some_and(|id| id == agent);
+        if matched {
+            return Some(parent);
+        }
+        pid = parent;
+    }
+    None
 }
 
 pub fn scan() -> Vec<Session> {
@@ -393,6 +439,99 @@ pub fn terminal_for_delivery(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cmdline(parts: &[&str]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for part in parts {
+            bytes.extend_from_slice(part.as_bytes());
+            bytes.push(0);
+        }
+        bytes
+    }
+
+    #[test]
+    fn a_codex_service_subcommand_is_not_a_session() {
+        assert_eq!(
+            agent_for_cmdline(&cmdline(&["/opt/codex/bin/codex", "--yolo"])),
+            Some("codex".to_owned())
+        );
+        assert_eq!(
+            agent_for_cmdline(&cmdline(&["/opt/codex/bin/codex", "exec", "oi"])),
+            Some("codex".to_owned())
+        );
+        assert_eq!(
+            agent_for_cmdline(&cmdline(&[
+                "/opt/codex/bin/codex",
+                "app-server",
+                "daemon",
+                "pid-update-loop"
+            ])),
+            None
+        );
+        assert_eq!(
+            agent_for_cmdline(&cmdline(&[
+                "/opt/codex/bin/codex",
+                "app-server",
+                "--remote-control",
+                "--list"
+            ])),
+            None
+        );
+        assert_eq!(
+            agent_for_cmdline(&cmdline(&["/usr/bin/claude", "app-server"])),
+            Some("claude".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_hook_finds_the_agent_process_that_spawned_it() {
+        let parents = HashMap::from([(500u32, 400u32), (400, 300), (300, 1)]);
+        let commands = HashMap::from([
+            (400u32, cmdline(&["/usr/bin/claude", "--resume"])),
+            (300, cmdline(&["/usr/bin/kitty"])),
+        ]);
+        let parent_of = |pid: u32| parents.get(&pid).copied();
+        let command_of = |pid: u32| commands.get(&pid).cloned();
+        assert_eq!(
+            agent_pid_of_ancestor_with("claude", 500, parent_of, command_of),
+            Some(400)
+        );
+        assert_eq!(
+            agent_pid_of_ancestor_with("codex", 500, parent_of, command_of),
+            None
+        );
+    }
+
+    #[test]
+    fn a_real_process_chain_resolves_the_agent_pid() {
+        use std::process::{Command, Stdio};
+        let mut agent = Command::new("/bin/bash")
+            .arg("-c")
+            .arg("exec -a claude /bin/bash -c '/bin/sleep 30; true'")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn fake agent");
+        let agent_pid = agent.id();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let leaf = loop {
+            let child = crate::process::pids().into_iter().find(|pid| {
+                crate::process::parent_and_comm(*pid).is_some_and(|(parent, _)| parent == agent_pid)
+            });
+            if let Some(child) = child {
+                break child;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the fake agent never spawned a child"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        let found = agent_pid_of_ancestor("claude", leaf);
+        let _ = agent.kill();
+        let _ = agent.wait();
+        assert_eq!(found, Some(agent_pid));
+    }
 
     fn snapshot(pid: u32, ppid: u32, comm: &str, agent: Option<&str>) -> ProcessSnapshot {
         ProcessSnapshot {

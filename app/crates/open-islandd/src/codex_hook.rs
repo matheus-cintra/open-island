@@ -40,9 +40,10 @@ impl std::error::Error for CodexHookError {}
 /// produce empty output, which leaves the request to Codex's own prompt as if no hook
 /// were installed. The island must never be able to block the agent.
 pub fn run(input: &str, socket_path: &Path, timeout: Duration) -> Result<String, CodexHookError> {
-    let Some(parsed) = parse_codex(input).map_err(CodexHookError::Parse)? else {
+    let Some(mut parsed) = parse_codex(input).map_err(CodexHookError::Parse)? else {
         return Ok(String::new());
     };
+    parsed.resolve_agent_pid(std::process::id());
 
     let approval = parsed.approval.clone();
     let request = Request {

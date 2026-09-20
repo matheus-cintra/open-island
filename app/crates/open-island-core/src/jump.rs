@@ -226,6 +226,18 @@ mod tests {
     use crate::{runner::FakeRunner, terminal::TerminalLayer};
     use std::collections::HashMap;
 
+    fn kitty_socket() -> String {
+        static SOCKET: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        SOCKET
+            .get_or_init(|| {
+                let path = std::env::temp_dir()
+                    .join(format!("open-island-kitty-jump-{}", std::process::id()));
+                std::fs::write(&path, b"").expect("kitty socket stub");
+                format!("unix:{}", path.display())
+            })
+            .clone()
+    }
+
     fn host(kind: &str, pid: u32, window_id: Option<&str>) -> TerminalInfo {
         TerminalInfo {
             kind: kind.to_owned(),
@@ -239,10 +251,7 @@ mod tests {
             }),
             editor: None,
             env: if kind == "kitty" {
-                HashMap::from([(
-                    "KITTY_LISTEN_ON".to_owned(),
-                    "unix:/run/user/1000/kitty-test".to_owned(),
-                )])
+                HashMap::from([("KITTY_LISTEN_ON".to_owned(), kitty_socket())])
             } else {
                 HashMap::new()
             },
@@ -299,7 +308,7 @@ mod tests {
             vec![
                 JumpStep::KittyFocusWindow {
                     window_id: "9".into(),
-                    socket: "unix:/run/user/1000/kitty-test".into()
+                    socket: kitty_socket()
                 },
                 JumpStep::RaiseWindow { pid: 77 }
             ]
@@ -332,12 +341,26 @@ mod tests {
             vec![
                 JumpStep::KittyFocusWindow {
                     window_id: "12".into(),
-                    socket: "unix:/run/user/1000/kitty-test".into()
+                    socket: kitty_socket()
                 },
                 JumpStep::RaiseWindow { pid: 77 }
             ]
         );
         assert_eq!(runner.calls().len(), 1);
+    }
+
+    #[test]
+    fn kitty_plan_with_a_dead_instance_socket_raises_only() {
+        let runner = FakeRunner::new();
+        let mut info = host("kitty", 77, Some("9"));
+        info.env.insert(
+            "KITTY_LISTEN_ON".to_owned(),
+            "unix:/tmp/open-island-kitty-that-never-existed".to_owned(),
+        );
+        let plan = JumpPlanner::new(vec![Box::new(crate::resolvers::kitty::KittyResolver)])
+            .plan(&info, &runner);
+        assert_eq!(plan.steps, vec![JumpStep::RaiseWindow { pid: 77 }]);
+        assert_eq!(runner.calls(), Vec::<(String, Vec<String>)>::new());
     }
 
     #[test]
@@ -375,7 +398,7 @@ mod tests {
         let result = JumpExecutor::new(&runner).execute(&[
             JumpStep::KittyFocusWindow {
                 window_id: "9".into(),
-                socket: "unix:/run/user/1000/kitty-test".into(),
+                socket: kitty_socket(),
             },
             JumpStep::FocusWindowAddress {
                 address: "0x1".into(),
