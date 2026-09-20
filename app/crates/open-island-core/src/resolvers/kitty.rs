@@ -4,6 +4,7 @@ use crate::{
     terminal::TerminalInfo,
 };
 use serde::Deserialize;
+use std::path::Path;
 
 pub struct KittyResolver;
 
@@ -25,6 +26,11 @@ struct Process {
     pid: u32,
 }
 
+fn reachable(socket: &str) -> bool {
+    let path = socket.strip_prefix("unix:").unwrap_or(socket);
+    path.starts_with('@') || Path::new(path).exists()
+}
+
 impl LocationResolver for KittyResolver {
     fn id(&self) -> &str {
         "kitty"
@@ -37,7 +43,11 @@ impl LocationResolver for KittyResolver {
         let mut steps = Vec::new();
         // Without the instance socket `kitty @` falls back to the caller's
         // controlling terminal, which the daemon does not have.
-        if let Some(socket) = host.env.get("KITTY_LISTEN_ON") {
+        if let Some(socket) = host
+            .env
+            .get("KITTY_LISTEN_ON")
+            .filter(|socket| reachable(socket.as_str()))
+        {
             let window_id = terminal.window_id.clone().or_else(|| {
                 let output = runner.run("kitty", &["@", "--to", socket, "ls"]).ok()?;
                 if !output.status.success() {

@@ -222,6 +222,101 @@ fn claude_event(name: &str, cwd: &Path, pid: u32, extra: &str) -> String {
     )
 }
 
+fn ui_sessions(island: &mut Island) -> Vec<open_island_core::ui_state::UiSession> {
+    let begin = request_with(island, "get_ui_state", json!({}));
+    assert_eq!(begin["ok"], json!(true), "{begin}");
+    let id = begin["data"]["snapshot_id"].as_u64().expect("snapshot id");
+    let snapshot: open_island_core::ui_state::UiSnapshot =
+        open_island_core::snapshot_page::decode(id, |page| {
+            let reply = request_with(
+                island,
+                "get_ui_state_page",
+                json!({"snapshot_id": id, "expected_page": page}),
+            );
+            if reply["ok"] != json!(true) {
+                return Err(reply.to_string());
+            }
+            serde_json::from_value(reply["data"].clone()).map_err(|error| error.to_string())
+        })
+        .expect("decode snapshot");
+    snapshot.sessions
+}
+
+#[test]
+fn a_hook_without_a_pid_joins_the_agent_process_that_spawned_it() {
+    let path = socket("hook-pid");
+    let cwd = env::temp_dir().join(format!(
+        "open-island-hook-pid-{}-{}",
+        std::process::id(),
+        support::unique_id()
+    ));
+    fs::create_dir_all(&cwd).expect("hook cwd");
+    let payload = cwd.join("event.json");
+    fs::write(
+        &payload,
+        format!(
+            r#"{{"session_id":"c3-hook-pid","cwd":"{}","hook_event_name":"UserPromptSubmit","prompt":"trabalhe"}}"#,
+            cwd.display()
+        ),
+    )
+    .expect("write hook payload");
+    let _daemon = spawn_daemon(&path, 60_000);
+    let mut island = Island::new(&path);
+
+    let agent = Killed(
+        Command::new("/bin/bash")
+            .arg("-c")
+            .arg(format!(
+                "exec -a claude /bin/bash -c '{} hook --agent claude --socket {} < {}; read -r done'",
+                env!("CARGO_BIN_EXE_open-islandd"),
+                path.display(),
+                payload.display()
+            ))
+            .current_dir(&cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn fake agent"),
+    );
+    let agent_pid = agent.0.id();
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut last = Vec::new();
+    loop {
+        let sessions = ui_sessions(&mut island);
+        let owned: Vec<_> = sessions
+            .iter()
+            .filter(|session| {
+                session.session.hook_id.as_ref().map(ToString::to_string)
+                    == Some("claude:c3-hook-pid".to_owned())
+            })
+            .collect();
+        if owned.len() == 1
+            && owned[0].session.pid == agent_pid
+            && owned[0].session.send_blocked.as_deref() != Some("unverified_target")
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the hook never joined its agent process, sessions were {last:?}"
+        );
+        last = sessions
+            .iter()
+            .map(|session| {
+                (
+                    session.session.id.clone(),
+                    session.session.pid,
+                    session.session.hook_id.as_ref().map(ToString::to_string),
+                )
+            })
+            .collect();
+        thread::sleep(Duration::from_millis(50));
+    }
+    let _ = fs::remove_dir_all(&cwd);
+}
+
 #[test]
 fn a_stop_reaches_the_island_as_needs_attention_and_the_next_prompt_takes_it_back() {
     let path = socket("stop");

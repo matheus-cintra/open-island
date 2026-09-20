@@ -32,6 +32,15 @@ pub struct ParsedIngress {
     pub question: Option<QuestionInput>,
 }
 
+impl ParsedIngress {
+    pub fn resolve_agent_pid(&mut self, hook_pid: u32) {
+        if self.event.pid.is_some() {
+            return;
+        }
+        self.event.pid = crate::discovery::agent_pid_of_ancestor(&self.event.agent, hook_pid);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuestionInput {
     pub question_id: String,

@@ -38,9 +38,10 @@ pub fn run(
     socket_path: &Path,
     timeout: Duration,
 ) -> Result<String, OpenCodeHookError> {
-    let Some(parsed) = parse_opencode(input).map_err(OpenCodeHookError::Parse)? else {
+    let Some(mut parsed) = parse_opencode(input).map_err(OpenCodeHookError::Parse)? else {
         return Ok(String::new());
     };
+    parsed.resolve_agent_pid(std::process::id());
     let approval = parsed.approval.is_some();
     let question = parsed.question.is_some();
     let request = Request {
