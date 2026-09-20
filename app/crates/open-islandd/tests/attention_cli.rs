@@ -267,12 +267,13 @@ fn a_hook_without_a_pid_joins_the_agent_process_that_spawned_it() {
         Command::new("/bin/bash")
             .arg("-c")
             .arg(format!(
-                "exec -a claude /bin/bash -c '{} hook --agent claude --socket {} < {}; /bin/sleep 120'",
+                "exec -a claude /bin/bash -c '{} hook --agent claude --socket {} < {}; read -r done'",
                 env!("CARGO_BIN_EXE_open-islandd"),
                 path.display(),
                 payload.display()
             ))
             .current_dir(&cwd)
+            .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()

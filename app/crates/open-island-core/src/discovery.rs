@@ -528,8 +528,14 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         };
         let found = agent_pid_of_ancestor("claude", leaf);
+        unsafe { libc::kill(leaf as i32, libc::SIGKILL) };
         let _ = agent.kill();
         let _ = agent.wait();
+        let gone = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while crate::process::exists(leaf) && std::time::Instant::now() < gone {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(!crate::process::exists(leaf), "the fake agent leaked a child");
         assert_eq!(found, Some(agent_pid));
     }
 
